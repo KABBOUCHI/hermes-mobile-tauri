@@ -1,160 +1,161 @@
 <script setup lang="ts">
-import { ref } from "vue";
-import { invoke } from "@tauri-apps/api/core";
+import { ref, onMounted } from 'vue'
+import { Store } from '@tauri-apps/plugin-store'
 
-const greetMsg = ref("");
-const name = ref("");
+const greetMsg = ref('')
+const name = ref('')
+const store = ref<Store | null>(null)
+const counter = ref(0)
 
 async function greet() {
   // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-  greetMsg.value = await invoke("greet", { name: name.value });
+  // @ts-expect-error invoke is injected by tauri
+  greetMsg.value = await window.__TAURI__.core.invoke('greet', { name: name.value })
+}
+
+onMounted(async () => {
+  store.value = await Store.load('settings.json')
+  const saved = await store.value.get<number>('counter')
+  if (saved !== null) counter.value = saved
+})
+
+async function increment() {
+  counter.value++
+  await store.value?.set('counter', counter.value)
+  await store.value?.save()
 }
 </script>
 
 <template>
   <main class="container">
-    <h1>Welcome to Tauri + Vue</h1>
+    <h1>Hermes Mobile</h1>
+    <p class="subtitle">Tauri + Vue</p>
 
-    <div class="row">
-      <a href="https://vite.dev" target="_blank">
-        <img src="/vite.svg" class="logo vite" alt="Vite logo" />
-      </a>
-      <a href="https://tauri.app" target="_blank">
-        <img src="/tauri.svg" class="logo tauri" alt="Tauri logo" />
-      </a>
-      <a href="https://vuejs.org/" target="_blank">
-        <img src="./assets/vue.svg" class="logo vue" alt="Vue logo" />
-      </a>
+    <div class="card">
+      <button class="counter-btn" @click="increment">
+        Count: {{ counter }}
+      </button>
+      <p class="counter-hint">Persisted via Tauri Store</p>
     </div>
-    <p>Click on the Tauri, Vite, and Vue logos to learn more.</p>
 
-    <form class="row" @submit.prevent="greet">
+    <div class="card">
       <input id="greet-input" v-model="name" placeholder="Enter a name..." />
-      <button type="submit">Greet</button>
-    </form>
-    <p>{{ greetMsg }}</p>
+      <button class="greet-btn" @click="greet">Greet</button>
+      <p v-if="greetMsg">{{ greetMsg }}</p>
+    </div>
   </main>
 </template>
 
-<style scoped>
-.logo.vite:hover {
-  filter: drop-shadow(0 0 2em #747bff);
-}
-
-.logo.vue:hover {
-  filter: drop-shadow(0 0 2em #249b73);
-}
-
-</style>
 <style>
 :root {
-  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
-  font-size: 16px;
-  line-height: 24px;
-  font-weight: 400;
+  --bg: #010102;
+  --surface: #0d0d0f;
+  --surface-2: #16161a;
+  --accent: #5e6ad2;
+  --text: #e8e8ec;
+  --text-muted: #6b6b76;
+  --border: #232328;
+  --radius: 12px;
+}
 
-  color: #0f0f0f;
-  background-color: #f6f6f6;
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
 
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  -webkit-text-size-adjust: 100%;
 }
 
 .container {
-  margin: 0;
-  padding-top: 10vh;
+  max-width: 420px;
+  margin: 0 auto;
+  padding: 48px 24px;
   display: flex;
   flex-direction: column;
+  align-items: center;
+  gap: 24px;
+  min-height: 100vh;
   justify-content: center;
-  text-align: center;
-}
-
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: 0.75s;
-}
-
-.logo.tauri:hover {
-  filter: drop-shadow(0 0 2em #24c8db);
-}
-
-.row {
-  display: flex;
-  justify-content: center;
-}
-
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-
-a:hover {
-  color: #535bf2;
 }
 
 h1 {
-  text-align: center;
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
 }
 
-input,
-button {
+.subtitle {
+  color: var(--text-muted);
+  font-size: 14px;
+  letter-spacing: -0.01em;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: center;
+}
+
+input {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
   border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  color: #0f0f0f;
-  background-color: #ffffff;
-  transition: border-color 0.25s;
-  box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2);
-}
-
-button {
-  cursor: pointer;
-}
-
-button:hover {
-  border-color: #396cd8;
-}
-button:active {
-  border-color: #396cd8;
-  background-color: #e8e8e8;
-}
-
-input,
-button {
+  color: var(--text);
+  padding: 10px 14px;
+  font-size: 14px;
+  width: 100%;
   outline: none;
+  transition: border-color 0.15s;
 }
 
-#greet-input {
-  margin-right: 5px;
+input:focus {
+  border-color: var(--accent);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    color: #f6f6f6;
-    background-color: #2f2f2f;
-  }
-
-  a:hover {
-    color: #24c8db;
-  }
-
-  input,
-  button {
-    color: #ffffff;
-    background-color: #0f0f0f98;
-  }
-  button:active {
-    background-color: #0f0f0f69;
-  }
+.greet-btn,
+.counter-btn {
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 20px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  letter-spacing: -0.01em;
+  transition: opacity 0.15s;
+  width: 100%;
 }
 
+.greet-btn:hover,
+.counter-btn:hover {
+  opacity: 0.9;
+}
+
+.counter-btn {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  font-size: 16px;
+}
+
+.counter-hint {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+p {
+  font-size: 14px;
+  color: var(--accent);
+}
 </style>

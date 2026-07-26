@@ -1,7 +1,12 @@
 <script setup lang="ts">
-import { ref, nextTick, watch, computed } from 'vue'
-import type { Message } from '../composables/useGateway'
+import { ref, computed, watch, nextTick } from 'vue'
 import { renderMarkdown } from '../utils/markdown'
+
+interface Message {
+  role: string
+  content: string
+  timestamp: number
+}
 
 const props = defineProps<{
   messages: Message[]
@@ -9,37 +14,29 @@ const props = defineProps<{
   error: string
   sending: boolean
   formatTime: (ts: number) => string
-  sessionTitle?: string
+  sessionTitle: string
 }>()
 
 const emit = defineEmits<{
   (e: 'back'): void
   (e: 'send', text: string): void
+  (e: 'refresh'): void
 }>()
 
 const input = ref('')
-const listEl = ref<HTMLElement | null>(null)
+const scrollEl = ref<HTMLElement | null>(null)
+const inputEl = ref<HTMLTextAreaElement | null>(null)
 const copiedIdx = ref<number | null>(null)
-
-const canSend = computed(() => input.value.trim() && !props.sending)
 
 function handleSend() {
   const text = input.value.trim()
   if (!text || props.sending) return
   emit('send', text)
   input.value = ''
+  if (inputEl.value) {
+    inputEl.value.style.height = 'auto'
+  }
 }
-
-function scrollToBottom() {
-  nextTick(() => {
-    if (listEl.value) {
-      listEl.value.scrollTop = listEl.value.scrollHeight
-    }
-  })
-}
-
-watch(() => props.messages.length, scrollToBottom)
-watch(() => props.messages[props.messages.length - 1]?.content, scrollToBottom)
 
 function handleKeydown(e: KeyboardEvent) {
   if (e.key === 'Enter' && !e.shiftKey) {
@@ -48,358 +45,407 @@ function handleKeydown(e: KeyboardEvent) {
   }
 }
 
-async function copyMessage(text: string, idx: number) {
-  try {
-    await navigator.clipboard.writeText(text)
-    copiedIdx.value = idx
-    setTimeout(() => { copiedIdx.value = null }, 1500)
-  } catch {}
+function autoResize() {
+  if (!inputEl.value) return
+  inputEl.value.style.height = 'auto'
+  inputEl.value.style.height = Math.min(inputEl.value.scrollHeight, 120) + 'px'
 }
+
+function render(content: string): string {
+  return renderMarkdown(content)
+}
+
+function copyContent(content: string, idx: number) {
+  navigator.clipboard.writeText(content)
+  copiedIdx.value = idx
+  setTimeout(() => { copiedIdx.value = null }, 1500)
+}
+
+function isThinking(content: string): boolean {
+  return content.includes('<think>') && !content.includes('</think>')
+}
+
+const hasMessages = computed(() => props.messages.length > 0)
+
+// Auto-scroll to bottom
+watch(() => props.messages.length, async () => {
+  await nextTick()
+  if (scrollEl.value) {
+    scrollEl.value.scrollTop = scrollEl.value.scrollHeight
+  }
+})
+
+// Also scroll when last message content changes (streaming)
+watch(() => {
+  const msgs = props.messages
+  if (msgs.length === 0) return ''
+  return msgs[msgs.length - 1].content
+}, async () => {
+  await nextTick()
+  if (scrollEl.value) {
+    const el = scrollEl.value
+    // Only auto-scroll if user is near bottom (within 150px)
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 150) {
+      el.scrollTop = el.scrollHeight
+    }
+  }
+})
 </script>
 
 <template>
-  <div class="MessageView">
+  <div class="chat-view">
     <!-- Header -->
-    <div class="Header">
-      <button class="BackBtn" @click="emit('back')">
-        <span class="BackArrow">←</span>
-        <span class="BackText">Back</span>
+    <div class="chat-header">
+      <button class="back-btn" @click="emit('back')">‹</button>
+      <div class="chat-title">{{ sessionTitle || 'New Chat' }}</div>
+      <button class="refresh-btn" @click="emit('refresh')" :disabled="loading">
+        <svg v-if="!loading" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M1 4v6h6M23 20v-6h-6"/>
+          <path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/>
+        </svg>
+        <span v-else class="spinner-sm"></span>
       </button>
-      <span class="HeaderTitle">{{ sessionTitle || 'Session' }}</span>
-      <div class="HeaderSpacer" />
-    </div>
-
-    <!-- Loading -->
-    <div v-if="loading" class="StateView">
-      <div class="Loader" />
-      <span class="StateText">Loading messages…</span>
-    </div>
-
-    <!-- Error -->
-    <div v-else-if="error" class="StateView">
-      <span class="ErrorText">{{ error }}</span>
-    </div>
-
-    <!-- Empty -->
-    <div v-else-if="messages.length === 0" class="StateView">
-      <span class="EmptyIcon">💬</span>
-      <span class="StateText">No messages yet</span>
-      <span class="StateHint">Send a message to start the conversation</span>
     </div>
 
     <!-- Messages -->
-    <div v-else ref="listEl" class="MessageList">
+    <div class="chat-messages" ref="scrollEl">
+      <div v-if="!hasMessages && !loading && !error" class="empty-state">
+        <div class="empty-icon">💬</div>
+        <div class="empty-text">Start a conversation</div>
+      </div>
+
+      <div v-if="error && !hasMessages" class="error-banner">{{ error }}</div>
+
       <div
         v-for="(msg, idx) in messages"
         :key="idx"
-        class="MessageRow"
+        class="message"
+        :class="msg.role"
       >
-        <!-- User bubble -->
-        <div v-if="msg.role === 'user'" class="BubbleUser" @click="copyMessage(msg.content, idx)">
-          <span class="BubbleTextUser">{{ msg.content }}</span>
-          <div class="BubbleFooter">
-            <span v-if="msg.timestamp" class="TimeUser">{{ formatTime(msg.timestamp) }}</span>
-            <Transition name="fade">
-              <span v-if="copiedIdx === idx" class="CopiedLabel">Copied</span>
-            </Transition>
+        <div class="message-bubble" :class="msg.role">
+          <!-- Streaming thinking indicator -->
+          <div v-if="msg.role === 'assistant' && isThinking(msg.content)" class="thinking-indicator">
+            <span class="thinking-dot"></span>
+            <span class="thinking-dot"></span>
+            <span class="thinking-dot"></span>
+            <span class="thinking-label">Thinking…</span>
+          </div>
+
+          <!-- Rendered markdown content -->
+          <div
+            v-if="msg.content && !isThinking(msg.content)"
+            class="md-content"
+            v-html="render(msg.content)"
+          ></div>
+          <div
+            v-else-if="msg.content && isThinking(msg.content)"
+            class="md-content"
+            v-html="render(msg.content)"
+          ></div>
+
+          <!-- Empty assistant placeholder (streaming start) -->
+          <div v-if="msg.role === 'assistant' && !msg.content" class="typing-dots">
+            <span></span><span></span><span></span>
           </div>
         </div>
 
-        <!-- Assistant bubble -->
-        <div v-else class="BubbleAssistant">
-          <div
-            class="BubbleTextAssistant md-content"
-            v-html="renderMarkdown(msg.content)"
-            @click="copyMessage(msg.content, idx)"
-          />
-          <div class="BubbleFooter">
-            <span v-if="msg.timestamp" class="TimeAssistant">{{ formatTime(msg.timestamp) }}</span>
-            <Transition name="fade">
-              <span v-if="copiedIdx === idx" class="CopiedLabel">Copied</span>
-            </Transition>
-          </div>
+        <div class="message-footer" :class="msg.role">
+          <span v-if="msg.timestamp" class="message-time">{{ formatTime(msg.timestamp) }}</span>
+          <button
+            v-if="msg.content && msg.role === 'assistant'"
+            class="copy-btn"
+            @click="copyContent(msg.content, idx)"
+          >
+            {{ copiedIdx === idx ? '✓ Copied' : 'Copy' }}
+          </button>
         </div>
       </div>
 
       <!-- Typing indicator -->
-      <div v-if="sending" class="MessageRow">
-        <div class="BubbleAssistant">
-          <span class="TypingIndicator">
-            <span /><span /><span />
-          </span>
+      <div v-if="sending && (messages.length === 0 || messages[messages.length - 1].role !== 'assistant' || messages[messages.length - 1].content)" class="message assistant">
+        <div class="message-bubble assistant typing-dots">
+          <span></span><span></span><span></span>
         </div>
       </div>
     </div>
 
-    <!-- Input Bar -->
-    <div class="InputBar">
+    <!-- Input -->
+    <div class="chat-input-bar">
       <textarea
         ref="inputEl"
         v-model="input"
-        class="ChatInput"
-        placeholder="Type a message…"
-        :disabled="sending"
+        placeholder="Message…"
         rows="1"
         @keydown="handleKeydown"
-      />
+        @input="autoResize"
+        :disabled="sending"
+      ></textarea>
       <button
-        class="SendBtn"
-        :class="{ SendBtnDisabled: !canSend }"
-        :disabled="!canSend"
+        class="send-btn"
+        :disabled="!input.trim() || sending"
         @click="handleSend"
       >
-        <span v-if="sending" class="SendLoader" />
-        <svg v-else width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <line x1="12" y1="19" x2="12" y2="5" />
-          <polyline points="5 12 12 5 19 12" />
+        <svg v-if="!sending" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
         </svg>
+        <span v-else class="spinner-sm"></span>
       </button>
     </div>
   </div>
 </template>
 
 <style scoped>
-.MessageView {
-  background-color: var(--bg);
-  flex: 1;
+.chat-view {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  height: 100%;
+  background: var(--bg);
 }
 
-/* ── Header ── */
-.Header {
+/* Header */
+.chat-header {
   display: flex;
   align-items: center;
-  padding: 14px 16px;
+  gap: 10px;
+  padding: 12px 16px;
+  background: var(--surface);
   border-bottom: 1px solid var(--border);
+  min-height: 52px;
   flex-shrink: 0;
 }
-
-.BackBtn {
-  display: flex;
-  align-items: center;
-  gap: 4px;
+.back-btn {
   background: none;
   border: none;
+  color: var(--accent);
+  font-size: 22px;
   cursor: pointer;
-  padding: 6px 10px;
-  border-radius: 8px;
-  transition: background 0.15s;
+  padding: 0 4px;
+  line-height: 1;
 }
-
-.BackBtn:hover { background: var(--surface); }
-
-.BackArrow { font-size: 18px; color: var(--accent); }
-.BackText { font-size: 15px; font-weight: 500; color: var(--accent); }
-
-.HeaderTitle {
+.refresh-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+}
+.refresh-btn:disabled { opacity: 0.4; }
+.chat-title {
+  flex: 1;
   font-size: 15px;
   font-weight: 600;
-  color: var(--text);
-  flex: 1;
-  text-align: center;
+  letter-spacing: -0.02em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.HeaderSpacer { width: 76px; }
-
-/* ── States ── */
-.StateView {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 40px;
-}
-
-.StateText { font-size: 15px; color: var(--text-muted); }
-.StateHint { font-size: 13px; color: #44444e; }
-.ErrorText { font-size: 14px; color: var(--error); }
-.EmptyIcon { font-size: 36px; margin-bottom: 4px; }
-
-.Loader {
-  width: 24px;
-  height: 24px;
-  border: 2px solid var(--border);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
-/* ── Messages ── */
-.MessageList {
+/* Messages */
+.chat-messages {
   flex: 1;
   overflow-y: auto;
-  padding: 14px;
+  padding: 12px 14px;
   display: flex;
   flex-direction: column;
   gap: 10px;
+  overscroll-behavior: contain;
 }
 
-.MessageRow {
+.empty-state {
+  flex: 1;
   display: flex;
   flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  opacity: 0.4;
 }
+.empty-icon { font-size: 32px; }
+.empty-text { font-size: 14px; }
 
-.BubbleUser {
-  align-self: flex-end;
-  max-width: 78%;
-  background-color: var(--accent);
-  border-radius: 16px;
-  border-bottom-right-radius: 4px;
+.error-banner {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 8px;
   padding: 10px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  cursor: pointer;
-  transition: opacity 0.15s;
+  color: var(--error);
+  font-size: 13px;
+  text-align: center;
 }
 
-.BubbleUser:active { opacity: 0.85; }
+/* Messages */
+.message { display: flex; flex-direction: column; gap: 4px; }
+.message.user { align-items: flex-end; }
+.message.assistant { align-items: flex-start; }
 
-.BubbleTextUser {
-  font-size: 15px;
-  color: #ffffff;
-  line-height: 1.45;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.BubbleAssistant {
-  align-self: flex-start;
+.message-bubble {
   max-width: 88%;
-  background-color: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  border-bottom-left-radius: 4px;
   padding: 10px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  cursor: pointer;
-  transition: opacity 0.15s;
-}
-
-.BubbleAssistant:active { opacity: 0.85; }
-
-.BubbleTextAssistant {
-  font-size: 15px;
-  color: var(--text);
-  line-height: 1.45;
+  border-radius: 14px;
+  font-size: 14px;
+  line-height: 1.55;
   word-break: break-word;
 }
+.message-bubble.user {
+  background: var(--accent);
+  color: #fff;
+  border-bottom-right-radius: 4px;
+}
+.message-bubble.assistant {
+  background: var(--surface-2);
+  color: var(--text);
+  border-bottom-left-radius: 4px;
+  border: 1px solid var(--border);
+}
 
-.BubbleFooter {
+/* Markdown content inside bubbles */
+.message-bubble :deep(.md-content) {
+  font-size: 14px;
+  line-height: 1.55;
+}
+.message-bubble.user :deep(.md-content) {
+  color: #fff;
+}
+
+/* Footer */
+.message-footer {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 2px;
+  padding: 0 4px;
 }
-
-.TimeUser {
-  font-size: 11px;
-  color: rgba(255, 255, 255, 0.45);
-}
-
-.TimeAssistant {
+.message-footer.user { justify-content: flex-end; }
+.message-time {
   font-size: 11px;
   color: var(--text-muted);
 }
-
-.CopiedLabel {
+.copy-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-muted);
   font-size: 11px;
-  color: var(--success);
-  font-weight: 500;
+  padding: 1px 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.copy-btn:hover {
+  color: var(--text);
+  border-color: var(--text-muted);
 }
 
-/* ── Typing indicator ── */
-.TypingIndicator {
+/* Typing dots */
+.typing-dots {
   display: flex;
   gap: 4px;
   padding: 4px 0;
+  align-items: center;
 }
-
-.TypingIndicator span {
+.typing-dots span {
   width: 6px;
   height: 6px;
-  border-radius: 3px;
+  border-radius: 50%;
   background: var(--text-muted);
-  animation: typing 1.4s infinite;
+  animation: bounce 1.2s infinite;
+}
+.typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+.typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes bounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+  30% { transform: translateY(-4px); opacity: 1; }
 }
 
-.TypingIndicator span:nth-child(2) { animation-delay: 0.2s; }
-.TypingIndicator span:nth-child(3) { animation-delay: 0.4s; }
-
-@keyframes typing {
-  0%, 60%, 100% { opacity: 0.3; transform: scale(0.8); }
-  30% { opacity: 1; transform: scale(1); }
-}
-
-/* ── Input Bar ── */
-.InputBar {
-  display: flex;
-  align-items: flex-end;
-  padding: 10px 12px;
-  border-top: 1px solid var(--border);
-  gap: 8px;
-  flex-shrink: 0;
-}
-
-.ChatInput {
-  flex: 1;
-  min-height: 44px;
-  max-height: 120px;
-  background-color: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 22px;
-  padding: 10px 16px;
-  font-size: 15px;
-  color: var(--text);
-  outline: none;
-  resize: none;
-  line-height: 1.4;
-  font-family: var(--font);
-  transition: border-color 0.15s;
-}
-
-.ChatInput:focus { border-color: var(--accent); }
-.ChatInput::placeholder { color: var(--text-muted); }
-.ChatInput:disabled { opacity: 0.6; }
-
-.SendBtn {
-  width: 44px;
-  height: 44px;
-  border-radius: 22px;
-  background-color: var(--accent);
-  border: none;
-  color: #ffffff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: opacity 0.15s, transform 0.1s;
-  flex-shrink: 0;
-}
-
-.SendBtn:hover:not(:disabled) { opacity: 0.9; }
-.SendBtn:active:not(:disabled) { transform: scale(0.94); }
-.SendBtnDisabled { opacity: 0.4; cursor: not-allowed; }
-
-.SendLoader {
-  width: 16px;
-  height: 16px;
-  border: 2px solid rgba(255,255,255,0.3);
-  border-top-color: #fff;
+.spinner-sm {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
   border-radius: 50%;
   animation: spin 0.6s linear infinite;
 }
-
 @keyframes spin { to { transform: rotate(360deg); } }
-.fade-enter-active, .fade-leave-active { transition: opacity 0.3s; }
-.fade-enter-from, .fade-leave-to { opacity: 0; }
+
+/* Thinking indicator */
+.thinking-indicator {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 0;
+}
+.thinking-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: think-pulse 1.5s ease-in-out infinite;
+}
+.thinking-dot:nth-child(2) { animation-delay: 0.3s; }
+.thinking-dot:nth-child(3) { animation-delay: 0.6s; }
+.thinking-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-left: 4px;
+}
+@keyframes think-pulse {
+  0%, 100% { opacity: 0.3; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
+/* Input bar */
+.chat-input-bar {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.chat-input-bar textarea {
+  flex: 1;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 12px;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.4;
+  resize: none;
+  outline: none;
+  max-height: 120px;
+  transition: border-color 0.15s;
+}
+.chat-input-bar textarea:focus {
+  border-color: var(--accent);
+}
+.chat-input-bar textarea::placeholder {
+  color: var(--text-muted);
+}
+.chat-input-bar textarea:disabled {
+  opacity: 0.5;
+}
+.send-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+.send-btn:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+.send-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
 </style>

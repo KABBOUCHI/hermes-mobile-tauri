@@ -62,31 +62,54 @@ input, textarea, button {
 .md-h3 { font-size: 1.05em; }
 .md-h4, .md-h5, .md-h6 { font-size: 1em; }
 
+/* Code block with header */
+.md-code-wrap {
+  margin: 8px 0;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+.md-code-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 12px;
+  background: var(--surface-3);
+  border-bottom: 1px solid var(--border);
+}
+.md-code-lang {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.md-code-copy {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-muted);
+  font-size: 11px;
+  padding: 2px 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.md-code-copy:hover {
+  color: var(--text);
+  border-color: var(--text-muted);
+}
 .md-code-block {
   background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
   padding: 12px 14px;
-  margin: 8px 0;
   overflow-x: auto;
   font-size: 13px;
   line-height: 1.5;
   font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+  margin: 0;
 }
 .md-code-block code {
   color: var(--text);
   white-space: pre;
 }
-.md-code-block::before {
-  content: attr(data-lang);
-  display: block;
-  font-size: 11px;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  margin-bottom: 6px;
-}
-.md-code-block[data-lang=""]::before { display: none; }
 
 .md-inline {
   background: rgba(94, 106, 210, 0.12);
@@ -127,6 +150,41 @@ input, textarea, button {
   line-height: 1.5;
 }
 
+/* Task lists */
+.md-task {
+  list-style: none;
+  margin-left: -20px;
+}
+.md-task input[type="checkbox"] {
+  margin-right: 6px;
+  accent-color: var(--accent);
+}
+
+/* Tables */
+.md-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 8px 0;
+  font-size: 13px;
+}
+.md-table th,
+.md-table td {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  text-align: left;
+}
+.md-table th {
+  background: var(--surface-2);
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-muted);
+}
+.md-table td {
+  background: var(--surface);
+}
+
 .md-hr {
   border: none;
   border-top: 1px solid var(--border);
@@ -136,4 +194,42 @@ input, textarea, button {
 .md-del {
   text-decoration: line-through;
   opacity: 0.7;
+}
+
+/* ═══ Thinking blocks ═══ */
+.md-thinking {
+  margin: 6px 0;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+.md-thinking summary,
+.md-thinking .md-thinking-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 6px 10px;
+  background: var(--surface-2);
+  cursor: pointer;
+  user-select: none;
+  letter-spacing: 0.02em;
+}
+.md-thinking summary::marker {
+  color: var(--text-muted);
+}
+.md-thinking-content {
+  padding: 8px 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  opacity: 0.7;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.md-thinking-streaming .md-thinking-content {
+  opacity: 1;
+  animation: think-pulse 1.5s ease-in-out infinite;
+}
+@keyframes think-pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 0.8; }
 }

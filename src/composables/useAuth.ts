@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 import { Store } from '@tauri-apps/plugin-store'
-import { fetch } from '@tauri-apps/plugin-http';
+import { fetch } from '@tauri-apps/plugin-http'
 
 const store = ref<Store | null>(null)
 const gatewayUrl = ref('')
@@ -74,7 +74,6 @@ export function useAuth() {
       await s.delete('gateway_url')
       await s.delete('gateway_user')
       await s.delete('gateway_pass')
-      await s.delete('session_cookie')
       await s.save()
     } catch {}
 
@@ -84,74 +83,65 @@ export function useAuth() {
     isConnected.value = false
   }
 
-  /**
-   * Login via POST /auth/password-login → extract session cookie.
-   */
-  async function doLogin(): Promise<string> {
+  async function doLogin(): Promise<void> {
     const base = gatewayUrl.value.replace(/\/$/, '')
     const url = `${base}/auth/password-login`
-    try {
-     await fetchWithTimeout(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'same-origin',
-        body: JSON.stringify({
-          provider: 'basic',
-          username: username.value,
-          password: password.value,
-          next: '',
-        }),
-      }, FETCH_TIMEOUT)
-    } catch (err) {
-      console.warn('[useAuth] doLogin failed:', err)
-    }
-    return ''
+    await fetchWithTimeout(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({
+        provider: 'basic',
+        username: username.value,
+        password: password.value,
+        next: '',
+      }),
+    }, FETCH_TIMEOUT)
   }
 
-  /**
-   * Validate via GET /api/status (uses cookie, Basic Auth as fallback).
-   */
   async function fetchStatus(): Promise<any> {
     const base = gatewayUrl.value.replace(/\/$/, '')
     const url = `${base}/api/status`
-
-    const headers: Record<string, string> = {}
-      // headers['Authorization'] = 'Basic ' + btoa(username.value + ':' + password.value)
-
     const response = await fetchWithTimeout(url, {
       method: 'GET',
-      headers,
       credentials: 'same-origin',
     }, FETCH_TIMEOUT)
-
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
     return await response.json()
   }
 
   /**
-   * Full connect: login → validate → save.
+   * Fetch a short-lived WebSocket ticket from the gateway.
+   * POST /api/auth/ws-ticket → { ticket, ttl_seconds }
+   * The session cookie is sent automatically by the Tauri HTTP plugin.
    */
+  async function fetchWsTicket(): Promise<string> {
+    const base = gatewayUrl.value.replace(/\/$/, '')
+    const url = `${base}/api/auth/ws-ticket`
+    const response = await fetchWithTimeout(url, {
+      method: 'POST',
+      credentials: 'same-origin',
+    }, FETCH_TIMEOUT)
+    if (!response.ok) throw new Error(`WS ticket request failed: HTTP ${response.status}`)
+    const data = await response.json()
+    return data.ticket || ''
+  }
+
   async function connect(): Promise<void> {
     const url = gatewayUrl.value.trim()
     if (!url) throw new Error('Please enter a gateway URL')
-
     if (!url.startsWith('http://') && !url.startsWith('https://')) {
       gatewayUrl.value = 'https://' + url
     }
-
     await doLogin()
     await fetchStatus()
     await saveCredentials()
     isConnected.value = true
   }
 
-  /**
-   * Auto-login: load saved creds → re-login → validate.
-   */
   async function tryAutoLogin(): Promise<boolean> {
     const hasCreds = await loadSavedCredentials()
     if (!hasCreds) return false
-
     try {
       await doLogin()
       await fetchStatus()
@@ -172,6 +162,7 @@ export function useAuth() {
     clearCredentials,
     doLogin,
     fetchStatus,
+    fetchWsTicket,
     connect,
     tryAutoLogin,
   }

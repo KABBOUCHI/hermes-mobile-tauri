@@ -1,5 +1,5 @@
 import { ref } from 'vue'
-import { fetch } from '@tauri-apps/plugin-http';
+import { fetch } from '@tauri-apps/plugin-http'
 
 const FETCH_TIMEOUT = 12000
 
@@ -98,7 +98,6 @@ export function useGateway() {
       const url = `${base}/api/sessions/${sessionId}/messages`
       const response = await fetchWithTimeout(url, {
         method: 'GET',
-        headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
       }, FETCH_TIMEOUT)
       if (!response.ok) throw new Error('HTTP ' + response.status)
@@ -120,12 +119,54 @@ export function useGateway() {
     }
   }
 
-  function rpcCall(wsUrl: string, method: string, params: any): Promise<any> {
+  /**
+   * Send a message via WebSocket using a fresh ticket.
+   * Flow: fetch ticket → connect ws://host/api/ws?ticket=TICKET → RPC prompt.submit
+   */
+  async function sendMessage(
+    baseUrl: string,
+    sessionId: string,
+    text: string,
+    getTicket: () => Promise<string>,
+  ): Promise<Message | null> {
+    // Step 1: Get a fresh WS ticket (short-lived, ~30s)
+    const ticket = await getTicket()
+
+    const base = baseUrl.replace(/\/$/, '')
+    const wsUrl = base.replace(/^http/, 'ws') + `/api/ws?ticket=${encodeURIComponent(ticket)}`
+
+    // Step 2: Open WebSocket and send RPC
+    const result = await rpcCall(wsUrl, {
+      session_id: sessionId,
+      prompt: text,
+    })
+
+    if (result?.response) {
+      const msg: Message = {
+        role: 'assistant',
+        content: extractText(result.response),
+        timestamp: Date.now() / 1000,
+      }
+      messages.value.push(msg)
+      return msg
+    } else if (result?.error) {
+      const msg: Message = {
+        role: 'assistant',
+        content: 'Error: ' + result.error,
+        timestamp: Date.now() / 1000,
+      }
+      messages.value.push(msg)
+      return msg
+    }
+    return null
+  }
+
+  function rpcCall(wsUrl: string, params: any, timeoutMs = 180000): Promise<any> {
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         try { ws.close() } catch {}
         reject(new Error('WebSocket timeout'))
-      }, 120000)
+      }, timeoutMs)
 
       let done = false
       const ws = new WebSocket(wsUrl)
@@ -134,7 +175,7 @@ export function useGateway() {
         ws.send(JSON.stringify({
           jsonrpc: '2.0',
           id: 1,
-          method,
+          method: 'prompt.submit',
           params,
         }))
       }
@@ -158,39 +199,6 @@ export function useGateway() {
         if (!done) { done = true; clearTimeout(timeout); reject(new Error('WebSocket closed')) }
       }
     })
-  }
-
-  async function sendMessage(
-    baseUrl: string,
-    sessionId: string,
-    text: string,
-  ): Promise<Message | null> {
-    const base = baseUrl.replace(/\/$/, '')
-    const wsUrl = base.replace(/^http/, 'ws') + '/api/ws'
-
-    const result = await rpcCall(wsUrl, 'prompt.submit', {
-      session_id: sessionId,
-      prompt: text,
-    })
-
-    if (result?.response) {
-      const msg: Message = {
-        role: 'assistant',
-        content: extractText(result.response),
-        timestamp: Date.now() / 1000,
-      }
-      messages.value.push(msg)
-      return msg
-    } else if (result?.error) {
-      const msg: Message = {
-        role: 'assistant',
-        content: 'Error: ' + result.error,
-        timestamp: Date.now() / 1000,
-      }
-      messages.value.push(msg)
-      return msg
-    }
-    return null
   }
 
   return {

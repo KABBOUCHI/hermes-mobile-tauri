@@ -307,6 +307,28 @@ export function useGateway() {
     return null
   }
 
+  /**
+   * Delete a session via REST.
+     */
+    async function deleteSession(url: string, sessionId: string): Promise<boolean> {
+      try {
+        const base = url.replace(/\/$/, '')
+        const headers: Record<string, string> = {}
+        if (cookie) headers['Cookie'] = cookie
+        const resp = await fetchWithTimeout(
+          `${base}/api/sessions/${encodeURIComponent(sessionId)}`,
+          { method: 'DELETE', headers, credentials: 'same-origin' },
+          FETCH_TIMEOUT
+        )
+        if (!resp.ok) throw new Error('HTTP ' + resp.status)
+        sessions.value = sessions.value.filter(s => s.id !== sessionId)
+        return true
+      } catch (err: any) {
+        error.value = err.message || 'Failed to delete session'
+        return false
+      }
+    }
+
   return {
     sessions,
     messages,
@@ -319,6 +341,7 @@ export function useGateway() {
     formatTime,
     fetchSessions,
     fetchMessages,
+    deleteSession,
     connectWs,
     disconnectWs,
     sendMessage,

@@ -104,6 +104,15 @@ function goBack() {
   view.value = 'sessions'
 }
 
+function createNewSession() {
+  view.value = 'chat'
+}
+
+async function deleteSession(id: string) {
+  const ok = await gw.deleteSession(auth.gatewayUrl.value, id)
+  if (!ok) alert('Failed to delete session')
+}
+
 function disconnect() {
   gw.disconnectWs()
   auth.clearSession()
@@ -115,8 +124,13 @@ function disconnect() {
 
 // ── Chat ───────────────────────────────────────────
 async function handleSend(text: string) {
-  if (!selectedSessionId.value || sending.value) return
+  if (sending.value) return
   sending.value = true
+
+  // Generate session ID for new sessions
+  if (!selectedSessionId.value) {
+    selectedSessionId.value = crypto.randomUUID()
+  }
 
   // Optimistic user message
   gw.messages.value.push({
@@ -169,6 +183,8 @@ async function handleSend(text: string) {
       @open="openSession"
       @refresh="refreshSessions"
       @disconnect="disconnect"
+      @new-session="createNewSession"
+      @delete-session="deleteSession"
     />
 
     <!-- Chat -->

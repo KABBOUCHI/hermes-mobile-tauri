@@ -16,6 +16,8 @@ const emit = defineEmits<{
   (e: 'open', id: string): void
   (e: 'refresh'): void
   (e: 'disconnect'): void
+  (e: 'new-session'): void
+  (e: 'delete-session', id: string): void
 }>()
 
 const search = ref('')
@@ -23,6 +25,7 @@ const refreshing = ref(false)
 const pullStart = ref(0)
 const pullDelta = ref(0)
 const listEl = ref<HTMLElement | null>(null)
+const deletingId = ref('')
 
 const filtered = computed(() => {
   const q = search.value.toLowerCase()
@@ -46,6 +49,17 @@ function handleRefresh() {
   refreshing.value = true
   emit('refresh')
   setTimeout(() => { refreshing.value = false }, 800)
+}
+
+function confirmDelete(e: Event, id: string) {
+  e.stopPropagation()
+  if (deletingId.value === id) {
+    emit('delete-session', id)
+    deletingId.value = ''
+  } else {
+    deletingId.value = id
+    setTimeout(() => { if (deletingId.value === id) deletingId.value = '' }, 3000)
+  }
 }
 
 // Pull-to-refresh
@@ -89,6 +103,9 @@ function formatCount(n: number): string {
         </div>
       </div>
       <div class="HeaderActions">
+        <button class="NewSessionBtn" @click="emit('new-session')" title="New session">
+          +
+        </button>
         <button class="RefreshBtn" :class="{ spinning: refreshing }" @click="handleRefresh">
           ↻
         </button>
@@ -143,6 +160,7 @@ function formatCount(n: number): string {
     <div v-else-if="filtered.length === 0" class="StateView">
       <span class="EmptyIcon">📭</span>
       <span class="StateText">{{ search ? 'No matching sessions' : 'No sessions found' }}</span>
+      <button class="NewBtn" @click="emit('new-session')">Start a conversation</button>
     </div>
 
     <!-- Sessions List -->
@@ -163,6 +181,14 @@ function formatCount(n: number): string {
         <div class="CardTop">
           <span class="SessionTitle">{{ s.title || 'Untitled' }}</span>
           <span v-if="s.is_active" class="ActiveDot" />
+          <button
+            class="DeleteBtn"
+            :class="{ confirming: deletingId === s.id }"
+            @click="confirmDelete($event, s.id)"
+            :title="deletingId === s.id ? 'Confirm delete' : 'Delete'"
+          >
+            {{ deletingId === s.id ? '✓' : '✕' }}
+          </button>
         </div>
         <span class="SessionPreview">{{ s.preview || 'No messages' }}</span>
         <div class="CardMeta">
@@ -241,6 +267,25 @@ function formatCount(n: number): string {
   align-items: center;
   gap: 8px;
 }
+
+.NewSessionBtn {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background-color: var(--accent);
+  border: none;
+  color: #ffffff;
+  font-size: 20px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: opacity 0.15s;
+  line-height: 1;
+}
+
+.NewSessionBtn:hover { opacity: 0.9; }
 
 .RefreshBtn {
   width: 36px;
@@ -355,7 +400,8 @@ function formatCount(n: number): string {
 .EmptyIcon { font-size: 40px; }
 .ErrorText { font-size: 14px; color: var(--error); }
 
-.RetryBtn {
+.RetryBtn,
+.NewBtn {
   height: 40px;
   padding: 0 24px;
   background-color: var(--accent);
@@ -368,7 +414,8 @@ function formatCount(n: number): string {
   transition: opacity 0.15s;
 }
 
-.RetryBtn:hover { opacity: 0.9; }
+.RetryBtn:hover,
+.NewBtn:hover { opacity: 0.9; }
 
 /* ── Skeleton loading ── */
 .SkeletonList {
@@ -460,6 +507,34 @@ function formatCount(n: number): string {
   background-color: var(--success);
   flex-shrink: 0;
   box-shadow: 0 0 6px rgba(34, 197, 94, 0.4);
+}
+
+.DeleteBtn {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.15s;
+}
+
+.DeleteBtn:hover {
+  color: var(--error);
+  border-color: rgba(239, 68, 68, 0.3);
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.DeleteBtn.confirming {
+  color: #ffffff;
+  background: var(--error);
+  border-color: var(--error);
 }
 
 .SessionPreview {

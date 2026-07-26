@@ -60,24 +60,36 @@ jobs:
       - name: Patch build.gradle for signing
         run: bash scripts/setup-signing.sh
 
+      - name: Build frontend
+        run: npm run build
+
       - name: Build APK (debug)
-        run: npm run tauri android build
         if: "!startsWith(github.ref, 'refs/tags/')"
+        working-directory: src-tauri/gen/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug
 
       - name: Build APK (release)
-        run: npm run tauri android build -- --apk
         if: startsWith(github.ref, 'refs/tags/')
+        working-directory: src-tauri/gen/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease
+
+      - name: List APK outputs
+        run: find src-tauri/gen/android/app/build/outputs -name "*.apk" -type f 2>/dev/null || echo "No APKs found"
 
       - name: Upload APK (debug)
         uses: actions/upload-artifact@v4
         if: "!startsWith(github.ref, 'refs/tags/')"
         with:
           name: hermes-debug.apk
-          path: src-tauri/gen/android/app/build/outputs/apk/universal/debug/*.apk
+          path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
 
-      - name: Upload APK (release)
-        uses: softprops/action-gh-release@v2
+      - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
         with:
-          files: src-tauri/gen/android/app/build/outputs/apk/universal/release/*.apk
+          files: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
           draft: true

@@ -16,7 +16,7 @@ async function greet() {
 onMounted(async () => {
   store.value = await Store.load('settings.json')
   const saved = await store.value.get<number>('counter')
-  if (saved !== null) counter.value = saved
+  if (saved != null) counter.value = saved
 })
 
 async function increment() {

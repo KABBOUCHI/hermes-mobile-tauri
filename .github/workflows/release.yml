@@ -50,11 +50,11 @@ jobs:
         run: npx tauri android init
 
       - name: Build APK (debug)
-        run: npx tauri android build --target aarch64
+        run: npx tauri android build
         if: "!startsWith(github.ref, 'refs/tags/')"
 
       - name: Build APK (release)
-        run: npx tauri android build --target aarch64 --apk
+        run: npx tauri android build -- --apk
         if: startsWith(github.ref, 'refs/tags/')
 
       - name: Upload APK (debug)

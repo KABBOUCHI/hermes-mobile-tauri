@@ -62,33 +62,25 @@ jobs:
         run: bash scripts/setup-signing.sh
 
       - name: Build APK
-        id: build_apk
-        run: |
-          set -e
-          npx tauri android build --apk 2>&1 | tee /tmp/build.log
-          APK=$(find src-tauri/gen/android -name "*.apk" -type f | head -1)
-          echo "apk_path=$APK" >> "$GITHUB_OUTPUT"
-          echo "Found APK: $APK"
+        run: npx tauri android build --apk
 
-      - name: Upload APK artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: hermes-mobile-apk
-          path: ${{ steps.build_apk.outputs.apk_path }}
-          if-no-files-found: warn
-
-      - name: Create GitHub Release
-        if: success() && startsWith(github.ref, 'refs/tags/')
+      - name: Publish Release
+        if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          APK="${{ steps.build_apk.outputs.apk_path }}"
+          set -e
+          APK=$(find src-tauri/gen/android -name "*.apk" -type f | head -1)
           TAG="${GITHUB_REF#refs/tags/}"
-          echo "Creating release for tag: $TAG with APK: $APK"
+          echo "APK: $APK"
+          echo "Tag: $TAG"
+          if [ -z "$APK" ]; then
+            echo "ERROR: No APK found"
+            find src-tauri/gen/android -name "*.apk" 2>/dev/null || true
+            exit 1
+          fi
           gh release create "$TAG" "$APK" \
             --repo "$GITHUB_REPOSITORY" \
             --title "$TAG" \
-            --notes "Tauri v2 Android APK — universal build (arm64, armv7, x86, x86_64)" \
+            --notes "Tauri v2 Android APK — universal build" \
             --draft
-          echo "Release created successfully!"

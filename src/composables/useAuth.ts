@@ -2,7 +2,9 @@ import { ref } from 'vue'
 import { load } from '@tauri-apps/plugin-store'
 import { fetch } from '@tauri-apps/plugin-http'
 
-const store = ref<Awaited<ReturnType<typeof load>> | null>(null)
+// Plain variable — Vue reactivity would try to proxy private fields
+let storeInstance: Awaited<ReturnType<typeof load>> | null = null
+
 const gatewayUrl = ref('')
 const username = ref('')
 const password = ref('')
@@ -18,10 +20,10 @@ function fetchWithTimeout(url: string, init: RequestInit, ms: number): Promise<R
 }
 
 async function initStore() {
-  if (!store.value) {
-    store.value = await load('settings.json', { autoSave: true })
+  if (!storeInstance) {
+    storeInstance = await load('settings.json', { autoSave: true })
   }
-  return store.value
+  return storeInstance
 }
 
 export function useAuth() {
@@ -73,9 +75,6 @@ export function useAuth() {
     isConnected.value = false
   }
 
-  /**
-   * POST /auth/password-login → extract hermes_session_rt cookie.
-   */
   async function doLogin(): Promise<void> {
     const base = gatewayUrl.value.replace(/\/$/, '')
     const url = `${base}/auth/password-login`
@@ -91,7 +90,7 @@ export function useAuth() {
       }),
     }, FETCH_TIMEOUT)
 
-    // Extract cookie — try multiple methods
+    // Extract cookie
     try {
       const setCookie = resp.headers.getSetCookie?.()
       if (setCookie && Array.isArray(setCookie)) {
@@ -124,9 +123,6 @@ export function useAuth() {
     return await response.json()
   }
 
-  /**
-   * POST /api/auth/ws-ticket → { ticket, ttl_seconds }
-   */
   async function fetchWsTicket(): Promise<string> {
     const base = gatewayUrl.value.replace(/\/$/, '')
     const url = `${base}/api/auth/ws-ticket`

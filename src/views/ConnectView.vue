@@ -10,8 +10,8 @@ const props = defineProps<{
   error: string
 }>()
 
-const url = ref('')
-const user = ref('')
+const url = ref('https://hermes.kabbouchi.cloud')
+const user = ref('admin')
 const pass = ref('')
 const showPass = ref(false)
 
@@ -43,7 +43,7 @@ function handleConnect() {
             v-model="url"
             type="url"
             class="Input"
-            placeholder="https://hermes.kabbouchi.cloud"
+            placeholder="https://hermes.example.com"
             autocomplete="url"
           />
         </div>

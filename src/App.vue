@@ -1,161 +1,158 @@
 <script setup lang="ts">
-import { ref, onMounted, shallowRef } from 'vue'
-import { Store } from '@tauri-apps/plugin-store'
-import { invoke } from '@tauri-apps/api/core';
+import { ref, onMounted } from 'vue'
+import { useAuth } from './composables/useAuth'
+import { useGateway } from './composables/useGateway'
+import ConnectView from './views/ConnectView.vue'
+import SessionsView from './views/SessionsView.vue'
+import MessageView from './views/MessageView.vue'
 
-const greetMsg = ref('')
-const name = ref('')
-const store = shallowRef<Store | null>(null)
-const counter = ref(0)
+const auth = useAuth()
+const gw = useGateway()
 
-async function greet() {
-  // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-  greetMsg.value = await invoke('greet', { name: name.value })
-}
+type View = 'loading' | 'connect' | 'sessions' | 'chat'
+const view = ref<View>('loading')
+const selectedSessionId = ref('')
+const sending = ref(false)
 
+// ── Boot ───────────────────────────────────────────
 onMounted(async () => {
-  store.value = await Store.load('settings.json')
-  const saved = await store.value.get<number>('counter')
-  if (saved != null) counter.value = saved
+  const ok = await auth.tryAutoLogin()
+  if (ok) {
+    await gw.fetchSessions(auth.gatewayUrl.value, auth.buildHeaders())
+    view.value = 'sessions'
+  } else {
+    view.value = 'connect'
+  }
 })
 
-async function increment() {
-  counter.value++
-  await store.value?.set('counter', counter.value)
-  await store.value?.save()
+// ── Connect ────────────────────────────────────────
+async function handleConnect(url: string, user: string, pass: string) {
+  auth.gatewayUrl.value = url
+  auth.username.value = user
+  auth.password.value = pass
+  await auth.connect()
+  await gw.fetchSessions(url, auth.buildHeaders())
+  view.value = 'sessions'
+}
+
+// ── Sessions ───────────────────────────────────────
+async function refreshSessions() {
+  await gw.fetchSessions(auth.gatewayUrl.value, auth.buildHeaders())
+}
+
+function openSession(id: string) {
+  selectedSessionId.value = id
+  view.value = 'chat'
+  gw.fetchMessages(auth.gatewayUrl.value, id, auth.buildHeaders())
+}
+
+function goBack() {
+  selectedSessionId.value = ''
+  view.value = 'sessions'
+}
+
+function disconnect() {
+  auth.clearCredentials()
+  gw.sessions.value = []
+  gw.messages.value = []
+  selectedSessionId.value = ''
+  view.value = 'connect'
+}
+
+// ── Chat ───────────────────────────────────────────
+async function handleSend(text: string) {
+  if (!selectedSessionId.value || sending.value) return
+  sending.value = true
+
+  // Optimistic user message
+  gw.messages.value.push({
+    role: 'user',
+    content: text,
+    timestamp: Date.now() / 1000,
+  })
+
+  try {
+    await gw.sendMessage(auth.gatewayUrl.value, selectedSessionId.value, text, auth.buildHeaders())
+  } catch (err: any) {
+    gw.messages.value.push({
+      role: 'assistant',
+      content: 'Failed to send: ' + (err.message || 'Unknown error'),
+      timestamp: Date.now() / 1000,
+    })
+  } finally {
+    sending.value = false
+  }
 }
 </script>
 
 <template>
-  <main class="container">
-    <h1>Hermes Mobile</h1>
-    <p class="subtitle">Tauri + Vue</p>
-
-    <div class="card">
-      <button class="counter-btn" @click="increment">
-        Count: {{ counter }}
-      </button>
-      <p class="counter-hint">Persisted via Tauri Store</p>
+  <div class="Root">
+    <!-- Loading -->
+    <div v-if="view === 'loading'" class="StateView">
+      <div class="Loader" />
     </div>
 
-    <div class="card">
-      <input id="greet-input" v-model="name" placeholder="Enter a name..." />
-      <button class="greet-btn" @click="greet">Greet</button>
-      <p v-if="greetMsg">{{ greetMsg }}</p>
-    </div>
-  </main>
+    <!-- Connect -->
+    <ConnectView
+      v-else-if="view === 'connect'"
+      :loading="auth.isConnected.value === false && gw.loading.value"
+      :error="gw.error.value"
+      @connect="handleConnect"
+    />
+
+    <!-- Sessions -->
+    <SessionsView
+      v-else-if="view === 'sessions'"
+      :sessions="gw.sessions.value"
+      :loading="gw.loading.value"
+      :error="gw.error.value"
+      :relative-time="gw.relativeTime"
+      :model-short="gw.modelShort"
+      @open="openSession"
+      @refresh="refreshSessions"
+      @disconnect="disconnect"
+    />
+
+    <!-- Chat -->
+    <MessageView
+      v-else-if="view === 'chat'"
+      :messages="gw.messages.value"
+      :loading="gw.loading.value"
+      :error="gw.error.value"
+      :sending="sending"
+      :format-time="gw.formatTime"
+      @back="goBack"
+      @send="handleSend"
+    />
+  </div>
 </template>
 
 <style>
-:root {
-  --bg: #010102;
-  --surface: #0d0d0f;
-  --surface-2: #16161a;
-  --accent: #5e6ad2;
-  --text: #e8e8ec;
-  --text-muted: #6b6b76;
-  --border: #232328;
-  --radius: 12px;
-}
+/* Global styles (non-scoped) */
+@import './assets/main.css';
 
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-
-body {
-  background: var(--bg);
-  color: var(--text);
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  -webkit-font-smoothing: antialiased;
-}
-
-.container {
-  max-width: 420px;
-  margin: 0 auto;
-  padding: 48px 24px;
+.Root {
+  background-color: var(--bg);
+  min-height: 100vh;
   display: flex;
   flex-direction: column;
+}
+
+.StateView {
+  flex: 1;
+  display: flex;
   align-items: center;
-  gap: 24px;
-  min-height: 100vh;
   justify-content: center;
 }
 
-h1 {
-  font-size: 28px;
-  font-weight: 600;
-  letter-spacing: -0.03em;
+.Loader {
+  width: 28px;
+  height: 28px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
 }
 
-.subtitle {
-  color: var(--text-muted);
-  font-size: 14px;
-  letter-spacing: -0.01em;
-}
-
-.card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 20px;
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  align-items: center;
-}
-
-input {
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  color: var(--text);
-  padding: 10px 14px;
-  font-size: 14px;
-  width: 100%;
-  outline: none;
-  transition: border-color 0.15s;
-}
-
-input:focus {
-  border-color: var(--accent);
-}
-
-.greet-btn,
-.counter-btn {
-  background: var(--accent);
-  color: white;
-  border: none;
-  border-radius: 8px;
-  padding: 10px 20px;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  letter-spacing: -0.01em;
-  transition: opacity 0.15s;
-  width: 100%;
-}
-
-.greet-btn:hover,
-.counter-btn:hover {
-  opacity: 0.9;
-}
-
-.counter-btn {
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  font-size: 16px;
-}
-
-.counter-hint {
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
-p {
-  font-size: 14px;
-  color: var(--accent);
-}
+@keyframes spin { to { transform: rotate(360deg); } }
 </style>

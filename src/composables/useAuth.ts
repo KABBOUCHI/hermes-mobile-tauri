@@ -1,4 +1,4 @@
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
 import { Store } from '@tauri-apps/plugin-store'
 
 const store = ref<Store | null>(null)
@@ -6,6 +6,7 @@ const gatewayUrl = ref('')
 const username = ref('')
 const password = ref('')
 const isConnected = ref(false)
+const sessionCookie = ref('')
 
 const FETCH_TIMEOUT = 8000
 const STORE_TIMEOUT = 3000
@@ -25,46 +26,16 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
   ])
 }
 
-function humanizeError(err: any, url: string): string {
-  const name = err?.name || ''
-  const msg = err?.message || ''
-
-  if (name === 'AbortError' || msg.includes('timed out')) {
-    return `Timeout — server didn't respond in time\n${url}`
+function extractCookie(headers: Headers): string {
+  const sc = headers.get('set-cookie') || headers.get('Set-Cookie') || ''
+  if (sc) {
+    const match = sc.match(/^([^=]+)=([^;]+)/)
+    if (match) return `${match[1]}=${match[2]}`
   }
-  if (msg.includes('Failed to fetch') || msg.includes('NetworkError') || msg.includes('ERR_NETWORK')) {
-    return `Network error — server unreachable\n${url}\n\nPossible causes:\n• Wrong URL or port\n• Server is down\n• CORS blocked\n• Phone not on same network`
-  }
-  if (msg.includes('ERR_NAME_NOT_RESOLVED')) {
-    return `DNS error — hostname not found\n${url}`
-  }
-  if (msg.includes('ERR_CONNECTION_REFUSED')) {
-    return `Connection refused — server not listening\n${url}`
-  }
-  if (msg.includes('ERR_SSL') || msg.includes('SSL') || msg.includes('certificate')) {
-    return `SSL error — invalid certificate\n${url}`
-  }
-  if (msg.includes('HTTP 401')) {
-    return 'Invalid username or password (401)'
-  }
-  if (msg.includes('HTTP 403')) {
-    return 'Access denied (403)'
-  }
-  if (msg.includes('HTTP 404')) {
-    return `Gateway not found (404)\n${url}\n\nCheck the URL — path must be exact`
-  }
-  if (msg.includes('HTTP 5')) {
-    return `Server error (${msg.match(/HTTP \d+/)?.[0] || '5xx'})\n${url}`
-  }
-  return msg || 'Unknown error'
+  return ''
 }
 
 export function useAuth() {
-  const authHeader = computed(() => {
-    if (!username.value || !password.value) return ''
-    return 'Basic ' + btoa(username.value + ':' + password.value)
-  })
-
   async function initStore() {
     if (!store.value) {
       store.value = await withTimeout(
@@ -82,10 +53,12 @@ export function useAuth() {
       const savedUrl = await s.get<string>('gateway_url')
       const savedUser = await s.get<string>('gateway_user')
       const savedPass = await s.get<string>('gateway_pass')
+      const savedCookie = await s.get<string>('session_cookie')
 
       if (savedUrl) gatewayUrl.value = savedUrl
       if (savedUser) username.value = savedUser
       if (savedPass) password.value = savedPass
+      if (savedCookie) sessionCookie.value = savedCookie
 
       return !!(savedUrl && savedUser && savedPass)
     } catch (err) {
@@ -100,6 +73,7 @@ export function useAuth() {
       await s.set('gateway_url', gatewayUrl.value)
       await s.set('gateway_user', username.value)
       await s.set('gateway_pass', password.value)
+      await s.set('session_cookie', sessionCookie.value)
       await s.save()
     } catch (err) {
       console.warn('[useAuth] saveCredentials:', err)
@@ -112,49 +86,97 @@ export function useAuth() {
       await s.delete('gateway_url')
       await s.delete('gateway_user')
       await s.delete('gateway_pass')
+      await s.delete('session_cookie')
       await s.save()
     } catch {}
 
     gatewayUrl.value = ''
     username.value = ''
     password.value = ''
+    sessionCookie.value = ''
     isConnected.value = false
   }
 
+  /**
+   * Login via POST /auth/password-login → extract session cookie.
+   */
+  async function doLogin(): Promise<string> {
+    const base = gatewayUrl.value.replace(/\/$/, '')
+    const url = `${base}/auth/password-login`
+    try {
+      const resp = await fetchWithTimeout(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          provider: 'basic',
+          username: username.value,
+          password: password.value,
+          next: '',
+        }),
+      }, FETCH_TIMEOUT)
+
+      const cookie = extractCookie(resp.headers)
+      if (cookie) {
+        sessionCookie.value = cookie
+        return cookie
+      }
+    } catch (err) {
+      console.warn('[useAuth] doLogin failed:', err)
+    }
+    return ''
+  }
+
+  /**
+   * Validate via GET /api/status (uses cookie, Basic Auth as fallback).
+   */
   async function fetchStatus(): Promise<any> {
     const base = gatewayUrl.value.replace(/\/$/, '')
     const url = `${base}/api/status`
-    try {
-      const response = await fetchWithTimeout(url, {
-        method: 'GET',
-        headers: { 'Authorization': authHeader.value },
-      }, FETCH_TIMEOUT)
-      if (!response.ok) throw new Error(`HTTP ${response.status}`)
-      return await response.json()
-    } catch (err: any) {
-      throw new Error(humanizeError(err, url))
+
+    const headers: Record<string, string> = {}
+    if (sessionCookie.value) {
+      headers['Cookie'] = sessionCookie.value
+    } else {
+      headers['Authorization'] = 'Basic ' + btoa(username.value + ':' + password.value)
     }
+
+    const response = await fetchWithTimeout(url, {
+      method: 'GET',
+      headers,
+      credentials: 'same-origin',
+    }, FETCH_TIMEOUT)
+
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    return await response.json()
   }
 
+  /**
+   * Full connect: login → validate → save.
+   */
   async function connect(): Promise<void> {
     const url = gatewayUrl.value.trim()
-    if (!url) {
-      throw new Error('Please enter a gateway URL')
-    }
-    // Auto-fix missing protocol
+    if (!url) throw new Error('Please enter a gateway URL')
+
     if (!url.startsWith('http://') && !url.startsWith('https://')) {
       gatewayUrl.value = 'https://' + url
     }
+
+    await doLogin()
     await fetchStatus()
     await saveCredentials()
     isConnected.value = true
   }
 
+  /**
+   * Auto-login: load saved creds → re-login → validate.
+   */
   async function tryAutoLogin(): Promise<boolean> {
     const hasCreds = await loadSavedCredentials()
     if (!hasCreds) return false
 
     try {
+      await doLogin()
       await fetchStatus()
       isConnected.value = true
       return true
@@ -165,7 +187,9 @@ export function useAuth() {
 
   function buildHeaders(): Record<string, string> {
     const h: Record<string, string> = {}
-    if (authHeader.value) h['Authorization'] = authHeader.value
+    if (sessionCookie.value) {
+      h['Cookie'] = sessionCookie.value
+    }
     return h
   }
 
@@ -174,10 +198,11 @@ export function useAuth() {
     username,
     password,
     isConnected,
-    authHeader,
+    sessionCookie,
     loadSavedCredentials,
     saveCredentials,
     clearCredentials,
+    doLogin,
     fetchStatus,
     connect,
     tryAutoLogin,

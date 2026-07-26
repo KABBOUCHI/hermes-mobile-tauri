@@ -57,29 +57,57 @@ jobs:
           echo "password=${{ secrets.KEYSTORE_PASSWORD }}" >> keystore.properties
           echo "storeFile=${{ runner.temp }}/release.jks" >> keystore.properties
           echo "${{ secrets.KEYSTORE }}" | base64 -d > ${{ runner.temp }}/release.jks
-          ls -la ${{ runner.temp }}/release.jks
-          cat keystore.properties
 
       - name: Patch build.gradle for signing
         run: bash scripts/setup-signing.sh
 
       - name: Build APK
-        run: npx tauri android build --apk
+        id: build
+        run: |
+          npx tauri android build --apk 2>&1 | tee /tmp/build.log
+          echo "exit_code=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
+          exit ${PIPESTATUS[0]}
+
+      - name: Capture build error
+        if: failure() && steps.build.outcome == 'failure'
+        run: |
+          echo "=== BUILD FAILED - showing last 100 lines of log ==="
+          tail -100 /tmp/build.log || echo "No log file"
+          echo "=== Checking generated build.gradle.kts ==="
+          cat src-tauri/gen/android/app/build.gradle.kts || echo "File not found"
+          echo "=== Checking keystore.properties ==="
+          cat src-tauri/gen/android/keystore.properties || echo "File not found"
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: /tmp/build.log
+          if-no-files-found: warn
+
+      - name: Upload patched build.gradle.kts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-gradle
+          path: src-tauri/gen/android/app/build.gradle.kts
+          if-no-files-found: warn
 
       - name: List APK outputs
         if: always()
         run: find src-tauri/gen/android -name "*.apk" -type f 2>/dev/null || echo "No APKs found"
 
-      - name: Upload APK artifact
+      - name: Upload APK
         uses: actions/upload-artifact@v4
-        if: always()
+        if: success()
         with:
           name: hermes-mobile-apk
           path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
           if-no-files-found: warn
 
       - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: startsWith(github.ref, 'refs/tags/') && success()
         uses: softprops/action-gh-release@v2
         with:
           files: src-tauri/gen/android/app/build/outputs/apk/**/*.apk

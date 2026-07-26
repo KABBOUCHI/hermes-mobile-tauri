@@ -1,12 +1,12 @@
 import { ref } from 'vue'
 import { Store } from '@tauri-apps/plugin-store'
+import { fetch } from '@tauri-apps/plugin-http';
 
 const store = ref<Store | null>(null)
 const gatewayUrl = ref('')
 const username = ref('')
 const password = ref('')
 const isConnected = ref(false)
-const sessionCookie = ref('')
 
 const FETCH_TIMEOUT = 8000
 const STORE_TIMEOUT = 3000
@@ -24,15 +24,6 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
       setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
     ),
   ])
-}
-
-function extractCookie(headers: Headers): string {
-  const sc = headers.get('set-cookie') || headers.get('Set-Cookie') || ''
-  if (sc) {
-    const match = sc.match(/^([^=]+)=([^;]+)/)
-    if (match) return `${match[1]}=${match[2]}`
-  }
-  return ''
 }
 
 export function useAuth() {
@@ -53,12 +44,10 @@ export function useAuth() {
       const savedUrl = await s.get<string>('gateway_url')
       const savedUser = await s.get<string>('gateway_user')
       const savedPass = await s.get<string>('gateway_pass')
-      const savedCookie = await s.get<string>('session_cookie')
 
       if (savedUrl) gatewayUrl.value = savedUrl
       if (savedUser) username.value = savedUser
       if (savedPass) password.value = savedPass
-      if (savedCookie) sessionCookie.value = savedCookie
 
       return !!(savedUrl && savedUser && savedPass)
     } catch (err) {
@@ -73,7 +62,6 @@ export function useAuth() {
       await s.set('gateway_url', gatewayUrl.value)
       await s.set('gateway_user', username.value)
       await s.set('gateway_pass', password.value)
-      await s.set('session_cookie', sessionCookie.value)
       await s.save()
     } catch (err) {
       console.warn('[useAuth] saveCredentials:', err)
@@ -93,7 +81,6 @@ export function useAuth() {
     gatewayUrl.value = ''
     username.value = ''
     password.value = ''
-    sessionCookie.value = ''
     isConnected.value = false
   }
 
@@ -104,7 +91,7 @@ export function useAuth() {
     const base = gatewayUrl.value.replace(/\/$/, '')
     const url = `${base}/auth/password-login`
     try {
-      const resp = await fetchWithTimeout(url, {
+     await fetchWithTimeout(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
@@ -115,12 +102,6 @@ export function useAuth() {
           next: '',
         }),
       }, FETCH_TIMEOUT)
-
-      const cookie = extractCookie(resp.headers)
-      if (cookie) {
-        sessionCookie.value = cookie
-        return cookie
-      }
     } catch (err) {
       console.warn('[useAuth] doLogin failed:', err)
     }
@@ -135,11 +116,7 @@ export function useAuth() {
     const url = `${base}/api/status`
 
     const headers: Record<string, string> = {}
-    if (sessionCookie.value) {
-      headers['Cookie'] = sessionCookie.value
-    } else {
-      headers['Authorization'] = 'Basic ' + btoa(username.value + ':' + password.value)
-    }
+      // headers['Authorization'] = 'Basic ' + btoa(username.value + ':' + password.value)
 
     const response = await fetchWithTimeout(url, {
       method: 'GET',
@@ -185,20 +162,11 @@ export function useAuth() {
     }
   }
 
-  function buildHeaders(): Record<string, string> {
-    const h: Record<string, string> = {}
-    if (sessionCookie.value) {
-      h['Cookie'] = sessionCookie.value
-    }
-    return h
-  }
-
   return {
     gatewayUrl,
     username,
     password,
     isConnected,
-    sessionCookie,
     loadSavedCredentials,
     saveCredentials,
     clearCredentials,
@@ -206,6 +174,5 @@ export function useAuth() {
     fetchStatus,
     connect,
     tryAutoLogin,
-    buildHeaders,
   }
 }

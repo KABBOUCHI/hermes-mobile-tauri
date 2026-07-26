@@ -1,4 +1,5 @@
 import { ref } from 'vue'
+import { fetch } from '@tauri-apps/plugin-http';
 
 const FETCH_TIMEOUT = 12000
 
@@ -67,7 +68,7 @@ export function useGateway() {
     return `${h}:${m}`
   }
 
-  async function fetchSessions(baseUrl: string, headers: Record<string, string>): Promise<Session[]> {
+  async function fetchSessions(baseUrl: string): Promise<Session[]> {
     loading.value = true
     error.value = ''
     try {
@@ -75,7 +76,6 @@ export function useGateway() {
       const url = `${base}/api/sessions?limit=40&offset=0&min_messages=1&archived=exclude&order=recent`
       const response = await fetchWithTimeout(url, {
         method: 'GET',
-        headers,
         credentials: 'same-origin',
       }, FETCH_TIMEOUT)
       if (!response.ok) throw new Error('HTTP ' + response.status)
@@ -90,7 +90,7 @@ export function useGateway() {
     }
   }
 
-  async function fetchMessages(baseUrl: string, sessionId: string, headers: Record<string, string>): Promise<Message[]> {
+  async function fetchMessages(baseUrl: string, sessionId: string): Promise<Message[]> {
     loading.value = true
     error.value = ''
     try {
@@ -98,7 +98,7 @@ export function useGateway() {
       const url = `${base}/api/sessions/${sessionId}/messages`
       const response = await fetchWithTimeout(url, {
         method: 'GET',
-        headers: { ...headers, 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
       }, FETCH_TIMEOUT)
       if (!response.ok) throw new Error('HTTP ' + response.status)
@@ -164,7 +164,6 @@ export function useGateway() {
     baseUrl: string,
     sessionId: string,
     text: string,
-    _headers?: Record<string, string>
   ): Promise<Message | null> {
     const base = baseUrl.replace(/\/$/, '')
     const wsUrl = base.replace(/^http/, 'ws') + '/api/ws'

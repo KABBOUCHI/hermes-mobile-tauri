@@ -35,7 +35,7 @@ onMounted(async () => {
   try {
     const ok = await auth.tryAutoLogin()
     if (ok) {
-      await gw.fetchSessions(auth.gatewayUrl.value, auth.buildHeaders())
+      await gw.fetchSessions(auth.gatewayUrl.value)
       view.value = 'sessions'
     } else {
       view.value = 'connect'
@@ -59,7 +59,7 @@ async function handleConnect(url: string, user: string, pass: string) {
 
   try {
     await auth.connect()
-    await gw.fetchSessions(url, auth.buildHeaders())
+    await gw.fetchSessions(url)
     view.value = 'sessions'
   } catch (err: any) {
     const msg = err.message || 'Connection failed'
@@ -72,7 +72,7 @@ async function handleConnect(url: string, user: string, pass: string) {
 // ── Sessions ───────────────────────────────────────
 async function refreshSessions() {
   try {
-    await gw.fetchSessions(auth.gatewayUrl.value, auth.buildHeaders())
+    await gw.fetchSessions(auth.gatewayUrl.value)
   } catch (err: any) {
     alert('Failed to refresh: ' + (err.message || 'Unknown error'))
   }
@@ -81,7 +81,7 @@ async function refreshSessions() {
 function openSession(id: string) {
   selectedSessionId.value = id
   view.value = 'chat'
-  gw.fetchMessages(auth.gatewayUrl.value, id, auth.buildHeaders()).catch(err => {
+  gw.fetchMessages(auth.gatewayUrl.value, id).catch(err => {
     alert('Failed to load messages: ' + (err.message || 'Unknown error'))
   })
 }
@@ -112,7 +112,7 @@ async function handleSend(text: string) {
   })
 
   try {
-    await gw.sendMessage(auth.gatewayUrl.value, selectedSessionId.value, text, auth.buildHeaders())
+    await gw.sendMessage(auth.gatewayUrl.value, selectedSessionId.value, text)
   } catch (err: any) {
     gw.messages.value.push({
       role: 'assistant',

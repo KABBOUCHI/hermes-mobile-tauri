@@ -39,11 +39,6 @@ jobs:
         with:
           targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
 
-      - name: Rust cache
-        uses: swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
-
       - name: Install frontend dependencies
         run: npm install
 
@@ -69,7 +64,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          set -e
+          set -ex
           APK=$(find src-tauri/gen/android -name "*.apk" -type f | head -1)
           TAG="${GITHUB_REF#refs/tags/}"
           echo "APK: $APK"
@@ -79,8 +74,10 @@ jobs:
             find src-tauri/gen/android -name "*.apk" 2>/dev/null || true
             exit 1
           fi
+          echo "Creating release..."
           gh release create "$TAG" "$APK" \
             --repo "$GITHUB_REPOSITORY" \
             --title "$TAG" \
             --notes "Tauri v2 Android APK — universal build" \
             --draft
+          echo "Done!"

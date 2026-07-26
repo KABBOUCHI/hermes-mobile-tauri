@@ -61,11 +61,11 @@ jobs:
         run: bash scripts/setup-signing.sh
 
       - name: Build APK (debug)
-        run: npx tauri android build
+        run: npm run tauri android build
         if: "!startsWith(github.ref, 'refs/tags/')"
 
       - name: Build APK (release)
-        run: npx tauri android build -- --apk
+        run: npm run tauri -- android build -- --apk
         if: startsWith(github.ref, 'refs/tags/')
 
       - name: Upload APK (debug)

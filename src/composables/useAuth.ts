@@ -90,7 +90,7 @@ export function useAuth() {
   }
 
   /**
-   * Extract hermes_session_rt cookie from Set-Cookie header.
+   * Extract hermes_session_rt from Set-Cookie header.
    */
   function extractCookie(headers: Headers): string {
     try {
@@ -104,7 +104,6 @@ export function useAuth() {
         }
       }
     } catch {}
-    // Fallback: try get()
     try {
       const sc = headers.get('set-cookie') || headers.get('Set-Cookie') || ''
       if (sc) {
@@ -115,6 +114,9 @@ export function useAuth() {
     return ''
   }
 
+  /**
+   * POST /auth/password-login → extract hermes_session_rt cookie.
+   */
   async function doLogin(): Promise<void> {
     const base = gatewayUrl.value.replace(/\/$/, '')
     const url = `${base}/auth/password-login`
@@ -130,32 +132,38 @@ export function useAuth() {
       }),
     }, FETCH_TIMEOUT)
 
-    // Extract session cookie for WebSocket use
     const cookie = extractCookie(resp.headers)
-    if (cookie) {
-      sessionCookie.value = cookie
-    }
+    if (cookie) sessionCookie.value = cookie
   }
 
   async function fetchStatus(): Promise<any> {
     const base = gatewayUrl.value.replace(/\/$/, '')
     const url = `${base}/api/status`
+    const headers: Record<string, string> = {}
+    if (sessionCookie.value) headers['Cookie'] = sessionCookie.value
     const response = await fetchWithTimeout(url, {
       method: 'GET',
+      headers,
       credentials: 'same-origin',
     }, FETCH_TIMEOUT)
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
     return await response.json()
   }
 
+  /**
+   * POST /api/auth/ws-ticket → { ticket, ttl_seconds }
+   */
   async function fetchWsTicket(): Promise<string> {
     const base = gatewayUrl.value.replace(/\/$/, '')
     const url = `${base}/api/auth/ws-ticket`
+    const headers: Record<string, string> = {}
+    if (sessionCookie.value) headers['Cookie'] = sessionCookie.value
     const response = await fetchWithTimeout(url, {
       method: 'POST',
+      headers,
       credentials: 'same-origin',
     }, FETCH_TIMEOUT)
-    if (!response.ok) throw new Error(`WS ticket request failed: HTTP ${response.status}`)
+    if (!response.ok) throw new Error(`WS ticket failed: HTTP ${response.status}`)
     const data = await response.json()
     return data.ticket || ''
   }

@@ -3,6 +3,8 @@ import { fetch } from '@tauri-apps/plugin-http'
 import WebSocket from '@tauri-apps/plugin-websocket'
 
 const FETCH_TIMEOUT = 12000
+const RECONNECT_BASE_MS = 1000
+const RECONNECT_MAX_MS = 15000
 
 function fetchWithTimeout(url: string, init: RequestInit, ms: number): Promise<Response> {
   const controller = new AbortController()
@@ -28,11 +30,28 @@ export interface Message {
   timestamp: number
 }
 
+type ConnectionState = 'idle' | 'connecting' | 'open' | 'closed' | 'error'
+
 export function useGateway() {
   const sessions = ref<Session[]>([])
   const messages = ref<Message[]>([])
   const loading = ref(false)
   const error = ref('')
+  const wsState = ref<ConnectionState>('idle')
+
+  // Persistent WS state
+  let ws: any = null
+  let removeListener: (() => void) | null = null
+  let reconnectAttempt = 0
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  let disposed = false
+  let pendingRequests = new Map<number, { resolve: Function; reject: Function; timer: ReturnType<typeof setTimeout> }>()
+  let nextId = 0
+
+  // Config (set on connect)
+  let baseUrl = ''
+  let cookie = ''
+  let ticketFn: (() => Promise<string>) | null = null
 
   function extractText(content: any): string {
     if (typeof content === 'string') return content
@@ -57,30 +76,31 @@ export function useGateway() {
 
   function modelShort(model: string): string {
     if (!model) return ''
-    const parts = model.split('/')
-    return parts[parts.length - 1]
+    return model.split('/').pop() || model
   }
 
   function formatTime(ts: number): string {
     if (!ts) return ''
     const d = new Date(ts * 1000)
-    const h = d.getHours().toString().padStart(2, '0')
-    const m = d.getMinutes().toString().padStart(2, '0')
-    return `${h}:${m}`
+    return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
   }
 
-  async function fetchSessions(baseUrl: string): Promise<Session[]> {
+  // ── REST ──────────────────────────────────────────────
+
+  async function fetchSessions(url: string): Promise<Session[]> {
     loading.value = true
     error.value = ''
     try {
-      const base = baseUrl.replace(/\/$/, '')
-      const url = `${base}/api/sessions?limit=40&offset=0&min_messages=1&archived=exclude&order=recent&source=desktop`
-      const response = await fetchWithTimeout(url, {
-        method: 'GET',
-        credentials: 'same-origin',
-      }, FETCH_TIMEOUT)
-      if (!response.ok) throw new Error('HTTP ' + response.status)
-      const data = await response.json()
+      const base = url.replace(/\/$/, '')
+      const headers: Record<string, string> = {}
+      if (cookie) headers['Cookie'] = cookie
+      const resp = await fetchWithTimeout(
+        `${base}/api/sessions?limit=40&offset=0&min_messages=1&archived=exclude&order=recent&source=desktop`,
+        { method: 'GET', headers, credentials: 'same-origin' },
+        FETCH_TIMEOUT
+      )
+      if (!resp.ok) throw new Error('HTTP ' + resp.status)
+      const data = await resp.json()
       sessions.value = data.sessions || []
       return sessions.value
     } catch (err: any) {
@@ -91,18 +111,20 @@ export function useGateway() {
     }
   }
 
-  async function fetchMessages(baseUrl: string, sessionId: string): Promise<Message[]> {
+  async function fetchMessages(url: string, sessionId: string): Promise<Message[]> {
     loading.value = true
     error.value = ''
     try {
-      const base = baseUrl.replace(/\/$/, '')
-      const url = `${base}/api/sessions/${sessionId}/messages`
-      const response = await fetchWithTimeout(url, {
-        method: 'GET',
-        credentials: 'same-origin',
-      }, FETCH_TIMEOUT)
-      if (!response.ok) throw new Error('HTTP ' + response.status)
-      const data = await response.json()
+      const base = url.replace(/\/$/, '')
+      const headers: Record<string, string> = {}
+      if (cookie) headers['Cookie'] = cookie
+      const resp = await fetchWithTimeout(
+        `${base}/api/sessions/${sessionId}/messages`,
+        { method: 'GET', headers, credentials: 'same-origin' },
+        FETCH_TIMEOUT
+      )
+      if (!resp.ok) throw new Error('HTTP ' + resp.status)
+      const data = await resp.json()
       const raw = data.messages || []
       messages.value = raw
         .filter((m: any) => m.role !== 'system')
@@ -120,24 +142,147 @@ export function useGateway() {
     }
   }
 
+  // ── Persistent WebSocket ──────────────────────────────
+
+  async function connectWs(url: string, sessCookie: string, getTicket: () => Promise<string>) {
+    baseUrl = url
+    cookie = sessCookie
+    ticketFn = getTicket
+    disposed = false
+    await openWs()
+  }
+
+  async function openWs() {
+    if (disposed) return
+    if (ws) {
+      try { ws.disconnect() } catch {}
+      ws = null
+    }
+
+    wsState.value = 'connecting'
+
+    try {
+      const ticket = await ticketFn!()
+      const base = baseUrl.replace(/\/$/, '')
+      const wsUrl = base.replace(/^http/, 'ws') + `/api/ws?ticket=${encodeURIComponent(ticket)}`
+
+      const headers: Record<string, string> = {}
+      if (cookie) headers['Cookie'] = cookie
+
+      ws = await WebSocket.connect(wsUrl, { headers })
+      reconnectAttempt = 0
+      wsState.value = 'open'
+
+      removeListener = ws.addListener((event: any) => {
+        try {
+          const raw = typeof event === 'string' ? event : event?.data || event?.payload || String(event)
+          const msg = JSON.parse(raw)
+
+          // JSON-RPC response (has id)
+          if (msg.id !== undefined && msg.id !== null) {
+            const pending = pendingRequests.get(msg.id)
+            if (pending) {
+              clearTimeout(pending.timer)
+              pendingRequests.delete(msg.id)
+              if (msg.error) {
+                pending.reject(new Error(msg.error.message || 'RPC error'))
+              } else {
+                pending.resolve(msg.result || msg)
+              }
+            }
+          }
+
+          // Gateway event (has method + params)
+          if (msg.method === 'event' && msg.params?.type) {
+            handleGatewayEvent(msg.params)
+          }
+        } catch {}
+      })
+    } catch (err) {
+      wsState.value = 'error'
+      scheduleReconnect()
+    }
+  }
+
+  function handleGatewayEvent(event: any) {
+    // Handle streaming events if needed
+    // For now, just log them
+    console.debug('[ws] event:', event.type, event)
+  }
+
+  function scheduleReconnect() {
+    if (disposed || reconnectTimer !== null) return
+    const delay = Math.min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * 2 ** reconnectAttempt)
+    reconnectAttempt++
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null
+      openWs()
+    }, delay)
+  }
+
+  function disconnectWs() {
+    disposed = true
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer)
+      reconnectTimer = null
+    }
+    if (removeListener) {
+      removeListener()
+      removeListener = null
+    }
+    if (ws) {
+      try { ws.disconnect() } catch {}
+      ws = null
+    }
+    pendingRequests.forEach(p => {
+      clearTimeout(p.timer)
+      p.reject(new Error('WebSocket closed'))
+    })
+    pendingRequests.clear()
+    wsState.value = 'closed'
+  }
+
   /**
-   * Send a message via WebSocket.
-   * 1. Fetch ticket:   POST /api/auth/ws-ticket → { ticket, ttl_seconds }
-   * 2. Connect:        ws://host/api/ws?ticket=TICKET with Cookie header
-   * 3. RPC:            { jsonrpc: "2.0", method: "prompt.submit", params: { session_id, prompt } }
+   * JSON-RPC request over the persistent WS.
+   */
+  function rpcRequest(method: string, params: any, timeoutMs = 180000): Promise<any> {
+    return new Promise((resolve, reject) => {
+      if (!ws || wsState.value !== 'open') {
+        reject(new Error('WebSocket not connected'))
+        return
+      }
+
+      const id = ++nextId
+
+      const timer = setTimeout(() => {
+        pendingRequests.delete(id)
+        reject(new Error(`RPC timeout: ${method}`))
+      }, timeoutMs)
+
+      pendingRequests.set(id, { resolve, reject, timer })
+
+      ws.send(JSON.stringify({
+        jsonrpc: '2.0',
+        id,
+        method,
+        params,
+      })).catch((err: any) => {
+        clearTimeout(timer)
+        pendingRequests.delete(id)
+        reject(err)
+      })
+    })
+  }
+
+  /**
+   * Send a message — uses the persistent WS connection.
    */
   async function sendMessage(
-    baseUrl: string,
+    _url: string,
     sessionId: string,
     text: string,
-    getTicket: () => Promise<string>,
-    cookie: string,
   ): Promise<Message | null> {
-    const ticket = await getTicket()
-    const base = baseUrl.replace(/\/$/, '')
-    const wsUrl = base.replace(/^http/, 'ws') + `/api/ws?ticket=${encodeURIComponent(ticket)}`
-
-    const result = await rpcCall(wsUrl, cookie, {
+    const result = await rpcRequest('prompt.submit', {
       session_id: sessionId,
       prompt: text,
     })
@@ -162,75 +307,20 @@ export function useGateway() {
     return null
   }
 
-  function rpcCall(wsUrl: string, cookie: string, params: any, timeoutMs = 180000): Promise<any> {
-    return new Promise(async (resolve, reject) => {
-      const timeout = setTimeout(() => {
-        ws.disconnect().catch(() => {})
-        reject(new Error('WebSocket timeout'))
-      }, timeoutMs)
-
-      let done = false
-
-      let ws: any
-      try {
-        const headers: Record<string, string> = {}
-        if (cookie) headers['Cookie'] = cookie
-
-        ws = await WebSocket.connect(wsUrl, { headers })
-      } catch (err) {
-        clearTimeout(timeout)
-        reject(err)
-        return
-      }
-
-      const removeListener = ws.addListener((event: any) => {
-        try {
-          const raw = typeof event === 'string'
-            ? event
-            : event?.data || event?.payload || String(event)
-          const msg = JSON.parse(raw)
-          if (msg.id === 1 && !done) {
-            done = true
-            clearTimeout(timeout)
-            removeListener()
-            ws.disconnect().catch(() => {})
-            resolve(msg.error ? { error: msg.error.message || 'RPC error' } : (msg.result || msg))
-          }
-        } catch {}
-      })
-
-      const payload = JSON.stringify({
-        jsonrpc: '2.0',
-        id: 1,
-        method: 'prompt.submit',
-        params,
-      })
-
-      try {
-        await ws.send(payload)
-      } catch (err) {
-        if (!done) {
-          done = true
-          clearTimeout(timeout)
-          removeListener()
-          ws.disconnect().catch(() => {})
-          reject(err)
-        }
-      }
-    })
-  }
-
   return {
     sessions,
     messages,
     loading,
     error,
+    wsState,
     extractText,
     relativeTime,
     modelShort,
     formatTime,
     fetchSessions,
     fetchMessages,
+    connectWs,
+    disconnectWs,
     sendMessage,
   }
 }

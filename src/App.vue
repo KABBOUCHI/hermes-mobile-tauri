@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useAuth } from './composables/useAuth'
 import { useGateway } from './composables/useGateway'
 import ConnectView from './views/ConnectView.vue'
@@ -22,9 +22,16 @@ const selectedSessionTitle = computed(() => {
   return s?.title || 'Session'
 })
 
+async function startGateway() {
+  await gw.connectWs(
+    auth.gatewayUrl.value,
+    auth.sessionCookie.value,
+    auth.fetchWsTicket,
+  )
+}
+
 // ── Boot ───────────────────────────────────────────
 onMounted(async () => {
-  // Safety: force connect view if boot hangs
   const bootTimer = setTimeout(() => {
     if (view.value === 'loading') {
       console.warn('[boot] stuck on loading, forcing connect view')
@@ -36,6 +43,7 @@ onMounted(async () => {
     const ok = await auth.tryAutoLogin()
     if (ok) {
       await gw.fetchSessions(auth.gatewayUrl.value)
+      await startGateway()
       view.value = 'sessions'
     } else {
       view.value = 'connect'
@@ -46,6 +54,10 @@ onMounted(async () => {
   } finally {
     clearTimeout(bootTimer)
   }
+})
+
+onUnmounted(() => {
+  gw.disconnectWs()
 })
 
 // ── Connect ────────────────────────────────────────
@@ -60,6 +72,7 @@ async function handleConnect(url: string, user: string, pass: string) {
   try {
     await auth.connect()
     await gw.fetchSessions(url)
+    await startGateway()
     view.value = 'sessions'
   } catch (err: any) {
     const msg = err.message || 'Connection failed'
@@ -92,6 +105,7 @@ function goBack() {
 }
 
 function disconnect() {
+  gw.disconnectWs()
   auth.clearCredentials()
   gw.sessions.value = []
   gw.messages.value = []
@@ -112,7 +126,7 @@ async function handleSend(text: string) {
   })
 
   try {
-    await gw.sendMessage(auth.gatewayUrl.value, selectedSessionId.value, text, auth.fetchWsTicket, auth.sessionCookie.value)
+    await gw.sendMessage(auth.gatewayUrl.value, selectedSessionId.value, text)
   } catch (err: any) {
     gw.messages.value.push({
       role: 'assistant',
@@ -148,6 +162,7 @@ async function handleSend(text: string) {
       :loading="gw.loading.value"
       :error="gw.error.value"
       :connected="auth.isConnected.value"
+      :ws-state="gw.wsState.value"
       :gateway-url="auth.gatewayUrl.value"
       :relative-time="gw.relativeTime"
       :model-short="gw.modelShort"

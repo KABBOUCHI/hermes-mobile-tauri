@@ -121,22 +121,23 @@ export function useGateway() {
   }
 
   /**
-   * Send a message via WebSocket using a fresh ticket.
-   * 1. Fetch ticket: POST /api/auth/ws-ticket → { ticket, ttl_seconds }
-   * 2. Connect:      ws://host/api/ws?ticket=TICKET (via Tauri WS plugin)
-   * 3. RPC:          { jsonrpc: "2.0", method: "prompt.submit", params: { session_id, prompt } }
+   * Send a message via WebSocket.
+   * 1. Fetch ticket:   POST /api/auth/ws-ticket → { ticket, ttl_seconds }
+   * 2. Connect:        ws://host/api/ws?ticket=TICKET with Cookie header
+   * 3. RPC:            { jsonrpc: "2.0", method: "prompt.submit", params: { session_id, prompt } }
    */
   async function sendMessage(
     baseUrl: string,
     sessionId: string,
     text: string,
     getTicket: () => Promise<string>,
+    cookie: string,
   ): Promise<Message | null> {
     const ticket = await getTicket()
     const base = baseUrl.replace(/\/$/, '')
     const wsUrl = base.replace(/^http/, 'ws') + `/api/ws?ticket=${encodeURIComponent(ticket)}`
 
-    const result = await rpcCall(wsUrl, {
+    const result = await rpcCall(wsUrl, cookie, {
       session_id: sessionId,
       prompt: text,
     })
@@ -161,7 +162,7 @@ export function useGateway() {
     return null
   }
 
-  function rpcCall(wsUrl: string, params: any, timeoutMs = 180000): Promise<any> {
+  function rpcCall(wsUrl: string, cookie: string, params: any, timeoutMs = 180000): Promise<any> {
     return new Promise(async (resolve, reject) => {
       const timeout = setTimeout(() => {
         ws.disconnect().catch(() => {})
@@ -172,7 +173,10 @@ export function useGateway() {
 
       let ws: any
       try {
-        ws = await WebSocket.connect(wsUrl)
+        const headers: Record<string, string> = {}
+        if (cookie) headers['Cookie'] = cookie
+
+        ws = await WebSocket.connect(wsUrl, { headers })
       } catch (err) {
         clearTimeout(timeout)
         reject(err)
@@ -181,8 +185,9 @@ export function useGateway() {
 
       const removeListener = ws.addListener((event: any) => {
         try {
-          // Tauri WS plugin sends { type: "Text", data: "..." } or just the string
-          const raw = typeof event === 'string' ? event : event?.data || event?.payload || String(event)
+          const raw = typeof event === 'string'
+            ? event
+            : event?.data || event?.payload || String(event)
           const msg = JSON.parse(raw)
           if (msg.id === 1 && !done) {
             done = true
@@ -194,7 +199,6 @@ export function useGateway() {
         } catch {}
       })
 
-      // Send the RPC request
       const payload = JSON.stringify({
         jsonrpc: '2.0',
         id: 1,

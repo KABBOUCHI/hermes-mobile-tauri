@@ -112,7 +112,7 @@ async function handleSend(text: string) {
   })
 
   try {
-    await gw.sendMessage(auth.gatewayUrl.value, selectedSessionId.value, text, auth.fetchWsTicket)
+    await gw.sendMessage(auth.gatewayUrl.value, selectedSessionId.value, text, auth.fetchWsTicket, auth.sessionCookie.value)
   } catch (err: any) {
     gw.messages.value.push({
       role: 'assistant',

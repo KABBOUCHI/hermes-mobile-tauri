@@ -1,8 +1,8 @@
 import { ref } from 'vue'
-import { Store } from '@tauri-apps/plugin-store'
+import { load } from '@tauri-apps/plugin-store'
 import { fetch } from '@tauri-apps/plugin-http'
 
-const store = ref<Store | null>(null)
+const store = ref<Awaited<ReturnType<typeof load>> | null>(null)
 const gatewayUrl = ref('')
 const username = ref('')
 const password = ref('')
@@ -10,7 +10,6 @@ const isConnected = ref(false)
 const sessionCookie = ref('')
 
 const FETCH_TIMEOUT = 8000
-const STORE_TIMEOUT = 3000
 
 function fetchWithTimeout(url: string, init: RequestInit, ms: number): Promise<Response> {
   const controller = new AbortController()
@@ -18,39 +17,26 @@ function fetchWithTimeout(url: string, init: RequestInit, ms: number): Promise<R
   return fetch(url, { ...init, signal: controller.signal }).finally(() => clearTimeout(timer))
 }
 
-function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<T>((_, reject) =>
-      setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
-    ),
-  ])
+async function initStore() {
+  if (!store.value) {
+    store.value = await load('settings.json', { autoSave: true })
+  }
+  return store.value
 }
 
 export function useAuth() {
-  async function initStore() {
-    if (!store.value) {
-      store.value = await withTimeout(
-        Store.load('settings.json'),
-        STORE_TIMEOUT,
-        'Store.load'
-      )
-    }
-    return store.value
-  }
-
   async function loadSavedCredentials(): Promise<boolean> {
     try {
       const s = await initStore()
-      const savedUrl = await s.get<string>('gateway_url')
-      const savedUser = await s.get<string>('gateway_user')
-      const savedPass = await s.get<string>('gateway_pass')
-      const savedCookie = await s.get<string>('session_cookie')
+      const savedUrl = (await s.get<string>('gateway_url')) || ''
+      const savedUser = (await s.get<string>('gateway_user')) || ''
+      const savedPass = (await s.get<string>('gateway_pass')) || ''
+      const savedCookie = (await s.get<string>('session_cookie')) || ''
 
-      if (savedUrl) gatewayUrl.value = savedUrl
-      if (savedUser) username.value = savedUser
-      if (savedPass) password.value = savedPass
-      if (savedCookie) sessionCookie.value = savedCookie
+      gatewayUrl.value = savedUrl
+      username.value = savedUser
+      password.value = savedPass
+      sessionCookie.value = savedCookie
 
       return !!(savedUrl && savedUser && savedPass)
     } catch (err) {
@@ -66,7 +52,6 @@ export function useAuth() {
       await s.set('gateway_user', username.value)
       await s.set('gateway_pass', password.value)
       await s.set('session_cookie', sessionCookie.value)
-      await s.save()
     } catch (err) {
       console.warn('[useAuth] saveCredentials:', err)
     }
@@ -75,11 +60,10 @@ export function useAuth() {
   async function clearCredentials() {
     try {
       const s = await initStore()
-      await s.delete('gateway_url')
-      await s.delete('gateway_user')
-      await s.delete('gateway_pass')
-      await s.delete('session_cookie')
-      await s.save()
+      await s.set('gateway_url', '')
+      await s.set('gateway_user', '')
+      await s.set('gateway_pass', '')
+      await s.set('session_cookie', '')
     } catch {}
 
     gatewayUrl.value = ''
@@ -87,31 +71,6 @@ export function useAuth() {
     password.value = ''
     sessionCookie.value = ''
     isConnected.value = false
-  }
-
-  /**
-   * Extract hermes_session_rt from Set-Cookie header.
-   */
-  function extractCookie(headers: Headers): string {
-    try {
-      const raw = headers as any
-      if (raw && typeof raw === 'object' && typeof raw.entries === 'function') {
-        for (const [key, val] of raw.entries()) {
-          if (key.toLowerCase() === 'set-cookie' && typeof val === 'string') {
-            const match = val.match(/hermes_session_rt=([^;]+)/)
-            if (match) return `hermes_session_rt=${match[1]}`
-          }
-        }
-      }
-    } catch {}
-    try {
-      const sc = headers.get('set-cookie') || headers.get('Set-Cookie') || ''
-      if (sc) {
-        const match = sc.match(/hermes_session_rt=([^;]+)/)
-        if (match) return `hermes_session_rt=${match[1]}`
-      }
-    } catch {}
-    return ''
   }
 
   /**
@@ -132,8 +91,23 @@ export function useAuth() {
       }),
     }, FETCH_TIMEOUT)
 
-    const cookie = extractCookie(resp.headers)
-    if (cookie) sessionCookie.value = cookie
+    // Extract cookie — try multiple methods
+    try {
+      const setCookie = resp.headers.getSetCookie?.()
+      if (setCookie && Array.isArray(setCookie)) {
+        for (const raw of setCookie) {
+          const match = raw.match(/hermes_session_rt=([^;]+)/)
+          if (match) { sessionCookie.value = `hermes_session_rt=${match[1]}`; return }
+        }
+      }
+    } catch {}
+    try {
+      const sc = resp.headers.get('set-cookie') || ''
+      if (sc) {
+        const match = sc.match(/hermes_session_rt=([^;]+)/)
+        if (match) { sessionCookie.value = `hermes_session_rt=${match[1]}`; return }
+      }
+    } catch {}
   }
 
   async function fetchStatus(): Promise<any> {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useAuth } from './composables/useAuth'
 import { useGateway } from './composables/useGateway'
 import ConnectView from './views/ConnectView.vue'
@@ -13,6 +13,14 @@ type View = 'loading' | 'connect' | 'sessions' | 'chat'
 const view = ref<View>('loading')
 const selectedSessionId = ref('')
 const sending = ref(false)
+const connectLoading = ref(false)
+const connectError = ref('')
+
+const selectedSessionTitle = computed(() => {
+  if (!selectedSessionId.value) return 'Session'
+  const s = gw.sessions.value.find(s => s.id === selectedSessionId.value)
+  return s?.title || 'Session'
+})
 
 // ── Boot ───────────────────────────────────────────
 onMounted(async () => {
@@ -27,12 +35,22 @@ onMounted(async () => {
 
 // ── Connect ────────────────────────────────────────
 async function handleConnect(url: string, user: string, pass: string) {
+  connectLoading.value = true
+  connectError.value = ''
+
   auth.gatewayUrl.value = url
   auth.username.value = user
   auth.password.value = pass
-  await auth.connect()
-  await gw.fetchSessions(url, auth.buildHeaders())
-  view.value = 'sessions'
+
+  try {
+    await auth.connect()
+    await gw.fetchSessions(url, auth.buildHeaders())
+    view.value = 'sessions'
+  } catch (err: any) {
+    connectError.value = err.message || 'Connection failed'
+  } finally {
+    connectLoading.value = false
+  }
 }
 
 // ── Sessions ───────────────────────────────────────
@@ -95,8 +113,8 @@ async function handleSend(text: string) {
     <!-- Connect -->
     <ConnectView
       v-else-if="view === 'connect'"
-      :loading="auth.isConnected.value === false && gw.loading.value"
-      :error="gw.error.value"
+      :loading="connectLoading"
+      :error="connectError"
       @connect="handleConnect"
     />
 
@@ -106,6 +124,8 @@ async function handleSend(text: string) {
       :sessions="gw.sessions.value"
       :loading="gw.loading.value"
       :error="gw.error.value"
+      :connected="auth.isConnected.value"
+      :gateway-url="auth.gatewayUrl.value"
       :relative-time="gw.relativeTime"
       :model-short="gw.modelShort"
       @open="openSession"
@@ -121,6 +141,7 @@ async function handleSend(text: string) {
       :error="gw.error.value"
       :sending="sending"
       :format-time="gw.formatTime"
+      :session-title="selectedSessionTitle"
       @back="goBack"
       @send="handleSend"
     />
@@ -128,7 +149,6 @@ async function handleSend(text: string) {
 </template>
 
 <style>
-/* Global styles (non-scoped) */
 @import './assets/main.css';
 
 .Root {

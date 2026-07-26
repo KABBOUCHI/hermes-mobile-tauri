@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, nextTick, watch, computed } from 'vue'
 import type { Message } from '../composables/useGateway'
+import { renderMarkdown } from '../utils/markdown'
 
 const props = defineProps<{
   messages: Message[]
@@ -8,6 +9,7 @@ const props = defineProps<{
   error: string
   sending: boolean
   formatTime: (ts: number) => string
+  sessionTitle?: string
 }>()
 
 const emit = defineEmits<{
@@ -17,6 +19,7 @@ const emit = defineEmits<{
 
 const input = ref('')
 const listEl = ref<HTMLElement | null>(null)
+const copiedIdx = ref<number | null>(null)
 
 const canSend = computed(() => input.value.trim() && !props.sending)
 
@@ -35,7 +38,6 @@ function scrollToBottom() {
   })
 }
 
-// Auto-scroll on new messages
 watch(() => props.messages.length, scrollToBottom)
 watch(() => props.messages[props.messages.length - 1]?.content, scrollToBottom)
 
@@ -44,6 +46,14 @@ function handleKeydown(e: KeyboardEvent) {
     e.preventDefault()
     handleSend()
   }
+}
+
+async function copyMessage(text: string, idx: number) {
+  try {
+    await navigator.clipboard.writeText(text)
+    copiedIdx.value = idx
+    setTimeout(() => { copiedIdx.value = null }, 1500)
+  } catch {}
 }
 </script>
 
@@ -55,7 +65,8 @@ function handleKeydown(e: KeyboardEvent) {
         <span class="BackArrow">←</span>
         <span class="BackText">Back</span>
       </button>
-      <span class="HeaderTitle">Session</span>
+      <span class="HeaderTitle">{{ sessionTitle || 'Session' }}</span>
+      <div class="HeaderSpacer" />
     </div>
 
     <!-- Loading -->
@@ -71,7 +82,9 @@ function handleKeydown(e: KeyboardEvent) {
 
     <!-- Empty -->
     <div v-else-if="messages.length === 0" class="StateView">
+      <span class="EmptyIcon">💬</span>
       <span class="StateText">No messages yet</span>
+      <span class="StateHint">Send a message to start the conversation</span>
     </div>
 
     <!-- Messages -->
@@ -81,14 +94,30 @@ function handleKeydown(e: KeyboardEvent) {
         :key="idx"
         class="MessageRow"
       >
-        <div v-if="msg.role === 'user'" class="BubbleUser">
+        <!-- User bubble -->
+        <div v-if="msg.role === 'user'" class="BubbleUser" @click="copyMessage(msg.content, idx)">
           <span class="BubbleTextUser">{{ msg.content }}</span>
-          <span v-if="msg.timestamp" class="TimeUser">{{ formatTime(msg.timestamp) }}</span>
+          <div class="BubbleFooter">
+            <span v-if="msg.timestamp" class="TimeUser">{{ formatTime(msg.timestamp) }}</span>
+            <Transition name="fade">
+              <span v-if="copiedIdx === idx" class="CopiedLabel">Copied</span>
+            </Transition>
+          </div>
         </div>
 
+        <!-- Assistant bubble -->
         <div v-else class="BubbleAssistant">
-          <span class="BubbleTextAssistant">{{ msg.content }}</span>
-          <span v-if="msg.timestamp" class="TimeAssistant">{{ formatTime(msg.timestamp) }}</span>
+          <div
+            class="BubbleTextAssistant md-content"
+            v-html="renderMarkdown(msg.content)"
+            @click="copyMessage(msg.content, idx)"
+          />
+          <div class="BubbleFooter">
+            <span v-if="msg.timestamp" class="TimeAssistant">{{ formatTime(msg.timestamp) }}</span>
+            <Transition name="fade">
+              <span v-if="copiedIdx === idx" class="CopiedLabel">Copied</span>
+            </Transition>
+          </div>
         </div>
       </div>
 
@@ -104,12 +133,13 @@ function handleKeydown(e: KeyboardEvent) {
 
     <!-- Input Bar -->
     <div class="InputBar">
-      <input
+      <textarea
+        ref="inputEl"
         v-model="input"
         class="ChatInput"
-        type="text"
         placeholder="Type a message…"
         :disabled="sending"
+        rows="1"
         @keydown="handleKeydown"
       />
       <button
@@ -119,7 +149,10 @@ function handleKeydown(e: KeyboardEvent) {
         @click="handleSend"
       >
         <span v-if="sending" class="SendLoader" />
-        <span v-else>↑</span>
+        <svg v-else width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="12" y1="19" x2="12" y2="5" />
+          <polyline points="5 12 12 5 19 12" />
+        </svg>
       </button>
     </div>
   </div>
@@ -134,38 +167,31 @@ function handleKeydown(e: KeyboardEvent) {
   height: 100vh;
 }
 
+/* ── Header ── */
 .Header {
   display: flex;
   align-items: center;
   padding: 14px 16px;
   border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
 }
 
 .BackBtn {
   display: flex;
   align-items: center;
   gap: 4px;
-  margin-right: 12px;
   background: none;
   border: none;
   cursor: pointer;
-  padding: 4px 8px;
-  border-radius: 6px;
+  padding: 6px 10px;
+  border-radius: 8px;
   transition: background 0.15s;
 }
 
 .BackBtn:hover { background: var(--surface); }
 
-.BackArrow {
-  font-size: 18px;
-  color: var(--accent);
-}
-
-.BackText {
-  font-size: 15px;
-  font-weight: 500;
-  color: var(--accent);
-}
+.BackArrow { font-size: 18px; color: var(--accent); }
+.BackText { font-size: 15px; font-weight: 500; color: var(--accent); }
 
 .HeaderTitle {
   font-size: 15px;
@@ -173,22 +199,28 @@ function handleKeydown(e: KeyboardEvent) {
   color: var(--text);
   flex: 1;
   text-align: center;
-  margin-right: 76px; /* balance back button width */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-/* States */
+.HeaderSpacer { width: 76px; }
+
+/* ── States ── */
 .StateView {
   flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 12px;
+  gap: 8px;
   padding: 40px;
 }
 
 .StateText { font-size: 15px; color: var(--text-muted); }
+.StateHint { font-size: 13px; color: #44444e; }
 .ErrorText { font-size: 14px; color: var(--error); }
+.EmptyIcon { font-size: 36px; margin-bottom: 4px; }
 
 .Loader {
   width: 24px;
@@ -199,19 +231,19 @@ function handleKeydown(e: KeyboardEvent) {
   animation: spin 0.8s linear infinite;
 }
 
-/* Messages */
+/* ── Messages ── */
 .MessageList {
   flex: 1;
   overflow-y: auto;
-  padding: 12px 14px;
+  padding: 14px;
   display: flex;
   flex-direction: column;
+  gap: 10px;
 }
 
 .MessageRow {
   display: flex;
   flex-direction: column;
-  margin-bottom: 10px;
 }
 
 .BubbleUser {
@@ -224,7 +256,11 @@ function handleKeydown(e: KeyboardEvent) {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  cursor: pointer;
+  transition: opacity 0.15s;
 }
+
+.BubbleUser:active { opacity: 0.85; }
 
 .BubbleTextUser {
   font-size: 15px;
@@ -234,15 +270,9 @@ function handleKeydown(e: KeyboardEvent) {
   word-break: break-word;
 }
 
-.TimeUser {
-  font-size: 11px;
-  color: rgba(255, 255, 255, 0.5);
-  text-align: right;
-}
-
 .BubbleAssistant {
   align-self: flex-start;
-  max-width: 85%;
+  max-width: 88%;
   background-color: var(--surface);
   border: 1px solid var(--border);
   border-radius: 16px;
@@ -251,14 +281,29 @@ function handleKeydown(e: KeyboardEvent) {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  cursor: pointer;
+  transition: opacity 0.15s;
 }
+
+.BubbleAssistant:active { opacity: 0.85; }
 
 .BubbleTextAssistant {
   font-size: 15px;
   color: var(--text);
   line-height: 1.45;
-  white-space: pre-wrap;
   word-break: break-word;
+}
+
+.BubbleFooter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.TimeUser {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.45);
 }
 
 .TimeAssistant {
@@ -266,7 +311,13 @@ function handleKeydown(e: KeyboardEvent) {
   color: var(--text-muted);
 }
 
-/* Typing indicator */
+.CopiedLabel {
+  font-size: 11px;
+  color: var(--success);
+  font-weight: 500;
+}
+
+/* ── Typing indicator ── */
 .TypingIndicator {
   display: flex;
   gap: 4px;
@@ -289,25 +340,30 @@ function handleKeydown(e: KeyboardEvent) {
   30% { opacity: 1; transform: scale(1); }
 }
 
-/* Input Bar */
+/* ── Input Bar ── */
 .InputBar {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   padding: 10px 12px;
   border-top: 1px solid var(--border);
   gap: 8px;
+  flex-shrink: 0;
 }
 
 .ChatInput {
   flex: 1;
-  height: 44px;
+  min-height: 44px;
+  max-height: 120px;
   background-color: var(--surface);
   border: 1px solid var(--border);
   border-radius: 22px;
-  padding: 0 16px;
+  padding: 10px 16px;
   font-size: 15px;
   color: var(--text);
   outline: none;
+  resize: none;
+  line-height: 1.4;
+  font-family: var(--font);
   transition: border-color 0.15s;
 }
 
@@ -322,17 +378,16 @@ function handleKeydown(e: KeyboardEvent) {
   background-color: var(--accent);
   border: none;
   color: #ffffff;
-  font-size: 20px;
-  font-weight: 700;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: opacity 0.15s;
+  transition: opacity 0.15s, transform 0.1s;
   flex-shrink: 0;
 }
 
 .SendBtn:hover:not(:disabled) { opacity: 0.9; }
+.SendBtn:active:not(:disabled) { transform: scale(0.94); }
 .SendBtnDisabled { opacity: 0.4; cursor: not-allowed; }
 
 .SendLoader {
@@ -345,4 +400,6 @@ function handleKeydown(e: KeyboardEvent) {
 }
 
 @keyframes spin { to { transform: rotate(360deg); } }
+.fade-enter-active, .fade-leave-active { transition: opacity 0.3s; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
 </style>

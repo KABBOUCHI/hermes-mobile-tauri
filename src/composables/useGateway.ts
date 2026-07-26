@@ -170,13 +170,17 @@ export function useGateway() {
       if (cookie) headers['Cookie'] = cookie
 
       ws = await WebSocket.connect(wsUrl, { headers })
+      console.log('[ws] connected to:', wsUrl.slice(0, 80))
       reconnectAttempt = 0
       wsState.value = 'open'
 
       removeListener = ws.addListener((event: any) => {
+        console.log('[ws] raw event:', JSON.stringify(event)?.slice(0, 300))
         try {
           const raw = typeof event === 'string' ? event : event?.data || event?.payload || String(event)
+          console.log('[ws] parsed raw:', typeof raw, raw?.slice?.(0, 300))
           const msg = JSON.parse(raw)
+          console.log('[ws] msg:', JSON.stringify(msg).slice(0, 300))
 
           // JSON-RPC response (has id)
           if (msg.id !== undefined && msg.id !== null) {
@@ -199,6 +203,7 @@ export function useGateway() {
         } catch {}
       })
     } catch (err) {
+      console.error('[ws] connect failed:', err)
       wsState.value = 'error'
       scheduleReconnect()
     }
@@ -246,6 +251,8 @@ export function useGateway() {
    * JSON-RPC request over the persistent WS.
    */
   function rpcRequest(method: string, params: any, timeoutMs = 180000): Promise<any> {
+    console.log('[rpc] sending:', method, JSON.stringify(params).slice(0, 200))
+    console.log('[rpc] ws state:', wsState.value, 'ws exists:', !!ws)
     return new Promise((resolve, reject) => {
       if (!ws || wsState.value !== 'open') {
         reject(new Error('WebSocket not connected'))
@@ -266,7 +273,9 @@ export function useGateway() {
         id,
         method,
         params,
-      })).catch((err: any) => {
+      })).then(() => {
+        console.log('[rpc] sent ok, id:', id)
+      }).catch((err: any) => {
         clearTimeout(timer)
         pendingRequests.delete(id)
         reject(err)

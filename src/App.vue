@@ -64,7 +64,6 @@ async function handleConnect(url: string, user: string, pass: string) {
   } catch (err: any) {
     const msg = err.message || 'Connection failed'
     connectError.value = msg
-    alert('Connection failed: ' + msg)
   } finally {
     connectLoading.value = false
   }

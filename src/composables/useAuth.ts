@@ -25,6 +25,40 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
   ])
 }
 
+function humanizeError(err: any, url: string): string {
+  const name = err?.name || ''
+  const msg = err?.message || ''
+
+  if (name === 'AbortError' || msg.includes('timed out')) {
+    return `Timeout — server didn't respond in time\n${url}`
+  }
+  if (msg.includes('Failed to fetch') || msg.includes('NetworkError') || msg.includes('ERR_NETWORK')) {
+    return `Network error — server unreachable\n${url}\n\nPossible causes:\n• Wrong URL or port\n• Server is down\n• CORS blocked\n• Phone not on same network`
+  }
+  if (msg.includes('ERR_NAME_NOT_RESOLVED')) {
+    return `DNS error — hostname not found\n${url}`
+  }
+  if (msg.includes('ERR_CONNECTION_REFUSED')) {
+    return `Connection refused — server not listening\n${url}`
+  }
+  if (msg.includes('ERR_SSL') || msg.includes('SSL') || msg.includes('certificate')) {
+    return `SSL error — invalid certificate\n${url}`
+  }
+  if (msg.includes('HTTP 401')) {
+    return 'Invalid username or password (401)'
+  }
+  if (msg.includes('HTTP 403')) {
+    return 'Access denied (403)'
+  }
+  if (msg.includes('HTTP 404')) {
+    return `Gateway not found (404)\n${url}\n\nCheck the URL — path must be exact`
+  }
+  if (msg.includes('HTTP 5')) {
+    return `Server error (${msg.match(/HTTP \d+/)?.[0] || '5xx'})\n${url}`
+  }
+  return msg || 'Unknown error'
+}
+
 export function useAuth() {
   const authHeader = computed(() => {
     if (!username.value || !password.value) return ''
@@ -89,17 +123,27 @@ export function useAuth() {
 
   async function fetchStatus(): Promise<any> {
     const base = gatewayUrl.value.replace(/\/$/, '')
-    const response = await fetchWithTimeout(`${base}/api/status`, {
-      method: 'GET',
-      headers: { 'Authorization': authHeader.value },
-    }, FETCH_TIMEOUT)
-    if (!response.ok) throw new Error(`HTTP ${response.status}`)
-    return await response.json()
+    const url = `${base}/api/status`
+    try {
+      const response = await fetchWithTimeout(url, {
+        method: 'GET',
+        headers: { 'Authorization': authHeader.value },
+      }, FETCH_TIMEOUT)
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      return await response.json()
+    } catch (err: any) {
+      throw new Error(humanizeError(err, url))
+    }
   }
 
   async function connect(): Promise<void> {
-    if (!gatewayUrl.value.trim()) {
+    const url = gatewayUrl.value.trim()
+    if (!url) {
       throw new Error('Please enter a gateway URL')
+    }
+    // Auto-fix missing protocol
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      gatewayUrl.value = 'https://' + url
     }
     await fetchStatus()
     await saveCredentials()

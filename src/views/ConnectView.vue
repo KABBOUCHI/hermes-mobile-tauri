@@ -233,6 +233,8 @@ function handleConnect() {
   font-size: 13px;
   color: var(--error);
   letter-spacing: -0.1px;
+  white-space: pre-line;
+  line-height: 1.5;
 }
 
 .Button {

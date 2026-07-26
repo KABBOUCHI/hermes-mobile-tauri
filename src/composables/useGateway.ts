@@ -48,7 +48,11 @@ export function useGateway() {
   let pendingRequests = new Map<number, { resolve: Function; reject: Function; timer: ReturnType<typeof setTimeout> }>()
   let nextId = 0
 
-  // Config (set on connect)
+  // Streaming turn state
+  let activeTurn: { sessionId: string; resolve: (content: string) => void; reject: (err: Error) => void; timer: ReturnType<typeof setTimeout> } | null = null
+  let streamingContent = ''
+
+  // Config
   let baseUrl = ''
   let cookie = ''
   let ticketFn: (() => Promise<string>) | null = null
@@ -170,19 +174,23 @@ export function useGateway() {
       if (cookie) headers['Cookie'] = cookie
 
       ws = await WebSocket.connect(wsUrl, { headers })
-      console.log('[ws] connected to:', wsUrl.slice(0, 80))
       reconnectAttempt = 0
       wsState.value = 'open'
 
       removeListener = ws.addListener((event: any) => {
-        console.log('[ws] raw event:', JSON.stringify(event)?.slice(0, 300))
         try {
-          const raw = typeof event === 'string' ? event : event?.data || event?.payload || String(event)
-          console.log('[ws] parsed raw:', typeof raw, raw?.slice?.(0, 300))
+          // Tauri WS plugin: event is { type: 'Text', data: '...' }
+          let raw: string
+          if (typeof event === 'string') {
+            raw = event
+          } else if (event?.type === 'Text' && typeof event?.data === 'string') {
+            raw = event.data
+          } else {
+            raw = event?.data || event?.payload || String(event)
+          }
           const msg = JSON.parse(raw)
-          console.log('[ws] msg:', JSON.stringify(msg).slice(0, 300))
 
-          // JSON-RPC response (has id)
+          // JSON-RPC response (has id) — resolve pending request
           if (msg.id !== undefined && msg.id !== null) {
             const pending = pendingRequests.get(msg.id)
             if (pending) {
@@ -197,22 +205,52 @@ export function useGateway() {
           }
 
           // Gateway event (has method + params)
-          if (msg.method === 'event' && msg.params?.type) {
+          if (msg.method === 'event' && msg.params) {
             handleGatewayEvent(msg.params)
           }
         } catch {}
       })
     } catch (err) {
-      console.error('[ws] connect failed:', err)
       wsState.value = 'error'
       scheduleReconnect()
     }
   }
 
   function handleGatewayEvent(event: any) {
-    // Handle streaming events if needed
-    // For now, just log them
-    console.debug('[ws] event:', event.type, event)
+    const type = event.type as string
+    const sessionId = event.session_id
+
+    if (type === 'message.delta' && activeTurn && sessionId === activeTurn.sessionId) {
+      // Accumulate streaming content
+      const delta = event.payload?.text || event.payload?.content || ''
+      if (delta) {
+        streamingContent += delta
+        // Update the last assistant message in-place
+        const last = messages.value[messages.value.length - 1]
+        if (last && last.role === 'assistant') {
+          last.content = streamingContent
+        }
+      }
+    }
+
+    if (type === 'message.complete' && activeTurn && sessionId === activeTurn.sessionId) {
+      // Turn finished — resolve with accumulated content
+      clearTimeout(activeTurn.timer)
+      const content = streamingContent || event.payload?.content || ''
+      const resolve = activeTurn.resolve
+      activeTurn = null
+      streamingContent = ''
+      resolve(content)
+    }
+
+    if (type === 'error' && activeTurn && sessionId === activeTurn.sessionId) {
+      clearTimeout(activeTurn.timer)
+      const errMsg = event.payload?.message || event.payload?.error || 'Turn failed'
+      const reject = activeTurn.reject
+      activeTurn = null
+      streamingContent = ''
+      reject(new Error(errMsg))
+    }
   }
 
   function scheduleReconnect() {
@@ -231,6 +269,11 @@ export function useGateway() {
       clearTimeout(reconnectTimer)
       reconnectTimer = null
     }
+    if (activeTurn) {
+      clearTimeout(activeTurn.timer)
+      activeTurn.reject(new Error('WebSocket closed'))
+      activeTurn = null
+    }
     if (removeListener) {
       removeListener()
       removeListener = null
@@ -244,99 +287,87 @@ export function useGateway() {
       p.reject(new Error('WebSocket closed'))
     })
     pendingRequests.clear()
+    streamingContent = ''
     wsState.value = 'closed'
   }
 
   /**
-   * JSON-RPC request over the persistent WS.
-   */
-  function rpcRequest(method: string, params: any, timeoutMs = 180000): Promise<any> {
-    console.log('[rpc] sending:', method, JSON.stringify(params).slice(0, 200))
-    console.log('[rpc] ws state:', wsState.value, 'ws exists:', !!ws)
-    return new Promise((resolve, reject) => {
-      if (!ws || wsState.value !== 'open') {
-        reject(new Error('WebSocket not connected'))
-        return
-      }
-
-      const id = ++nextId
-
-      const timer = setTimeout(() => {
-        pendingRequests.delete(id)
-        reject(new Error(`RPC timeout: ${method}`))
-      }, timeoutMs)
-
-      pendingRequests.set(id, { resolve, reject, timer })
-
-      ws.send(JSON.stringify({
-        jsonrpc: '2.0',
-        id,
-        method,
-        params,
-      })).then(() => {
-        console.log('[rpc] sent ok, id:', id)
-      }).catch((err: any) => {
-        clearTimeout(timer)
-        pendingRequests.delete(id)
-        reject(err)
-      })
-    })
-  }
-
-  /**
-   * Send a message — uses the persistent WS connection.
+   * Send a message via the persistent WS.
+   *
+   * Flow:
+   * 1. Push empty assistant message (placeholder)
+   * 2. Send prompt.submit RPC → gets ack {status: "streaming"}
+   * 3. Collect message.delta events → update placeholder content
+   * 4. Resolve on message.complete event
    */
   async function sendMessage(
     _url: string,
     sessionId: string,
     text: string,
   ): Promise<Message | null> {
-    const result = await rpcRequest('prompt.submit', {
-      session_id: sessionId,
-      text,
+    if (!ws || wsState.value !== 'open') {
+      throw new Error('WebSocket not connected')
+    }
+
+    // Push placeholder assistant message
+    const assistantMsg: Message = {
+      role: 'assistant',
+      content: '',
+      timestamp: Date.now() / 1000,
+    }
+    messages.value.push(assistantMsg)
+
+    // Set up streaming turn
+    streamingContent = ''
+
+    const content = await new Promise<string>((resolve, reject) => {
+      const TURN_TIMEOUT = 1_800_000 // 30 min
+      const timer = setTimeout(() => {
+        activeTurn = null
+        streamingContent = ''
+        reject(new Error('Turn timed out'))
+      }, TURN_TIMEOUT)
+
+      activeTurn = { sessionId, resolve, reject, timer }
+
+      // Fire the RPC (ack-only)
+      const id = ++nextId
+      ws.send(JSON.stringify({
+        jsonrpc: '2.0',
+        id,
+        method: 'prompt.submit',
+        params: { session_id: sessionId, text },
+      })).catch((err: any) => {
+        clearTimeout(timer)
+        activeTurn = null
+        streamingContent = ''
+        reject(err)
+      })
     })
 
-    if (result?.response) {
-      const msg: Message = {
-        role: 'assistant',
-        content: extractText(result.response),
-        timestamp: Date.now() / 1000,
-      }
-      messages.value.push(msg)
-      return msg
-    } else if (result?.error) {
-      const msg: Message = {
-        role: 'assistant',
-        content: 'Error: ' + result.error,
-        timestamp: Date.now() / 1000,
-      }
-      messages.value.push(msg)
-      return msg
-    }
-    return null
+    // Finalize the assistant message
+    assistantMsg.content = content || '[empty response]'
+    return assistantMsg
   }
 
-  /**
-   * Delete a session via REST.
-     */
-    async function deleteSession(url: string, sessionId: string): Promise<boolean> {
-      try {
-        const base = url.replace(/\/$/, '')
-        const headers: Record<string, string> = {}
-        if (cookie) headers['Cookie'] = cookie
-        const resp = await fetchWithTimeout(
-          `${base}/api/sessions/${encodeURIComponent(sessionId)}`,
-          { method: 'DELETE', headers, credentials: 'same-origin' },
-          FETCH_TIMEOUT
-        )
-        if (!resp.ok) throw new Error('HTTP ' + resp.status)
-        sessions.value = sessions.value.filter(s => s.id !== sessionId)
-        return true
-      } catch (err: any) {
-        error.value = err.message || 'Failed to delete session'
-        return false
-      }
+  async function deleteSession(url: string, sessionId: string): Promise<boolean> {
+    try {
+      const base = url.replace(/\/$/, '')
+      const headers: Record<string, string> = {}
+      if (cookie) headers['Cookie'] = cookie
+      const resp = await fetchWithTimeout(
+        `${base}/api/sessions/${encodeURIComponent(sessionId)}`,
+        { method: 'DELETE', headers, credentials: 'same-origin' },
+        FETCH_TIMEOUT
+      )
+      if (!resp.ok) throw new Error('HTTP ' + resp.status)
+      sessions.value = sessions.value.filter(s => s.id !== sessionId)
+      return true
+    } catch (err: any) {
+      error.value = err.message || 'Failed to delete session'
+      return false
     }
+  }
 
   return {
     sessions,

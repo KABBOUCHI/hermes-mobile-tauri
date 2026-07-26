@@ -179,7 +179,6 @@ export function useGateway() {
 
       removeListener = ws.addListener((event: any) => {
         try {
-          // Tauri WS plugin: event is { type: 'Text', data: '...' }
           let raw: string
           if (typeof event === 'string') {
             raw = event
@@ -190,7 +189,7 @@ export function useGateway() {
           }
           const msg = JSON.parse(raw)
 
-          // JSON-RPC response (has id) — resolve pending request
+          // JSON-RPC response (has id)
           if (msg.id !== undefined && msg.id !== null) {
             const pending = pendingRequests.get(msg.id)
             if (pending) {
@@ -204,7 +203,7 @@ export function useGateway() {
             }
           }
 
-          // Gateway event (has method + params)
+          // Gateway event
           if (msg.method === 'event' && msg.params) {
             handleGatewayEvent(msg.params)
           }
@@ -221,11 +220,9 @@ export function useGateway() {
     const sessionId = event.session_id
 
     if (type === 'message.delta' && activeTurn && sessionId === activeTurn.sessionId) {
-      // Accumulate streaming content
       const delta = event.payload?.text || event.payload?.content || ''
       if (delta) {
         streamingContent += delta
-        // Update the last assistant message in-place
         const last = messages.value[messages.value.length - 1]
         if (last && last.role === 'assistant') {
           last.content = streamingContent
@@ -234,7 +231,6 @@ export function useGateway() {
     }
 
     if (type === 'message.complete' && activeTurn && sessionId === activeTurn.sessionId) {
-      // Turn finished — resolve with accumulated content
       clearTimeout(activeTurn.timer)
       const content = streamingContent || event.payload?.content || ''
       const resolve = activeTurn.resolve
@@ -292,13 +288,59 @@ export function useGateway() {
   }
 
   /**
+   * Raw RPC call over the persistent WS.
+   */
+  function rpcCall(method: string, params: any, timeoutMs = 120000): Promise<any> {
+    return new Promise((resolve, reject) => {
+      if (!ws || wsState.value !== 'open') {
+        reject(new Error('WebSocket not connected'))
+        return
+      }
+
+      const id = ++nextId
+      const timer = setTimeout(() => {
+        pendingRequests.delete(id)
+        reject(new Error(`RPC timeout: ${method}`))
+      }, timeoutMs)
+
+      pendingRequests.set(id, { resolve, reject, timer })
+
+      ws.send(JSON.stringify({
+        jsonrpc: '2.0',
+        id,
+        method,
+        params,
+      })).catch((err: any) => {
+        clearTimeout(timer)
+        pendingRequests.delete(id)
+        reject(err)
+      })
+    })
+  }
+
+  /**
+   * Resume a session via WS to get the runtimeId.
+   * session.resume → { session_id: runtimeId, messages, info, ... }
+   */
+  async function resumeSession(storedSessionId: string): Promise<string> {
+    const result = await rpcCall('session.resume', {
+      session_id: storedSessionId,
+      cols: 96,
+      source: 'desktop',
+    })
+    const runtimeId = result?.session_id
+    if (!runtimeId) throw new Error('session.resume returned no session id')
+    return runtimeId
+  }
+
+  /**
    * Send a message via the persistent WS.
    *
-   * Flow:
-   * 1. Push empty assistant message (placeholder)
-   * 2. Send prompt.submit RPC → gets ack {status: "streaming"}
-   * 3. Collect message.delta events → update placeholder content
-   * 4. Resolve on message.complete event
+   * 1. session.resume → get runtimeId
+   * 2. Push placeholder assistant message
+   * 3. prompt.submit (fire-and-forget) → ack {status: "streaming"}
+   * 4. Collect message.delta events → update placeholder
+   * 5. Resolve on message.complete
    */
   async function sendMessage(
     _url: string,
@@ -308,6 +350,9 @@ export function useGateway() {
     if (!ws || wsState.value !== 'open') {
       throw new Error('WebSocket not connected')
     }
+
+    // Resume session to get runtimeId
+    const runtimeId = await resumeSession(sessionId)
 
     // Push placeholder assistant message
     const assistantMsg: Message = {
@@ -321,22 +366,22 @@ export function useGateway() {
     streamingContent = ''
 
     const content = await new Promise<string>((resolve, reject) => {
-      const TURN_TIMEOUT = 1_800_000 // 30 min
+      const TURN_TIMEOUT = 1_800_000
       const timer = setTimeout(() => {
         activeTurn = null
         streamingContent = ''
         reject(new Error('Turn timed out'))
       }, TURN_TIMEOUT)
 
-      activeTurn = { sessionId, resolve, reject, timer }
+      activeTurn = { sessionId: runtimeId, resolve, reject, timer }
 
-      // Fire the RPC (ack-only)
+      // Fire prompt.submit
       const id = ++nextId
       ws.send(JSON.stringify({
         jsonrpc: '2.0',
         id,
         method: 'prompt.submit',
-        params: { session_id: sessionId, text },
+        params: { session_id: runtimeId, text },
       })).catch((err: any) => {
         clearTimeout(timer)
         activeTurn = null
@@ -345,7 +390,6 @@ export function useGateway() {
       })
     })
 
-    // Finalize the assistant message
     assistantMsg.content = content || '[empty response]'
     return assistantMsg
   }

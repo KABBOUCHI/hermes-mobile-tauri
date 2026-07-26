@@ -1,5 +1,6 @@
 import { ref } from 'vue'
 import { fetch } from '@tauri-apps/plugin-http'
+import WebSocket from '@tauri-apps/plugin-websocket'
 
 const FETCH_TIMEOUT = 12000
 
@@ -121,7 +122,9 @@ export function useGateway() {
 
   /**
    * Send a message via WebSocket using a fresh ticket.
-   * Flow: fetch ticket → connect ws://host/api/ws?ticket=TICKET → RPC prompt.submit
+   * 1. Fetch ticket: POST /api/auth/ws-ticket → { ticket, ttl_seconds }
+   * 2. Connect:      ws://host/api/ws?ticket=TICKET (via Tauri WS plugin)
+   * 3. RPC:          { jsonrpc: "2.0", method: "prompt.submit", params: { session_id, prompt } }
    */
   async function sendMessage(
     baseUrl: string,
@@ -129,13 +132,10 @@ export function useGateway() {
     text: string,
     getTicket: () => Promise<string>,
   ): Promise<Message | null> {
-    // Step 1: Get a fresh WS ticket (short-lived, ~30s)
     const ticket = await getTicket()
-
     const base = baseUrl.replace(/\/$/, '')
     const wsUrl = base.replace(/^http/, 'ws') + `/api/ws?ticket=${encodeURIComponent(ticket)}`
 
-    // Step 2: Open WebSocket and send RPC
     const result = await rpcCall(wsUrl, {
       session_id: sessionId,
       prompt: text,
@@ -162,41 +162,56 @@ export function useGateway() {
   }
 
   function rpcCall(wsUrl: string, params: any, timeoutMs = 180000): Promise<any> {
-    return new Promise((resolve, reject) => {
+    return new Promise(async (resolve, reject) => {
       const timeout = setTimeout(() => {
-        try { ws.close() } catch {}
+        ws.disconnect().catch(() => {})
         reject(new Error('WebSocket timeout'))
       }, timeoutMs)
 
       let done = false
-      const ws = new WebSocket(wsUrl)
 
-      ws.onopen = () => {
-        ws.send(JSON.stringify({
-          jsonrpc: '2.0',
-          id: 1,
-          method: 'prompt.submit',
-          params,
-        }))
+      let ws: any
+      try {
+        ws = await WebSocket.connect(wsUrl)
+      } catch (err) {
+        clearTimeout(timeout)
+        reject(err)
+        return
       }
 
-      ws.onmessage = (event: MessageEvent) => {
+      const removeListener = ws.addListener((event: any) => {
         try {
-          const msg = JSON.parse(typeof event.data === 'string' ? event.data : String(event.data))
+          // Tauri WS plugin sends { type: "Text", data: "..." } or just the string
+          const raw = typeof event === 'string' ? event : event?.data || event?.payload || String(event)
+          const msg = JSON.parse(raw)
           if (msg.id === 1 && !done) {
             done = true
             clearTimeout(timeout)
-            ws.close()
+            removeListener()
+            ws.disconnect().catch(() => {})
             resolve(msg.error ? { error: msg.error.message || 'RPC error' } : (msg.result || msg))
           }
         } catch {}
-      }
+      })
 
-      ws.onerror = () => {
-        if (!done) { done = true; clearTimeout(timeout); reject(new Error('WebSocket error')) }
-      }
-      ws.onclose = () => {
-        if (!done) { done = true; clearTimeout(timeout); reject(new Error('WebSocket closed')) }
+      // Send the RPC request
+      const payload = JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'prompt.submit',
+        params,
+      })
+
+      try {
+        await ws.send(payload)
+      } catch (err) {
+        if (!done) {
+          done = true
+          clearTimeout(timeout)
+          removeListener()
+          ws.disconnect().catch(() => {})
+          reject(err)
+        }
       }
     })
   }

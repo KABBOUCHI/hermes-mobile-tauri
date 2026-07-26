@@ -10,9 +10,17 @@
     "opener:default",
     "store:default",
     {
-          "identifier": "http:default",
-          "allow": [{ "url": "https://*" }, { "url": "http://*" }],
-          "deny": []
+      "identifier": "http:default",
+      "allow": [
+        {
+          "url": "https://*"
+        },
+        {
+          "url": "http://*"
         }
+      ],
+      "deny": []
+    },
+    "websocket:default"
   ]
 }

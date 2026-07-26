@@ -65,7 +65,7 @@ jobs:
         if: "!startsWith(github.ref, 'refs/tags/')"
 
       - name: Build APK (release)
-        run: npm run tauri -- android build -- --apk
+        run: npm run tauri android build -- --apk
         if: startsWith(github.ref, 'refs/tags/')
 
       - name: Upload APK (debug)

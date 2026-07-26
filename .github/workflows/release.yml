@@ -47,12 +47,12 @@ jobs:
         run: npm install
 
       - name: Init Tauri Android
-        run: npx tauri android init
+        run: npx tauri android init --ci
 
       - name: Setup Android signing
         run: |
           cd src-tauri/gen/android
-          echo "keyAlias=upload" > keystore.properties
+          echo "keyAlias=hermes" > keystore.properties
           echo "password=${{ secrets.KEYSTORE_PASSWORD }}" >> keystore.properties
           echo "storeFile=${{ runner.temp }}/release.jks" >> keystore.properties
           echo "${{ secrets.KEYSTORE }}" | base64 -d > ${{ runner.temp }}/release.jks
@@ -60,16 +60,13 @@ jobs:
       - name: Patch build.gradle for signing
         run: bash scripts/setup-signing.sh
 
-      - name: Debug - show patched build.gradle.kts
-        run: cat src-tauri/gen/android/app/build.gradle.kts
-
       - name: Build APK (debug)
-        run: npx tauri android build -- --apk
         if: "!startsWith(github.ref, 'refs/tags/')"
+        run: npx tauri android build --apk
 
       - name: Build APK (release)
-        run: npx tauri android build -- --apk
         if: startsWith(github.ref, 'refs/tags/')
+        run: npx tauri android build --apk
 
       - name: List APK outputs
         if: always()

@@ -12,6 +12,7 @@ permissions:
 jobs:
   build-android:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v4
@@ -25,7 +26,7 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '17'
+          java-version: '21'
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
@@ -56,28 +57,26 @@ jobs:
           echo "password=${{ secrets.KEYSTORE_PASSWORD }}" >> keystore.properties
           echo "storeFile=${{ runner.temp }}/release.jks" >> keystore.properties
           echo "${{ secrets.KEYSTORE }}" | base64 -d > ${{ runner.temp }}/release.jks
+          ls -la ${{ runner.temp }}/release.jks
+          cat keystore.properties
 
       - name: Patch build.gradle for signing
         run: bash scripts/setup-signing.sh
 
-      - name: Build APK (debug)
-        if: "!startsWith(github.ref, 'refs/tags/')"
-        run: npx tauri android build --apk
-
-      - name: Build APK (release)
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Build APK
         run: npx tauri android build --apk
 
       - name: List APK outputs
         if: always()
         run: find src-tauri/gen/android -name "*.apk" -type f 2>/dev/null || echo "No APKs found"
 
-      - name: Upload APK (debug)
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
-        if: "!startsWith(github.ref, 'refs/tags/')"
+        if: always()
         with:
-          name: hermes-debug.apk
+          name: hermes-mobile-apk
           path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          if-no-files-found: warn
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')

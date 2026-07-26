@@ -14,22 +14,26 @@ echo "=== Original build.gradle.kts ==="
 cat "$BUILD_GRADLE"
 echo ""
 
-# 1. Add import if not present
-if ! grep -q "import java.io.FileInputStream" "$BUILD_GRADLE"; then
-  sed -i '1s/^/import java.io.FileInputStream\n/' "$BUILD_GRADLE"
-  echo "Added FileInputStream import"
-fi
-
-# 2. Add signingConfigs before buildTypes if not present
-if ! grep -q "signingConfigs" "$BUILD_GRADLE"; then
-  # Use Python for reliable insertion between signingConfigs and buildTypes
-  python3 << 'PYEOF'
+python3 << 'PYEOF'
 import re
 
-with open("src-tauri/gen/android/app/build.gradle.kts", "r") as f:
+path = "src-tauri/gen/android/app/build.gradle.kts"
+with open(path, "r") as f:
     content = f.read()
 
-signing = '''signingConfigs {
+# 1. Add import - add before plugins if no existing imports
+if "import java.io.FileInputStream" not in content:
+    if "import " in content:
+        lines = content.split("\n")
+        last_import_idx = max(i for i, l in enumerate(lines) if l.startswith("import "))
+        lines.insert(last_import_idx + 1, "import java.io.FileInputStream")
+        content = "\n".join(lines)
+    else:
+        content = "import java.io.FileInputStream\n\n" + content
+
+# 2. Add signingConfigs before buildTypes
+if "signingConfigs" not in content:
+    signing_block = """    signingConfigs {
         create("release") {
             val keystorePropertiesFile = rootProject.file("keystore.properties")
             val keystoreProperties = Properties()
@@ -43,55 +47,30 @@ signing = '''signingConfigs {
         }
     }
 
-'''
+"""
+    if "    buildTypes {" in content:
+        content = content.replace("    buildTypes {", signing_block + "    buildTypes {")
+    elif "buildTypes {" in content:
+        content = content.replace("buildTypes {", signing_block + "buildTypes {")
 
-# Find the last occurrence of buildTypes (the one inside android{})
-# and insert signingConfigs before it
-parts = content.split("    buildTypes {")
-if len(parts) > 1:
-    content = parts[0] + "    " + signing + "    buildTypes {" + parts[1]
-else:
-    # Fallback: insert before any buildTypes
-    content = content.replace("buildTypes {", signing + "buildTypes {")
+# 3. Add signingConfig REFERENCE to release buildType
+# Use specific pattern to distinguish from "signingConfigs" declaration
+if "signingConfig = signingConfigs" not in content:
+    content = re.sub(
+        r'(getByName\("release"\)\s*\{)',
+        r'\1\n                signingConfig = signingConfigs.getByName("release")',
+        content,
+        count=1
+    )
 
-with open("src-tauri/gen/android/app/build.gradle.kts", "w") as f:
+with open(path, "w") as f:
     f.write(content)
 
-print("Inserted signingConfigs block")
-PYEOF
-fi
-
-# 3. Add signingConfig to release buildType if not present
-if ! grep -q "signingConfig" "$BUILD_GRADLE"; then
-  python3 << 'PYEOF'
-import re
-
-with open("src-tauri/gen/android/app/build.gradle.kts", "r") as f:
-    content = f.read()
-
-# Add signingConfig inside the release buildType block
-content = re.sub(
-    r'(getByName\("release"\)\s*\{)',
-    r'\1\n                signingConfig = signingConfigs.getByName("release")',
-    content,
-    count=1
-)
-
-with open("src-tauri/gen/android/app/build.gradle.kts", "w") as f:
-    f.write(content)
-
-print("Added signingConfig to release buildType")
-PYEOF
-fi
-
-echo "=== Patched build.gradle.kts ==="
-cat "$BUILD_GRADLE"
-echo ""
+print(content)
 
 # Verify
-if grep -q "signingConfigs" "$BUILD_GRADLE" && grep -q "signingConfig" "$BUILD_GRADLE"; then
-  echo "SUCCESS: Signing config applied"
-else
-  echo "FAILED: Signing config not properly applied"
-  exit 1
-fi
+assert "import java.io.FileInputStream" in content, "import missing"
+assert "signingConfigs" in content, "signingConfigs block missing"
+assert "signingConfig = signingConfigs.getByName" in content, "signingConfig reference missing"
+print("\n=== ALL CHECKS PASSED ===")
+PYEOF

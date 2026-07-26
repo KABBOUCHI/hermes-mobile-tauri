@@ -1,16 +1,16 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, shallowRef } from 'vue'
 import { Store } from '@tauri-apps/plugin-store'
+import { invoke } from '@tauri-apps/api/core';
 
 const greetMsg = ref('')
 const name = ref('')
-const store = ref<Store | null>(null)
+const store = shallowRef<Store | null>(null)
 const counter = ref(0)
 
 async function greet() {
   // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-  // @ts-expect-error invoke is injected by tauri
-  greetMsg.value = await window.__TAURI__.core.invoke('greet', { name: name.value })
+  greetMsg.value = await invoke('greet', { name: name.value })
 }
 
 onMounted(async () => {

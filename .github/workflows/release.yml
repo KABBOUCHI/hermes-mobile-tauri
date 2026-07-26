@@ -57,7 +57,11 @@ jobs:
         run: bash scripts/setup-signing.sh
 
       - name: Build APK
-        run: npx tauri android build --apk
+        id: build_apk
+        run: |
+          npx tauri android build --apk 2>&1 | tee /tmp/build.log
+          echo "exit_code=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+          exit ${PIPESTATUS[0]}
 
       - name: Publish Release
         if: startsWith(github.ref, 'refs/tags/')
@@ -71,13 +75,10 @@ jobs:
           echo "Tag: $TAG"
           if [ -z "$APK" ]; then
             echo "ERROR: No APK found"
-            find src-tauri/gen/android -name "*.apk" 2>/dev/null || true
             exit 1
           fi
-          echo "Creating release..."
           gh release create "$TAG" "$APK" \
             --repo "$GITHUB_REPOSITORY" \
             --title "$TAG" \
             --notes "Tauri v2 Android APK — universal build" \
             --draft
-          echo "Done!"

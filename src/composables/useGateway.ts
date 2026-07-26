@@ -284,7 +284,7 @@ export function useGateway() {
   ): Promise<Message | null> {
     const result = await rpcRequest('prompt.submit', {
       session_id: sessionId,
-      prompt: text,
+      text,
     })
 
     if (result?.response) {

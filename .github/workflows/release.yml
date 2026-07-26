@@ -58,7 +58,7 @@ jobs:
           echo "${{ secrets.KEYSTORE }}" | base64 -d > ${{ runner.temp }}/release.jks
 
       - name: Patch build.gradle for signing
-        run: python3 scripts/setup-signing.py
+        run: bash scripts/setup-signing.sh
 
       - name: Build frontend
         run: npm run build

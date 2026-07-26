@@ -73,7 +73,7 @@ export function useGateway() {
     error.value = ''
     try {
       const base = baseUrl.replace(/\/$/, '')
-      const url = `${base}/api/sessions?limit=40&offset=0&min_messages=1&archived=exclude&order=recent`
+      const url = `${base}/api/sessions?limit=40&offset=0&min_messages=1&archived=exclude&order=recent&source=desktop`
       const response = await fetchWithTimeout(url, {
         method: 'GET',
         credentials: 'same-origin',

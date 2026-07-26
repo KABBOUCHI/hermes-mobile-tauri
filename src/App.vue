@@ -106,7 +106,7 @@ function goBack() {
 
 function disconnect() {
   gw.disconnectWs()
-  auth.clearCredentials()
+  auth.clearSession()
   gw.sessions.value = []
   gw.messages.value = []
   selectedSessionId.value = ''

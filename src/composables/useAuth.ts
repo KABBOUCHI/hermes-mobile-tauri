@@ -2,7 +2,6 @@ import { ref } from 'vue'
 import { load } from '@tauri-apps/plugin-store'
 import { fetch } from '@tauri-apps/plugin-http'
 
-// Plain variable — Vue reactivity would try to proxy private fields
 let storeInstance: Awaited<ReturnType<typeof load>> | null = null
 
 const gatewayUrl = ref('')
@@ -27,54 +26,48 @@ async function initStore() {
 }
 
 export function useAuth() {
-  async function loadSavedCredentials(): Promise<boolean> {
+  async function loadSavedSession(): Promise<boolean> {
     try {
       const s = await initStore()
       const savedUrl = (await s.get<string>('gateway_url')) || ''
-      const savedUser = (await s.get<string>('gateway_user')) || ''
-      const savedPass = (await s.get<string>('gateway_pass')) || ''
       const savedCookie = (await s.get<string>('session_cookie')) || ''
 
-      gatewayUrl.value = savedUrl
-      username.value = savedUser
-      password.value = savedPass
-      sessionCookie.value = savedCookie
+      if (!savedUrl || !savedCookie) return false
 
-      return !!(savedUrl && savedUser && savedPass)
+      gatewayUrl.value = savedUrl
+      sessionCookie.value = savedCookie
+      return true
     } catch (err) {
-      console.warn('[useAuth] loadSavedCredentials:', err)
+      console.warn('[useAuth] loadSavedSession:', err)
       return false
     }
   }
 
-  async function saveCredentials() {
+  async function saveSession() {
     try {
       const s = await initStore()
       await s.set('gateway_url', gatewayUrl.value)
-      await s.set('gateway_user', username.value)
-      await s.set('gateway_pass', password.value)
       await s.set('session_cookie', sessionCookie.value)
     } catch (err) {
-      console.warn('[useAuth] saveCredentials:', err)
+      console.warn('[useAuth] saveSession:', err)
     }
   }
 
-  async function clearCredentials() {
+  async function clearSession() {
     try {
       const s = await initStore()
       await s.set('gateway_url', '')
-      await s.set('gateway_user', '')
-      await s.set('gateway_pass', '')
       await s.set('session_cookie', '')
     } catch {}
 
     gatewayUrl.value = ''
-    username.value = ''
-    password.value = ''
     sessionCookie.value = ''
     isConnected.value = false
   }
 
+  /**
+   * POST /auth/password-login → extract hermes_session_rt cookie.
+   */
   async function doLogin(): Promise<void> {
     const base = gatewayUrl.value.replace(/\/$/, '')
     const url = `${base}/auth/password-login`
@@ -138,6 +131,9 @@ export function useAuth() {
     return data.ticket || ''
   }
 
+  /**
+   * Full login: password → cookie → validate → save.
+   */
   async function connect(): Promise<void> {
     const url = gatewayUrl.value.trim()
     if (!url) throw new Error('Please enter a gateway URL')
@@ -146,19 +142,23 @@ export function useAuth() {
     }
     await doLogin()
     await fetchStatus()
-    await saveCredentials()
+    await saveSession()
     isConnected.value = true
   }
 
+  /**
+   * Reopen: try saved cookie → validate → save fresh cookie.
+   */
   async function tryAutoLogin(): Promise<boolean> {
-    const hasCreds = await loadSavedCredentials()
-    if (!hasCreds) return false
+    const hasSession = await loadSavedSession()
+    if (!hasSession) return false
     try {
-      await doLogin()
+      // Try cookie directly — no need to re-login
       await fetchStatus()
       isConnected.value = true
       return true
     } catch {
+      // Cookie expired — need fresh login
       return false
     }
   }
@@ -169,9 +169,9 @@ export function useAuth() {
     password,
     isConnected,
     sessionCookie,
-    loadSavedCredentials,
-    saveCredentials,
-    clearCredentials,
+    loadSavedSession,
+    saveSession,
+    clearSession,
     doLogin,
     fetchStatus,
     fetchWsTicket,

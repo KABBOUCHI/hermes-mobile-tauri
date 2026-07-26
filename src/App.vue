@@ -24,12 +24,27 @@ const selectedSessionTitle = computed(() => {
 
 // ── Boot ───────────────────────────────────────────
 onMounted(async () => {
-  const ok = await auth.tryAutoLogin()
-  if (ok) {
-    await gw.fetchSessions(auth.gatewayUrl.value, auth.buildHeaders())
-    view.value = 'sessions'
-  } else {
+  // Safety: force connect view if boot hangs
+  const bootTimer = setTimeout(() => {
+    if (view.value === 'loading') {
+      console.warn('[boot] stuck on loading, forcing connect view')
+      view.value = 'connect'
+    }
+  }, 5000)
+
+  try {
+    const ok = await auth.tryAutoLogin()
+    if (ok) {
+      await gw.fetchSessions(auth.gatewayUrl.value, auth.buildHeaders())
+      view.value = 'sessions'
+    } else {
+      view.value = 'connect'
+    }
+  } catch (err: any) {
+    console.error('[boot] unexpected error:', err)
     view.value = 'connect'
+  } finally {
+    clearTimeout(bootTimer)
   }
 })
 
@@ -47,7 +62,9 @@ async function handleConnect(url: string, user: string, pass: string) {
     await gw.fetchSessions(url, auth.buildHeaders())
     view.value = 'sessions'
   } catch (err: any) {
-    connectError.value = err.message || 'Connection failed'
+    const msg = err.message || 'Connection failed'
+    connectError.value = msg
+    alert('Connection failed: ' + msg)
   } finally {
     connectLoading.value = false
   }
@@ -55,13 +72,19 @@ async function handleConnect(url: string, user: string, pass: string) {
 
 // ── Sessions ───────────────────────────────────────
 async function refreshSessions() {
-  await gw.fetchSessions(auth.gatewayUrl.value, auth.buildHeaders())
+  try {
+    await gw.fetchSessions(auth.gatewayUrl.value, auth.buildHeaders())
+  } catch (err: any) {
+    alert('Failed to refresh: ' + (err.message || 'Unknown error'))
+  }
 }
 
 function openSession(id: string) {
   selectedSessionId.value = id
   view.value = 'chat'
-  gw.fetchMessages(auth.gatewayUrl.value, id, auth.buildHeaders())
+  gw.fetchMessages(auth.gatewayUrl.value, id, auth.buildHeaders()).catch(err => {
+    alert('Failed to load messages: ' + (err.message || 'Unknown error'))
+  })
 }
 
 function goBack() {
@@ -97,6 +120,7 @@ async function handleSend(text: string) {
       content: 'Failed to send: ' + (err.message || 'Unknown error'),
       timestamp: Date.now() / 1000,
     })
+    alert('Send failed: ' + (err.message || 'Unknown error'))
   } finally {
     sending.value = false
   }

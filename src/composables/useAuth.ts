@@ -7,6 +7,24 @@ const username = ref('')
 const password = ref('')
 const isConnected = ref(false)
 
+const FETCH_TIMEOUT = 8000
+const STORE_TIMEOUT = 3000
+
+function fetchWithTimeout(url: string, init: RequestInit, ms: number): Promise<Response> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), ms)
+  return fetch(url, { ...init, signal: controller.signal }).finally(() => clearTimeout(timer))
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
+    ),
+  ])
+}
+
 export function useAuth() {
   const authHeader = computed(() => {
     if (!username.value || !password.value) return ''
@@ -15,38 +33,53 @@ export function useAuth() {
 
   async function initStore() {
     if (!store.value) {
-      store.value = await Store.load('settings.json')
+      store.value = await withTimeout(
+        Store.load('settings.json'),
+        STORE_TIMEOUT,
+        'Store.load'
+      )
     }
     return store.value
   }
 
-  async function loadSavedCredentials() {
-    const s = await initStore()
-    const savedUrl = await s.get<string>('gateway_url')
-    const savedUser = await s.get<string>('gateway_user')
-    const savedPass = await s.get<string>('gateway_pass')
+  async function loadSavedCredentials(): Promise<boolean> {
+    try {
+      const s = await initStore()
+      const savedUrl = await s.get<string>('gateway_url')
+      const savedUser = await s.get<string>('gateway_user')
+      const savedPass = await s.get<string>('gateway_pass')
 
-    if (savedUrl) gatewayUrl.value = savedUrl
-    if (savedUser) username.value = savedUser
-    if (savedPass) password.value = savedPass
+      if (savedUrl) gatewayUrl.value = savedUrl
+      if (savedUser) username.value = savedUser
+      if (savedPass) password.value = savedPass
 
-    return !!(savedUrl && savedUser && savedPass)
+      return !!(savedUrl && savedUser && savedPass)
+    } catch (err) {
+      console.warn('[useAuth] loadSavedCredentials:', err)
+      return false
+    }
   }
 
   async function saveCredentials() {
-    const s = await initStore()
-    await s.set('gateway_url', gatewayUrl.value)
-    await s.set('gateway_user', username.value)
-    await s.set('gateway_pass', password.value)
-    await s.save()
+    try {
+      const s = await initStore()
+      await s.set('gateway_url', gatewayUrl.value)
+      await s.set('gateway_user', username.value)
+      await s.set('gateway_pass', password.value)
+      await s.save()
+    } catch (err) {
+      console.warn('[useAuth] saveCredentials:', err)
+    }
   }
 
   async function clearCredentials() {
-    const s = await initStore()
-    await s.delete('gateway_url')
-    await s.delete('gateway_user')
-    await s.delete('gateway_pass')
-    await s.save()
+    try {
+      const s = await initStore()
+      await s.delete('gateway_url')
+      await s.delete('gateway_user')
+      await s.delete('gateway_pass')
+      await s.save()
+    } catch {}
 
     gatewayUrl.value = ''
     username.value = ''
@@ -56,10 +89,10 @@ export function useAuth() {
 
   async function fetchStatus(): Promise<any> {
     const base = gatewayUrl.value.replace(/\/$/, '')
-    const response = await fetch(`${base}/api/status`, {
+    const response = await fetchWithTimeout(`${base}/api/status`, {
       method: 'GET',
       headers: { 'Authorization': authHeader.value },
-    })
+    }, FETCH_TIMEOUT)
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
     return await response.json()
   }

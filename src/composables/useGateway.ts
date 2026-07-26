@@ -1,5 +1,13 @@
 import { ref } from 'vue'
 
+const FETCH_TIMEOUT = 12000
+
+function fetchWithTimeout(url: string, init: RequestInit, ms: number): Promise<Response> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), ms)
+  return fetch(url, { ...init, signal: controller.signal }).finally(() => clearTimeout(timer))
+}
+
 export interface Session {
   id: string
   title: string
@@ -65,11 +73,11 @@ export function useGateway() {
     try {
       const base = baseUrl.replace(/\/$/, '')
       const url = `${base}/api/sessions?limit=40&offset=0&min_messages=1&archived=exclude&order=recent`
-      const response = await fetch(url, {
+      const response = await fetchWithTimeout(url, {
         method: 'GET',
         headers,
         credentials: 'same-origin',
-      })
+      }, FETCH_TIMEOUT)
       if (!response.ok) throw new Error('HTTP ' + response.status)
       const data = await response.json()
       sessions.value = data.sessions || []
@@ -88,11 +96,11 @@ export function useGateway() {
     try {
       const base = baseUrl.replace(/\/$/, '')
       const url = `${base}/api/sessions/${sessionId}/messages`
-      const response = await fetch(url, {
+      const response = await fetchWithTimeout(url, {
         method: 'GET',
         headers: { ...headers, 'Content-Type': 'application/json' },
         credentials: 'same-origin',
-      })
+      }, FETCH_TIMEOUT)
       if (!response.ok) throw new Error('HTTP ' + response.status)
       const data = await response.json()
       const raw = data.messages || []

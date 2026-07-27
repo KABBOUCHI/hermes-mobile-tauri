@@ -137,6 +137,57 @@ function disconnect() {
   view.value = 'connect'
 }
 
+// ── Export Chat ─────────────────────────────────────
+async function exportChat() {
+  const msgs = gw.messages.value
+  if (!msgs || msgs.length === 0) {
+    alert('No messages to export')
+    return
+  }
+
+  const title = selectedSessionTitle.value || 'Hermes Chat'
+  const now = new Date()
+  const dateStr = now.toISOString().slice(0, 10)
+
+  let md = `# ${title}\n`
+  md += `*Exported ${dateStr}*\n\n---\n\n`
+
+  for (const msg of msgs) {
+    const role = msg.role === 'user' ? '**You**' : '**Assistant**'
+    const time = msg.timestamp
+      ? new Date(msg.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      : ''
+    md += `### ${role}${time ? '  ·  ' + time : ''}\n\n`
+    md += `${msg.content}\n\n---\n\n`
+  }
+
+  // Try native share (Android / iOS), fall back to clipboard
+  try {
+    if (navigator.share) {
+      await navigator.share({ title, text: md })
+    } else if (navigator.clipboard) {
+      await navigator.clipboard.writeText(md)
+      alert('Chat copied to clipboard')
+    } else {
+      alert('Export not available on this device')
+    }
+  } catch (err: any) {
+    // User cancelled share sheet — not an error
+    if (err?.name === 'AbortError') return
+    // Fallback: clipboard
+    try {
+      if (navigator.clipboard) {
+        await navigator.clipboard.writeText(md)
+        alert('Chat copied to clipboard')
+      } else {
+        alert('Export failed: ' + (err?.message || 'Unknown error'))
+      }
+    } catch {
+      alert('Export failed')
+    }
+  }
+}
+
 // ── Chat ───────────────────────────────────────────
 async function handleSend(text: string) {
   if (sending.value) return
@@ -218,6 +269,7 @@ async function handleSend(text: string) {
       :session-title="selectedSessionTitle"
       @back="goBack"
       @send="handleSend"
+      @export="exportChat"
     />
 
     <!-- Cron Jobs -->

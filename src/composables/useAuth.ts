@@ -4,6 +4,7 @@ import { fetch } from '@tauri-apps/plugin-http'
 
 let storeInstance: Awaited<ReturnType<typeof load>> | null = null
 
+// ── Module-level singleton state ───────────────────
 const gatewayUrl = ref('')
 const username = ref('')
 const password = ref('')
@@ -65,9 +66,6 @@ export function useAuth() {
     isConnected.value = false
   }
 
-  /**
-   * POST /auth/password-login → extract hermes_session_rt cookie.
-   */
   async function doLogin(): Promise<void> {
     const base = gatewayUrl.value.replace(/\/$/, '')
     const url = `${base}/auth/password-login`
@@ -83,7 +81,6 @@ export function useAuth() {
       }),
     }, FETCH_TIMEOUT)
 
-    // Extract cookie
     try {
       const setCookie = resp.headers.getSetCookie?.()
       if (setCookie && Array.isArray(setCookie)) {
@@ -131,9 +128,6 @@ export function useAuth() {
     return data.ticket || ''
   }
 
-  /**
-   * Full login: password → cookie → validate → save.
-   */
   async function connect(): Promise<void> {
     const url = gatewayUrl.value.trim()
     if (!url) throw new Error('Please enter a gateway URL')
@@ -146,19 +140,14 @@ export function useAuth() {
     isConnected.value = true
   }
 
-  /**
-   * Reopen: try saved cookie → validate → save fresh cookie.
-   */
   async function tryAutoLogin(): Promise<boolean> {
     const hasSession = await loadSavedSession()
     if (!hasSession) return false
     try {
-      // Try cookie directly — no need to re-login
       await fetchStatus()
       isConnected.value = true
       return true
     } catch {
-      // Cookie expired — need fresh login
       return false
     }
   }

@@ -18,6 +18,7 @@ const emit = defineEmits<{
   (e: 'disconnect'): void
   (e: 'new-session'): void
   (e: 'delete-session', id: string): void
+  (e: 'open-cron'): void
 }>()
 
 const search = ref('')
@@ -149,6 +150,9 @@ function formatCount(n: number): string {
         </div>
       </div>
       <div class="HeaderActions">
+        <button class="CronBtn" @click="emit('open-cron')" title="Cron jobs">
+          ⏰
+        </button>
         <button class="NewSessionBtn" @click="emit('new-session')" title="New session">
           +
         </button>
@@ -335,6 +339,23 @@ function formatCount(n: number): string {
 }
 
 .NewSessionBtn:hover { opacity: 0.9; }
+
+.CronBtn {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.CronBtn:hover { background-color: var(--surface-2); }
 
 .RefreshBtn {
   width: 36px;

@@ -5,11 +5,12 @@ import { useGateway } from './composables/useGateway'
 import ConnectView from './views/ConnectView.vue'
 import SessionsView from './views/SessionsView.vue'
 import MessageView from './views/MessageView.vue'
+import CronView from './views/CronView.vue'
 
 const auth = useAuth()
 const gw = useGateway()
 
-type View = 'loading' | 'connect' | 'sessions' | 'chat'
+type View = 'loading' | 'connect' | 'sessions' | 'chat' | 'cron'
 const view = ref<View>('loading')
 const selectedSessionId = ref('')
 const sending = ref(false)
@@ -107,6 +108,14 @@ function goBack() {
   view.value = 'sessions'
 }
 
+function goToCron() {
+  view.value = 'cron'
+}
+
+function goBackFromCron() {
+  view.value = 'sessions'
+}
+
 function createNewSession() {
   selectedSessionId.value = ''
   isNewSession.value = true
@@ -195,6 +204,7 @@ async function handleSend(text: string) {
       @disconnect="disconnect"
       @new-session="createNewSession"
       @delete-session="deleteSession"
+      @open-cron="goToCron"
     />
 
     <!-- Chat -->
@@ -208,6 +218,14 @@ async function handleSend(text: string) {
       :session-title="selectedSessionTitle"
       @back="goBack"
       @send="handleSend"
+    />
+
+    <!-- Cron Jobs -->
+    <CronView
+      v-else-if="view === 'cron'"
+      :gateway-url="auth.gatewayUrl.value"
+      :cookie="auth.sessionCookie.value"
+      @back="goBackFromCron"
     />
   </div>
 </template>

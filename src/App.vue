@@ -1,68 +1,34 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { onMounted, onUnmounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { openUrl } from '@tauri-apps/plugin-opener'
 import { useAuth } from './composables/useAuth'
 import { useGateway } from './composables/useGateway'
 import { usePins } from './composables/usePins'
-import ConnectView from './views/ConnectView.vue'
-import SessionsView from './views/SessionsView.vue'
-import MessageView from './views/MessageView.vue'
-import CronView from './views/CronView.vue'
 
+const router = useRouter()
 const auth = useAuth()
 const gw = useGateway()
 const pins = usePins()
 
-type View = 'loading' | 'connect' | 'sessions' | 'chat' | 'cron'
-const view = ref<View>('loading')
-const selectedSessionId = ref('')
-const sending = ref(false)
-const connectLoading = ref(false)
-const connectError = ref('')
-const isNewSession = ref(false)
-const pinnedIds = ref<string[]>([])
-
-const selectedSessionTitle = computed(() => {
-  if (!selectedSessionId.value) return 'Session'
-  const s = gw.sessions.value.find(s => s.id === selectedSessionId.value)
-  return s?.title || 'Session'
-})
-
-async function loadPinnedIds() {
-  pinnedIds.value = await pins.getPinnedIds()
-}
-
-async function startGateway() {
-  await gw.connectWs(
-    auth.gatewayUrl.value,
-    auth.sessionCookie.value,
-    auth.fetchWsTicket,
-  )
-}
-
-// ── Boot ───────────────────────────────────────────
 // ── Global link handler: open external links in system browser ──
 function handleGlobalClick(e: Event) {
   const target = e.target as HTMLElement
-  // Walk up from the click target to find an <a> tag
   const anchor = target.closest('a') as HTMLAnchorElement | null
   if (!anchor) return
 
   const href = anchor.getAttribute('href')
   if (!href) return
 
-  // Only intercept external links (http/https)
   if (href.startsWith('http://') || href.startsWith('https://')) {
     e.preventDefault()
     e.stopPropagation()
     openUrl(href).catch(() => {
-      // Fallback: try window.open for non-Tauri environments
       window.open(href, '_blank')
     })
     return
   }
 
-  // Also handle mailto: and tel: links
   if (href.startsWith('mailto:') || href.startsWith('tel:')) {
     e.preventDefault()
     e.stopPropagation()
@@ -89,7 +55,6 @@ function handleGlobalCopy(e: Event) {
     target.textContent = 'Copied!'
     setTimeout(() => { target.textContent = 'Copy' }, 1500)
   }).catch(() => {
-    // Fallback: select + execCommand
     const range = document.createRange()
     range.selectNodeContents(codeEl)
     const sel = window.getSelection()
@@ -104,30 +69,34 @@ function handleGlobalCopy(e: Event) {
   })
 }
 
+// ── Boot ───────────────────────────────────────────
 onMounted(async () => {
-  // Global delegated handlers for links and code copy
   document.addEventListener('click', handleGlobalClick, true)
   document.addEventListener('click', handleGlobalCopy, true)
 
   const bootTimer = setTimeout(() => {
-    if (view.value === 'loading') {
+    if (router.currentRoute.value.name === 'loading') {
       console.warn('[boot] stuck on loading, forcing connect view')
-      view.value = 'connect'
+      router.replace({ name: 'connect' })
     }
   }, 5000)
 
   try {
     const ok = await auth.tryAutoLogin()
     if (ok) {
-      await Promise.all([gw.fetchSessions(auth.gatewayUrl.value), loadPinnedIds()])
-      await startGateway()
-      view.value = 'sessions'
+      await Promise.all([gw.fetchSessions(auth.gatewayUrl.value), pins.getPinnedIds()])
+      await gw.connectWs(
+        auth.gatewayUrl.value,
+        auth.sessionCookie.value,
+        auth.fetchWsTicket,
+      )
+      router.replace({ name: 'sessions' })
     } else {
-      view.value = 'connect'
+      router.replace({ name: 'connect' })
     }
   } catch (err: any) {
     console.error('[boot] unexpected error:', err)
-    view.value = 'connect'
+    router.replace({ name: 'connect' })
   } finally {
     clearTimeout(bootTimer)
   }
@@ -138,280 +107,15 @@ onUnmounted(() => {
   document.removeEventListener('click', handleGlobalCopy, true)
   gw.disconnectWs()
 })
-
-// ── Connect ────────────────────────────────────────
-async function handleConnect(url: string, user: string, pass: string) {
-  connectLoading.value = true
-  connectError.value = ''
-
-  auth.gatewayUrl.value = url
-  auth.username.value = user
-  auth.password.value = pass
-
-  try {
-    await auth.connect()
-    await Promise.all([gw.fetchSessions(url), loadPinnedIds()])
-    await startGateway()
-    view.value = 'sessions'
-  } catch (err: any) {
-    const msg = err.message || 'Connection failed'
-    connectError.value = msg
-  } finally {
-    connectLoading.value = false
-  }
-}
-
-// ── Sessions ───────────────────────────────────────
-async function refreshSessions() {
-  try {
-    await gw.fetchSessions(auth.gatewayUrl.value)
-    await loadPinnedIds()
-  } catch (err: any) {
-    alert('Failed to refresh: ' + (err.message || 'Unknown error'))
-  }
-}
-
-function openSession(id: string) {
-  selectedSessionId.value = id
-  view.value = 'chat'
-  gw.fetchMessages(auth.gatewayUrl.value, id).catch(err => {
-    alert('Failed to load messages: ' + (err.message || 'Unknown error'))
-  })
-}
-
-function goBack() {
-  selectedSessionId.value = ''
-  isNewSession.value = false
-  gw.messages.value = []
-  view.value = 'sessions'
-}
-
-function goToCron() {
-  view.value = 'cron'
-}
-
-function goBackFromCron() {
-  view.value = 'sessions'
-}
-
-function createNewSession() {
-  selectedSessionId.value = ''
-  isNewSession.value = true
-  gw.messages.value = []
-  view.value = 'chat'
-}
-
-async function deleteSession(id: string) {
-  const ok = await gw.deleteSession(auth.gatewayUrl.value, id)
-  if (!ok) {
-    alert('Failed to delete session')
-    return
-  }
-  // If pinned, unpin
-  if (pinnedIds.value.includes(id)) {
-    await pins.unpinSession(id)
-    await pins.setSessionPinnedRemote(id, false, auth.gatewayUrl.value, auth.sessionCookie.value)
-    pinnedIds.value = await pins.getPinnedIds()
-  }
-}
-
-function disconnect() {
-  gw.disconnectWs()
-  auth.clearSession()
-  gw.sessions.value = []
-  gw.messages.value = []
-  selectedSessionId.value = ''
-  pinnedIds.value = []
-  view.value = 'connect'
-}
-
-async function handleTogglePin(sessionId: string) {
-  const isNowPinned = await pins.togglePin(sessionId)
-  await pins.setSessionPinnedRemote(
-    sessionId,
-    isNowPinned,
-    auth.gatewayUrl.value,
-    auth.sessionCookie.value,
-  )
-  pinnedIds.value = await pins.getPinnedIds()
-}
-
-// ── Export Chat ─────────────────────────────────────
-async function exportChat() {
-  const msgs = gw.messages.value
-  if (!msgs || msgs.length === 0) {
-    alert('No messages to export')
-    return
-  }
-
-  const title = selectedSessionTitle.value || 'Hermes Chat'
-  const now = new Date()
-  const dateStr = now.toISOString().slice(0, 10)
-
-  let md = `# ${title}\n`
-  md += `*Exported ${dateStr}*\n\n---\n\n`
-
-  for (const msg of msgs) {
-    const role = msg.role === 'user' ? '**You**' : '**Assistant**'
-    const time = msg.timestamp
-      ? new Date(msg.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      : ''
-    md += `### ${role}${time ? '  ·  ' + time : ''}\n\n`
-    md += `${msg.content}\n\n---\n\n`
-  }
-
-  // Try native share (Android / iOS), fall back to clipboard
-  try {
-    if (navigator.share) {
-      await navigator.share({ title, text: md })
-    } else if (navigator.clipboard) {
-      await navigator.clipboard.writeText(md)
-      alert('Chat copied to clipboard')
-    } else {
-      alert('Export not available on this device')
-    }
-  } catch (err: any) {
-    // User cancelled share sheet — not an error
-    if (err?.name === 'AbortError') return
-    // Fallback: clipboard
-    try {
-      if (navigator.clipboard) {
-        await navigator.clipboard.writeText(md)
-        alert('Chat copied to clipboard')
-      } else {
-        alert('Export failed: ' + (err?.message || 'Unknown error'))
-      }
-    } catch {
-      alert('Export failed')
-    }
-  }
-}
-
-// ── Regenerate ───────────────────────────────────────
-async function handleRegenerate() {
-  if (sending.value) return
-  if (!selectedSessionId.value) return
-
-  sending.value = true
-  try {
-    await gw.regenerateLastMessage(auth.gatewayUrl.value, selectedSessionId.value)
-  } catch (err: any) {
-    alert('Regenerate failed: ' + (err.message || 'Unknown error'))
-  } finally {
-    sending.value = false
-  }
-}
-
-// ── Stop / Interrupt ─────────────────────────────────
-async function handleStop() {
-  const runtimeId = gw.activeRuntimeId.value
-  if (!runtimeId) {
-    sending.value = false
-    return
-  }
-  try {
-    await gw.interruptSession(runtimeId)
-  } catch {
-    // Best-effort — the turn may have already completed
-  }
-  sending.value = false
-}
-
-// ── Chat ───────────────────────────────────────────
-async function handleSend(text: string) {
-  if (sending.value) return
-  sending.value = true
-
-  // Generate session ID for new sessions
-  if (!selectedSessionId.value) {
-    selectedSessionId.value = crypto.randomUUID()
-  }
-
-  // Optimistic user message
-  gw.messages.value.push({
-    role: 'user',
-    content: text,
-    timestamp: Date.now() / 1000,
-  })
-  try {
-    const result = await gw.sendMessage(auth.gatewayUrl.value, selectedSessionId.value, text, isNewSession.value)
-    // If this was a new session, update the ID with the server-assigned one
-    if (result?.newSessionId) {
-      selectedSessionId.value = result.newSessionId
-      isNewSession.value = false
-    }
-  } catch (err: any) {
-    gw.messages.value.push({
-      role: 'assistant',
-      content: 'Failed to send: ' + (err.message || 'Unknown error'),
-      timestamp: Date.now() / 1000,
-    })
-    alert('Send failed: ' + (err.message || 'Unknown error'))
-  } finally {
-    sending.value = false
-  }
-}
 </script>
 
 <template>
   <div class="Root">
-    <!-- Loading -->
-    <div v-if="view === 'loading'" class="StateView">
+    <!-- Loading state while boot resolves -->
+    <div v-if="router.currentRoute.value.name === 'loading'" class="StateView">
       <div class="Loader" />
     </div>
-
-    <!-- Connect -->
-    <ConnectView
-      v-else-if="view === 'connect'"
-      :loading="connectLoading"
-      :error="connectError"
-      @connect="handleConnect"
-    />
-
-    <!-- Sessions -->
-    <SessionsView
-      v-else-if="view === 'sessions'"
-      :sessions="gw.sessions.value"
-      :loading="gw.loading.value"
-      :error="gw.error.value"
-      :connected="auth.isConnected.value"
-      :gateway-url="auth.gatewayUrl.value"
-      :relative-time="gw.relativeTime"
-      :model-short="gw.modelShort"
-      :pinned-ids="pinnedIds"
-      @open="openSession"
-      @refresh="refreshSessions"
-      @disconnect="disconnect"
-      @new-session="createNewSession"
-      @delete-session="deleteSession"
-      @open-cron="goToCron"
-      @toggle-pin="handleTogglePin"
-    />
-
-    <!-- Chat -->
-    <MessageView
-      v-else-if="view === 'chat'"
-      :messages="gw.messages.value"
-      :loading="gw.loading.value"
-      :error="gw.error.value"
-      :sending="sending"
-      :turn-started-at="gw.turnStartedAt.value"
-      :format-time="gw.formatTime"
-      :session-title="selectedSessionTitle"
-      @back="goBack"
-      @send="handleSend"
-      @export="exportChat"
-      @regenerate="handleRegenerate"
-      @stop="handleStop"
-    />
-
-    <!-- Cron Jobs -->
-    <CronView
-      v-else-if="view === 'cron'"
-      :gateway-url="auth.gatewayUrl.value"
-      :cookie="auth.sessionCookie.value"
-      @back="goBackFromCron"
-    />
+    <router-view v-else />
   </div>
 </template>
 

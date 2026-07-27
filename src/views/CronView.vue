@@ -1,15 +1,11 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { fetch } from '@tauri-apps/plugin-http'
+import { useAuth } from '../composables/useAuth'
 
-const props = defineProps<{
-  gatewayUrl: string
-  cookie: string
-}>()
-
-const emit = defineEmits<{
-  (e: 'back'): void
-}>()
+const router = useRouter()
+const auth = useAuth()
 
 interface CronJob {
   id: string
@@ -37,9 +33,9 @@ async function fetchJobs() {
   loading.value = true
   error.value = ''
   try {
-    const base = props.gatewayUrl.replace(/\/$/, '')
+    const base = auth.gatewayUrl.value.replace(/\/$/, '')
     const headers: Record<string, string> = {}
-    if (props.cookie) headers['Cookie'] = props.cookie
+    if (auth.sessionCookie.value) headers['Cookie'] = auth.sessionCookie.value
     const resp = await fetchWithTimeout(
       `${base}/api/jobs`,
       { method: 'GET', headers, credentials: 'same-origin' },
@@ -60,7 +56,6 @@ function relativeTime(ts: number | null): string {
   const now = Date.now() / 1000
   const diff = now - ts
   if (diff < 0) {
-    // Future
     const abs = Math.abs(diff)
     if (abs < 60) return 'in ' + Math.floor(abs) + 's'
     if (abs < 3600) return 'in ' + Math.floor(abs / 60) + 'm'
@@ -78,6 +73,10 @@ function truncate(text: string, max: number): string {
   return text.length > max ? text.slice(0, max) + '…' : text
 }
 
+function goBack() {
+  router.push({ name: 'sessions' })
+}
+
 onMounted(fetchJobs)
 </script>
 
@@ -85,7 +84,7 @@ onMounted(fetchJobs)
   <div class="CronView">
     <!-- Header -->
     <div class="Header">
-      <button class="BackBtn" @click="emit('back')">
+      <button class="BackBtn" @click="goBack">
         <span class="BackArrow">←</span>
         <span class="BackText">Back</span>
       </button>

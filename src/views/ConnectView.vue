@@ -1,25 +1,47 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { useRouter } from 'vue-router'
+import { useAuth } from '../composables/useAuth'
+import { useGateway } from '../composables/useGateway'
+import { usePins } from '../composables/usePins'
 
-const emit = defineEmits<{
-  (e: 'connect', url: string, user: string, pass: string): void
-}>()
-
-const props = defineProps<{
-  loading: boolean
-  error: string
-}>()
+const router = useRouter()
+const auth = useAuth()
+const gw = useGateway()
+const pins = usePins()
 
 const url = ref('https://hermes.kabbouchi.cloud')
 const user = ref('admin')
 const pass = ref('')
 const showPass = ref(false)
+const loading = ref(false)
+const error = ref('')
 
-const canConnect = computed(() => url.value.trim() && user.value.trim() && pass.value && !props.loading)
+const canConnect = computed(() => url.value.trim() && user.value.trim() && pass.value && !loading.value)
 
-function handleConnect() {
+async function handleConnect() {
   if (!canConnect.value) return
-  emit('connect', url.value.trim(), user.value, pass.value)
+  loading.value = true
+  error.value = ''
+
+  auth.gatewayUrl.value = url.value.trim()
+  auth.username.value = user.value
+  auth.password.value = pass.value
+
+  try {
+    await auth.connect()
+    await Promise.all([gw.fetchSessions(auth.gatewayUrl.value), pins.getPinnedIds()])
+    await gw.connectWs(
+      auth.gatewayUrl.value,
+      auth.sessionCookie.value,
+      auth.fetchWsTicket,
+    )
+    router.push({ name: 'sessions' })
+  } catch (err: any) {
+    error.value = err.message || 'Connection failed'
+  } finally {
+    loading.value = false
+  }
 }
 </script>
 

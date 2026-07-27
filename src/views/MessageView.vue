@@ -1,31 +1,35 @@
 <script setup lang="ts">
-import { ref, computed, watch, nextTick } from 'vue'
+import { ref, computed, watch, nextTick, onMounted } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { renderMarkdown } from '../utils/markdown'
+import { useAuth } from '../composables/useAuth'
+import { useGateway } from '../composables/useGateway'
 
-interface Message {
-  role: string
-  content: string
-  timestamp: number
-}
+const router = useRouter()
+const route = useRoute()
+const auth = useAuth()
+const gw = useGateway()
 
-const props = defineProps<{
-  messages: Message[]
-  loading: boolean
-  error: string
-  sending: boolean
-  turnStartedAt: number | null
-  formatTime: (ts: number) => string
-  sessionTitle: string
-}>()
+const sending = ref(false)
+const selectedSessionId = ref((route.params.id as string) || '')
+const isNewSession = ref(!selectedSessionId.value)
 
-const emit = defineEmits<{
-  (e: 'back'): void
-  (e: 'send', text: string): void
-  (e: 'refresh'): void
-  (e: 'export'): void
-  (e: 'regenerate'): void
-  (e: 'stop'): void
-}>()
+const selectedSessionTitle = computed(() => {
+  if (!selectedSessionId.value) return 'New Chat'
+  const s = gw.sessions.value.find(s => s.id === selectedSessionId.value)
+  return s?.title || 'Session'
+})
+
+// Load messages when entering with an existing session
+onMounted(async () => {
+  if (selectedSessionId.value) {
+    try {
+      await gw.fetchMessages(auth.gatewayUrl.value, selectedSessionId.value)
+    } catch (err: any) {
+      alert('Failed to load messages: ' + (err.message || 'Unknown error'))
+    }
+  }
+})
 
 const input = ref('')
 const scrollEl = ref<HTMLElement | null>(null)
@@ -58,8 +62,8 @@ function computeMatches() {
     return
   }
   const indices: number[] = []
-  for (let i = 0; i < props.messages.length; i++) {
-    const msg = props.messages[i]
+  for (let i = 0; i < gw.messages.value.length; i++) {
+    const msg = gw.messages.value[i]
     if (msg.content && msg.content.toLowerCase().includes(q)) {
       indices.push(i)
     }
@@ -67,7 +71,6 @@ function computeMatches() {
   matchIndices.value = indices
   currentMatchIdx.value = indices.length > 0 ? 0 : -1
 
-  // Scroll to first match
   if (indices.length > 0) {
     scrollToMatch(indices[0])
   }
@@ -98,7 +101,6 @@ function scrollToMatch(msgIndex: number) {
 
 function highlightText(content: string, query: string): string {
   if (!query.trim() || !content) return renderMarkdown(content)
-  // We'll use a post-render approach: render markdown, then highlight
   const rendered = renderMarkdown(content)
   const escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const regex = new RegExp(`(${escapedQuery})`, 'gi')
@@ -127,14 +129,50 @@ function handleSearchKeydown(e: KeyboardEvent) {
   }
 }
 
+function goBack() {
+  router.push({ name: 'sessions' })
+}
+
 function handleSend() {
   const text = input.value.trim()
-  if (!text || props.sending) return
-  emit('send', text)
+  if (!text || sending.value) return
+  sending.value = true
+
+  // Generate session ID for new sessions
+  if (!selectedSessionId.value) {
+    selectedSessionId.value = crypto.randomUUID()
+  }
+
+  // Optimistic user message
+  gw.messages.value.push({
+    role: 'user',
+    content: text,
+    timestamp: Date.now() / 1000,
+  })
+
   input.value = ''
   if (inputEl.value) {
     inputEl.value.style.height = 'auto'
   }
+
+  gw.sendMessage(auth.gatewayUrl.value, selectedSessionId.value, text, isNewSession.value)
+    .then((result) => {
+      if (result?.newSessionId) {
+        selectedSessionId.value = result.newSessionId
+        isNewSession.value = false
+      }
+    })
+    .catch((err: any) => {
+      gw.messages.value.push({
+        role: 'assistant',
+        content: 'Failed to send: ' + (err.message || 'Unknown error'),
+        timestamp: Date.now() / 1000,
+      })
+      alert('Send failed: ' + (err.message || 'Unknown error'))
+    })
+    .finally(() => {
+      sending.value = false
+    })
 }
 
 function handleKeydown(e: KeyboardEvent) {
@@ -164,7 +202,7 @@ function isThinking(content: string): boolean {
   return content.includes('<think>') && !content.includes('</think>')
 }
 
-const hasMessages = computed(() => props.messages.length > 0)
+const hasMessages = computed(() => gw.messages.value.length > 0)
 
 // ── Live elapsed timer during streaming ──
 const elapsedDisplay = ref('')
@@ -181,13 +219,12 @@ function formatElapsed(ms: number): string {
 function startElapsedTimer() {
   if (elapsedTimer) return
   elapsedTimer = setInterval(() => {
-    if (props.turnStartedAt) {
-      elapsedDisplay.value = formatElapsed(Date.now() - props.turnStartedAt)
+    if (gw.turnStartedAt.value) {
+      elapsedDisplay.value = formatElapsed(Date.now() - gw.turnStartedAt.value)
     }
   }, 1000)
-  // Initial tick
-  if (props.turnStartedAt) {
-    elapsedDisplay.value = formatElapsed(Date.now() - props.turnStartedAt)
+  if (gw.turnStartedAt.value) {
+    elapsedDisplay.value = formatElapsed(Date.now() - gw.turnStartedAt.value)
   }
 }
 
@@ -199,7 +236,7 @@ function stopElapsedTimer() {
   elapsedDisplay.value = ''
 }
 
-watch(() => props.turnStartedAt, (val) => {
+watch(() => gw.turnStartedAt.value, (val) => {
   if (val) {
     startElapsedTimer()
   } else {
@@ -208,7 +245,7 @@ watch(() => props.turnStartedAt, (val) => {
 }, { immediate: true })
 
 // Auto-scroll to bottom
-watch(() => props.messages.length, async () => {
+watch(() => gw.messages.value.length, async () => {
   await nextTick()
   if (scrollEl.value) {
     scrollEl.value.scrollTop = scrollEl.value.scrollHeight
@@ -217,42 +254,123 @@ watch(() => props.messages.length, async () => {
 
 // Also scroll when last message content changes (streaming)
 watch(() => {
-  const msgs = props.messages
+  const msgs = gw.messages.value
   if (msgs.length === 0) return ''
   return msgs[msgs.length - 1].content
 }, async () => {
   await nextTick()
   if (scrollEl.value) {
     const el = scrollEl.value
-    // Only auto-scroll if user is near bottom (within 150px)
     if (el.scrollHeight - el.scrollTop - el.clientHeight < 150) {
       el.scrollTop = el.scrollHeight
     }
   }
 })
+
+// ── Export Chat ─────────────────────────────────────
+async function exportChat() {
+  const msgs = gw.messages.value
+  if (!msgs || msgs.length === 0) {
+    alert('No messages to export')
+    return
+  }
+
+  const title = selectedSessionTitle.value || 'Hermes Chat'
+  const now = new Date()
+  const dateStr = now.toISOString().slice(0, 10)
+
+  let md = `# ${title}\n`
+  md += `*Exported ${dateStr}*\n\n---\n\n`
+
+  for (const msg of msgs) {
+    const role = msg.role === 'user' ? '**You**' : '**Assistant**'
+    const time = msg.timestamp
+      ? new Date(msg.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      : ''
+    md += `### ${role}${time ? '  ·  ' + time : ''}\n\n`
+    md += `${msg.content}\n\n---\n\n`
+  }
+
+  try {
+    if (navigator.share) {
+      await navigator.share({ title, text: md })
+    } else if (navigator.clipboard) {
+      await navigator.clipboard.writeText(md)
+      alert('Chat copied to clipboard')
+    } else {
+      alert('Export not available on this device')
+    }
+  } catch (err: any) {
+    if (err?.name === 'AbortError') return
+    try {
+      if (navigator.clipboard) {
+        await navigator.clipboard.writeText(md)
+        alert('Chat copied to clipboard')
+      } else {
+        alert('Export failed: ' + (err?.message || 'Unknown error'))
+      }
+    } catch {
+      alert('Export failed')
+    }
+  }
+}
+
+// ── Regenerate ───────────────────────────────────────
+async function handleRegenerate() {
+  if (sending.value) return
+  if (!selectedSessionId.value) return
+
+  sending.value = true
+  try {
+    await gw.regenerateLastMessage(auth.gatewayUrl.value, selectedSessionId.value)
+  } catch (err: any) {
+    alert('Regenerate failed: ' + (err.message || 'Unknown error'))
+  } finally {
+    sending.value = false
+  }
+}
+
+// ── Stop / Interrupt ─────────────────────────────────
+async function handleStop() {
+  const runtimeId = gw.activeRuntimeId.value
+  if (!runtimeId) {
+    sending.value = false
+    return
+  }
+  try {
+    await gw.interruptSession(runtimeId)
+  } catch {
+    // Best-effort
+  }
+  sending.value = false
+}
+
+function formatTime(ts: number): string {
+  return gw.formatTime(ts)
+}
 </script>
 
 <template>
   <div class="chat-view">
     <!-- Header -->
     <div class="chat-header">
-      <button class="back-btn" @click="emit('back')">‹</button>
-      <div class="chat-title">{{ sessionTitle || 'New Chat' }}</div>
+      <button class="back-btn" @click="goBack">‹</button>
+      <div class="chat-title">{{ selectedSessionTitle }}</div>
       <button class="icon-btn" @click="toggleSearch" :class="{ active: searchOpen }">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="11" cy="11" r="8" />
           <line x1="21" y1="21" x2="16.65" y2="16.65" />
         </svg>
       </button>
-      <button class="icon-btn" @click="emit('export')" title="Export chat">
+      <button class="icon-btn" @click="exportChat" title="Export chat">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
           <polyline points="7 10 12 15 17 10" />
           <line x1="12" y1="15" x2="12" y2="3" />
         </svg>
       </button>
-      <button class="icon-btn" @click="emit('refresh')" :disabled="loading">
-        <svg v-if="!loading" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <button class="icon-btn" @click="() => gw.fetchMessages(auth.gatewayUrl.value, selectedSessionId)" :disabled="gw.loading.value">
+        <svg v-if="!gw.loading.value" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M1 4v6h6M23 20v-6h-6"/>
           <path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/>
         </svg>
@@ -284,15 +402,15 @@ watch(() => {
 
     <!-- Messages -->
     <div class="chat-messages" ref="scrollEl">
-      <div v-if="!hasMessages && !loading && !error" class="empty-state">
+      <div v-if="!hasMessages && !gw.loading.value && !gw.error.value" class="empty-state">
         <div class="empty-icon">💬</div>
         <div class="empty-text">Start a conversation</div>
       </div>
 
-      <div v-if="error && !hasMessages" class="error-banner">{{ error }}</div>
+      <div v-if="gw.error.value && !hasMessages" class="error-banner">{{ gw.error.value }}</div>
 
       <div
-        v-for="(msg, idx) in messages"
+        v-for="(msg, idx) in gw.messages.value"
         :key="idx"
         :data-msg-idx="idx"
         class="message"
@@ -327,11 +445,10 @@ watch(() => {
 
         <div class="message-footer" :class="msg.role">
           <span v-if="msg.timestamp" class="message-time">{{ formatTime(msg.timestamp) }}</span>
-          <!-- Regenerate button: only on last assistant message, not while sending -->
           <button
-            v-if="msg.role === 'assistant' && idx === messages.length - 1 && !sending && msg.content && idx > 0"
+            v-if="msg.role === 'assistant' && idx === gw.messages.value.length - 1 && !sending && msg.content && idx > 0"
             class="action-btn regenerate-btn"
-            @click="emit('regenerate')"
+            @click="handleRegenerate"
             title="Regenerate response"
           >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -351,7 +468,7 @@ watch(() => {
       </div>
 
       <!-- Typing indicator -->
-      <div v-if="sending && (messages.length === 0 || messages[messages.length - 1].role !== 'assistant' || messages[messages.length - 1].content)" class="message assistant">
+      <div v-if="sending && (gw.messages.value.length === 0 || gw.messages.value[gw.messages.value.length - 1].role !== 'assistant' || gw.messages.value[gw.messages.value.length - 1].content)" class="message assistant">
         <div class="message-bubble assistant typing-dots">
           <span></span><span></span><span></span>
         </div>
@@ -365,7 +482,7 @@ watch(() => {
         <span class="elapsed-text">{{ elapsedDisplay }}</span>
       </div>
       <div v-if="sending" class="stop-bar">
-        <button class="stop-btn" @click="emit('stop')">
+        <button class="stop-btn" @click="handleStop">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
             <rect x="6" y="6" width="12" height="12" rx="2" />
           </svg>

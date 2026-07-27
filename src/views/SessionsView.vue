@@ -1,27 +1,15 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import type { Session } from '../composables/useGateway'
+import { useAuth } from '../composables/useAuth'
+import { useGateway } from '../composables/useGateway'
+import { usePins } from '../composables/usePins'
 
-const props = defineProps<{
-  sessions: Session[]
-  loading: boolean
-  error: string
-  connected: boolean
-  gatewayUrl: string
-  relativeTime: (ts: number) => string
-  modelShort: (model: string) => string
-  pinnedIds: string[]
-}>()
-
-const emit = defineEmits<{
-  (e: 'open', id: string): void
-  (e: 'refresh'): void
-  (e: 'disconnect'): void
-  (e: 'new-session'): void
-  (e: 'delete-session', id: string): void
-  (e: 'open-cron'): void
-  (e: 'toggle-pin', id: string): void
-}>()
+const router = useRouter()
+const auth = useAuth()
+const gw = useGateway()
+const pins = usePins()
 
 const search = ref('')
 const refreshing = ref(false)
@@ -33,6 +21,8 @@ const longPressTimer = ref<ReturnType<typeof setTimeout> | null>(null)
 const contextMenuSessionId = ref('')
 const contextMenuVisible = ref(false)
 const contextMenuPos = ref({ x: 0, y: 0 })
+const pinnedIds = ref<string[]>([])
+
 const menuStyle = computed(() => {
   const maxX = typeof window !== 'undefined' ? window.innerWidth : 400
   const maxY = typeof window !== 'undefined' ? window.innerHeight : 800
@@ -82,8 +72,8 @@ function getDateGroups(sessions: Session[]): DateGroup[] {
 
 const filtered = computed(() => {
   const q = search.value.toLowerCase()
-  if (!q) return props.sessions
-  return props.sessions.filter(s =>
+  if (!q) return gw.sessions.value
+  return gw.sessions.value.filter(s =>
     (s.title || '').toLowerCase().includes(q) ||
     (s.preview || '').toLowerCase().includes(q) ||
     (s.model || '').toLowerCase().includes(q)
@@ -91,11 +81,11 @@ const filtered = computed(() => {
 })
 
 const pinnedSessions = computed(() =>
-  filtered.value.filter(s => props.pinnedIds.includes(s.id))
+  filtered.value.filter(s => pinnedIds.value.includes(s.id))
 )
 
 const unpinnedSessions = computed(() =>
-  filtered.value.filter(s => !props.pinnedIds.includes(s.id))
+  filtered.value.filter(s => !pinnedIds.value.includes(s.id))
 )
 
 const groupedSessions = computed(() => {
@@ -111,22 +101,36 @@ const groupedSessions = computed(() => {
 
 const hostShort = computed(() => {
   try {
-    return new URL(props.gatewayUrl).hostname
+    return new URL(auth.gatewayUrl.value).hostname
   } catch {
-    return props.gatewayUrl
+    return auth.gatewayUrl.value
   }
+})
+
+// Load pinned IDs on mount
+import { onMounted } from 'vue'
+onMounted(async () => {
+  pinnedIds.value = await pins.getPinnedIds()
 })
 
 function handleRefresh() {
   refreshing.value = true
-  emit('refresh')
+  gw.fetchSessions(auth.gatewayUrl.value).then(async () => {
+    pinnedIds.value = await pins.getPinnedIds()
+  })
   setTimeout(() => { refreshing.value = false }, 800)
 }
 
 function confirmDelete(e: Event, id: string) {
   e.stopPropagation()
   if (deletingId.value === id) {
-    emit('delete-session', id)
+    gw.deleteSession(auth.gatewayUrl.value, id).then(async () => {
+      if (pinnedIds.value.includes(id)) {
+        await pins.unpinSession(id)
+        await pins.setSessionPinnedRemote(id, false, auth.gatewayUrl.value, auth.sessionCookie.value)
+        pinnedIds.value = await pins.getPinnedIds()
+      }
+    })
     deletingId.value = ''
   } else {
     deletingId.value = id
@@ -136,7 +140,7 @@ function confirmDelete(e: Event, id: string) {
 
 // ── Long press context menu ──
 function isPinned(id: string): boolean {
-  return props.pinnedIds.includes(id)
+  return pinnedIds.value.includes(id)
 }
 
 function handleTouchStart(e: TouchEvent, sessionId: string) {
@@ -167,15 +171,44 @@ function closeContextMenu() {
   contextMenuSessionId.value = ''
 }
 
-function handlePin() {
-  emit('toggle-pin', contextMenuSessionId.value)
+async function handlePin() {
+  const id = contextMenuSessionId.value
+  const isNowPinned = await pins.togglePin(id)
+  await pins.setSessionPinnedRemote(id, isNowPinned, auth.gatewayUrl.value, auth.sessionCookie.value)
+  pinnedIds.value = await pins.getPinnedIds()
   closeContextMenu()
 }
 
-function handleDelete() {
+async function handleDelete() {
   const id = contextMenuSessionId.value
   closeContextMenu()
-  emit('delete-session', id)
+  await gw.deleteSession(auth.gatewayUrl.value, id)
+  if (pinnedIds.value.includes(id)) {
+    await pins.unpinSession(id)
+    await pins.setSessionPinnedRemote(id, false, auth.gatewayUrl.value, auth.sessionCookie.value)
+    pinnedIds.value = await pins.getPinnedIds()
+  }
+}
+
+function openSession(id: string) {
+  router.push({ name: 'chat', params: { id } })
+}
+
+function createNewSession() {
+  router.push({ name: 'chat' })
+}
+
+function goToCron() {
+  router.push({ name: 'cron' })
+}
+
+function disconnect() {
+  gw.disconnectWs()
+  auth.clearSession()
+  gw.sessions.value = []
+  gw.messages.value = []
+  pinnedIds.value = []
+  router.replace({ name: 'connect' })
 }
 
 // Pull-to-refresh
@@ -213,22 +246,22 @@ function formatCount(n: number): string {
     <div class="Header">
       <div class="HeaderLeft">
         <span class="Title">☤ Hermes</span>
-        <div class="ConnStatus" :class="{ online: connected, offline: !connected }">
+        <div class="ConnStatus" :class="{ online: auth.isConnected.value, offline: !auth.isConnected.value }">
           <span class="ConnDot" />
           <span class="ConnLabel">{{ hostShort }}</span>
         </div>
       </div>
       <div class="HeaderActions">
-        <button class="CronBtn" @click="emit('open-cron')" title="Cron jobs">
+        <button class="CronBtn" @click="goToCron" title="Cron jobs">
           ⏰
         </button>
-        <button class="NewSessionBtn" @click="emit('new-session')" title="New session">
+        <button class="NewSessionBtn" @click="createNewSession" title="New session">
           +
         </button>
         <button class="RefreshBtn" :class="{ spinning: refreshing }" @click="handleRefresh">
           ↻
         </button>
-        <button class="DisconnectBtn" @click="emit('disconnect')">
+        <button class="DisconnectBtn" @click="disconnect">
           Disconnect
         </button>
       </div>
@@ -259,7 +292,7 @@ function formatCount(n: number): string {
     </div>
 
     <!-- Loading skeleton -->
-    <div v-if="loading && sessions.length === 0" class="StateView">
+    <div v-if="gw.loading.value && gw.sessions.value.length === 0" class="StateView">
       <div class="SkeletonList">
         <div v-for="i in 5" :key="i" class="SkeletonCard">
           <div class="SkeletonLine w60" />
@@ -270,16 +303,16 @@ function formatCount(n: number): string {
     </div>
 
     <!-- Error -->
-    <div v-else-if="error" class="StateView">
-      <span class="ErrorText">{{ error }}</span>
-      <button class="RetryBtn" @click="emit('refresh')">Retry</button>
+    <div v-else-if="gw.error.value" class="StateView">
+      <span class="ErrorText">{{ gw.error.value }}</span>
+      <button class="RetryBtn" @click="handleRefresh">Retry</button>
     </div>
 
     <!-- Empty -->
     <div v-else-if="filtered.length === 0" class="StateView">
       <span class="EmptyIcon">📭</span>
       <span class="StateText">{{ search ? 'No matching sessions' : 'No sessions found' }}</span>
-      <button class="NewBtn" @click="emit('new-session')">Start a conversation</button>
+      <button class="NewBtn" @click="createNewSession">Start a conversation</button>
     </div>
 
     <!-- Sessions List -->
@@ -298,7 +331,7 @@ function formatCount(n: number): string {
           :key="s.id"
           class="SessionCard"
           :class="{ pinned: isPinned(s.id) }"
-          @click="emit('open', s.id)"
+          @click="openSession(s.id)"
           @touchstart="handleTouchStart($event, s.id)"
           @touchmove="handleTouchMove"
           @touchend="handleTouchEnd"
@@ -320,8 +353,8 @@ function formatCount(n: number): string {
           <div class="CardMeta">
             <span class="MetaText">{{ formatCount(s.message_count) }} msgs</span>
             <span class="MetaDot">·</span>
-            <span class="MetaText">{{ relativeTime(s.last_active) }}</span>
-            <span v-if="s.model" class="ModelBadge">{{ modelShort(s.model) }}</span>
+            <span class="MetaText">{{ gw.relativeTime(s.last_active) }}</span>
+            <span v-if="s.model" class="ModelBadge">{{ gw.modelShort(s.model) }}</span>
           </div>
         </div>
       </template>
@@ -498,7 +531,6 @@ function formatCount(n: number): string {
   top: 50%;
   transform: translateY(-50%);
   color: var(--text-muted);
-  pointer-events: none;
 }
 
 .SearchInput {
@@ -506,8 +538,8 @@ function formatCount(n: number): string {
   height: 40px;
   background-color: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 0 32px 0 36px;
+  border-radius: 10px;
+  padding: 0 36px 0 40px;
   color: var(--text);
   font-size: 14px;
   outline: none;
@@ -523,23 +555,23 @@ function formatCount(n: number): string {
   top: 50%;
   transform: translateY(-50%);
   color: var(--text-muted);
-  font-size: 12px;
   cursor: pointer;
+  font-size: 14px;
   padding: 4px;
 }
 
-/* ── Pull to refresh ── */
+/* ── Pull indicator ── */
 .PullIndicator {
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  transition: height 0.2s;
+  flex-shrink: 0;
 }
 
 .PullSpinner {
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   border: 2px solid var(--border);
   border-top-color: var(--accent);
   border-radius: 50%;
@@ -558,12 +590,44 @@ function formatCount(n: number): string {
   gap: 12px;
 }
 
+.SkeletonList {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.SkeletonCard {
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.SkeletonLine {
+  height: 14px;
+  background: var(--surface-2);
+  border-radius: 4px;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.SkeletonLine.w60 { width: 60%; }
+.SkeletonLine.w90 { width: 90%; }
+.SkeletonLine.w40 { width: 40%; }
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 0.8; }
+}
+
 .StateText { font-size: 15px; color: var(--text-muted); }
 .EmptyIcon { font-size: 40px; }
 .ErrorText { font-size: 14px; color: var(--error); }
 
-.RetryBtn,
-.NewBtn {
+.RetryBtn, .NewBtn {
   height: 40px;
   padding: 0 24px;
   background-color: var(--accent);
@@ -576,51 +640,25 @@ function formatCount(n: number): string {
   transition: opacity 0.15s;
 }
 
-.RetryBtn:hover,
-.NewBtn:hover { opacity: 0.9; }
+.RetryBtn:hover, .NewBtn:hover { opacity: 0.9; }
 
-/* ── Skeleton loading ── */
-.SkeletonList {
-  width: 100%;
-  max-width: 400px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
+@keyframes spin { to { transform: rotate(360deg); } }
 
-.SkeletonCard {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.SkeletonLine {
-  height: 12px;
-  border-radius: 6px;
-  background: linear-gradient(90deg, var(--surface-2) 25%, var(--surface-3) 50%, var(--surface-2) 75%);
-  background-size: 200% 100%;
-  animation: shimmer 1.5s infinite;
-}
-
-.w60 { width: 60%; }
-.w90 { width: 90%; }
-.w40 { width: 40%; }
-
-@keyframes shimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
-}
-
-/* ── Session List ── */
+/* ── Session list ── */
 .SessionList {
   flex: 1;
   overflow-y: auto;
-  padding: 12px 16px;
   -webkit-overflow-scrolling: touch;
+  padding: 12px 16px;
+}
+
+.DateGroupLabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 8px 4px 6px;
 }
 
 .SessionCard {
@@ -628,172 +666,130 @@ function formatCount(n: number): string {
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 14px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
   margin-bottom: 8px;
   cursor: pointer;
-  transition: border-color 0.15s, background-color 0.15s, transform 0.1s;
+  transition: background-color 0.15s, border-color 0.15s;
 }
 
-.SessionCard:hover {
-  border-color: var(--accent);
-  background-color: var(--surface-2);
-}
-
-.SessionCard:active {
-  transform: scale(0.985);
-}
-
-.SessionCard.pinned {
-  border-left: 3px solid var(--accent);
-}
+.SessionCard:hover { background-color: var(--surface-2); }
+.SessionCard.pinned { border-color: rgba(94, 106, 210, 0.3); }
 
 .CardTop {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  margin-bottom: 4px;
 }
 
-.PinIcon {
-  font-size: 12px;
-  flex-shrink: 0;
-}
+.PinIcon { font-size: 12px; }
 
 .SessionTitle {
   font-size: 15px;
   font-weight: 600;
   color: var(--text);
   flex: 1;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.02em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .ActiveDot {
-  width: 7px;
-  height: 7px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background-color: var(--success);
-  flex-shrink: 0;
   box-shadow: 0 0 6px rgba(34, 197, 94, 0.4);
+  flex-shrink: 0;
 }
 
 .DeleteBtn {
   width: 28px;
   height: 28px;
   border-radius: 6px;
-  background: transparent;
-  border: 1px solid transparent;
+  background: none;
+  border: none;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 14px;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  flex-shrink: 0;
-  transition: all 0.15s;
+  transition: color 0.15s, background 0.15s;
 }
 
-.DeleteBtn:hover {
-  color: var(--error);
-  border-color: rgba(239, 68, 68, 0.3);
-  background: rgba(239, 68, 68, 0.08);
-}
-
-.DeleteBtn.confirming {
-  color: #ffffff;
-  background: var(--error);
-  border-color: var(--error);
-}
+.DeleteBtn:hover { color: var(--error); background: rgba(239, 68, 68, 0.1); }
+.DeleteBtn.confirming { color: var(--error); background: rgba(239, 68, 68, 0.15); }
 
 .SessionPreview {
   font-size: 13px;
   color: var(--text-muted);
-  line-height: 1.4;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  line-height: 1.4;
+  margin-bottom: 6px;
 }
 
 .CardMeta {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-top: 4px;
 }
 
-.MetaText { font-size: 12px; color: var(--text-muted); }
-.MetaDot { font-size: 12px; color: var(--text-muted); }
+.MetaText {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.MetaDot {
+  font-size: 12px;
+  color: var(--text-muted);
+  opacity: 0.5;
+}
 
 .ModelBadge {
   font-size: 11px;
   color: var(--accent);
   background-color: rgba(94, 106, 210, 0.12);
   border-radius: 4px;
-  padding: 2px 6px;
+  padding: 1px 6px;
   margin-left: auto;
 }
 
-.DateGroupLabel {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  padding: 12px 4px 6px;
-  margin-bottom: 4px;
-}
-
-@keyframes spin { to { transform: rotate(360deg); } }
-</style>
-
-<!-- Context menu uses global styles (Teleported to body) -->
-<style>
+/* ── Context Menu ── */
 .ContextMenuOverlay {
   position: fixed;
   inset: 0;
   z-index: 1000;
-  background: rgba(0, 0, 0, 0.4);
 }
 
 .ContextMenu {
   position: fixed;
-  z-index: 1001;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 4px;
   min-width: 160px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  z-index: 1001;
 }
 
 .ContextMenuBtn {
-  display: flex;
-  align-items: center;
-  gap: 8px;
   width: 100%;
   padding: 10px 14px;
   background: none;
   border: none;
-  border-radius: 6px;
   color: var(--text);
   font-size: 14px;
+  text-align: left;
   cursor: pointer;
-  transition: background 0.12s;
+  border-radius: 6px;
+  transition: background 0.1s;
 }
 
-.ContextMenuBtn:hover {
-  background: var(--surface-2);
-}
-
-.ContextMenuBtn.danger {
-  color: var(--error);
-}
-
-.ContextMenuBtn.danger:hover {
-  background: rgba(239, 68, 68, 0.1);
-}
+.ContextMenuBtn:hover { background: var(--surface-2); }
+.ContextMenuBtn.danger { color: var(--error); }
+.ContextMenuBtn.danger:hover { background: rgba(239, 68, 68, 0.1); }
 </style>

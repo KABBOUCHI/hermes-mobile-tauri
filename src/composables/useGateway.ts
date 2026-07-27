@@ -420,6 +420,102 @@ export function useGateway() {
     return { message: assistantMsg, newSessionId: isNewSession ? sessionId : null }
   }
 
+  /**
+   * Interrupt a running session via WS.
+   */
+  async function interruptSession(sessionId: string): Promise<void> {
+    try {
+      await rpcCall('session.interrupt', { session_id: sessionId })
+    } catch {
+      // Best-effort — the submit path still gates on gateway state
+    }
+  }
+
+  /**
+   * Regenerate the last assistant response.
+   *
+   * 1. Find the last user message
+   * 2. Interrupt if live
+   * 3. prompt.submit with truncate_before_user_ordinal to drop that turn + after
+   * 4. Re-submit the same text
+   */
+  async function regenerateLastMessage(
+    _url: string,
+    sessionId: string,
+  ): Promise<Message | null> {
+    if (!ws || wsState.value !== 'open') {
+      throw new Error('WebSocket not connected')
+    }
+
+    // Find last user message and its ordinal
+    const userMsgs = messages.value
+      .map((m, i) => ({ msg: m, idx: i }))
+      .filter(x => x.msg.role === 'user')
+
+    if (userMsgs.length === 0) {
+      throw new Error('No user messages to regenerate')
+    }
+
+    const lastUserEntry = userMsgs[userMsgs.length - 1]
+    const lastUserText = lastUserEntry.msg.content
+
+    // Compute ordinal: count of user messages up to and including this one (0-indexed)
+    const userOrdinal = userMsgs.length - 1
+
+    // Resume session to get runtimeId
+    const runtimeId = await resumeSession(sessionId)
+
+    // Remove the last assistant message (and the user message) optimistically
+    // We keep everything before the last user message
+    messages.value = messages.value.slice(0, lastUserEntry.idx)
+
+    // Interrupt if live
+    await interruptSession(runtimeId)
+
+    // Push placeholder assistant message
+    const assistantMsg: Message = {
+      role: 'assistant',
+      content: '',
+      timestamp: Date.now() / 1000,
+    }
+    messages.value.push(assistantMsg)
+
+    // Set up streaming turn
+    streamingContent = ''
+
+    const content = await new Promise<string>((resolve, reject) => {
+      const TURN_TIMEOUT = 1_800_000
+      const timer = setTimeout(() => {
+        activeTurn = null
+        streamingContent = ''
+        reject(new Error('Turn timed out'))
+      }, TURN_TIMEOUT)
+
+      activeTurn = { sessionId: runtimeId, resolve, reject, timer }
+
+      // Fire prompt.submit with truncation
+      const id = ++nextId
+      ws.send(JSON.stringify({
+        jsonrpc: '2.0',
+        id,
+        method: 'prompt.submit',
+        params: {
+          session_id: runtimeId,
+          text: lastUserText,
+          truncate_before_user_ordinal: userOrdinal,
+        },
+      })).catch((err: any) => {
+        clearTimeout(timer)
+        activeTurn = null
+        streamingContent = ''
+        reject(err)
+      })
+    })
+
+    assistantMsg.content = content || '[empty response]'
+    return assistantMsg
+  }
+
   async function deleteSession(url: string, sessionId: string): Promise<boolean> {
     try {
       const base = url.replace(/\/$/, '')
@@ -456,5 +552,7 @@ export function useGateway() {
     disconnectWs,
     createSession,
     sendMessage,
+    interruptSession,
+    regenerateLastMessage,
   }
 }

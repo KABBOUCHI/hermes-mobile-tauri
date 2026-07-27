@@ -22,6 +22,7 @@ const emit = defineEmits<{
   (e: 'send', text: string): void
   (e: 'refresh'): void
   (e: 'export'): void
+  (e: 'regenerate'): void
 }>()
 
 const input = ref('')
@@ -283,9 +284,22 @@ watch(() => {
 
         <div class="message-footer" :class="msg.role">
           <span v-if="msg.timestamp" class="message-time">{{ formatTime(msg.timestamp) }}</span>
+          <!-- Regenerate button: only on last assistant message, not while sending -->
+          <button
+            v-if="msg.role === 'assistant' && idx === messages.length - 1 && !sending && msg.content && idx > 0"
+            class="action-btn regenerate-btn"
+            @click="emit('regenerate')"
+            title="Regenerate response"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M1 4v6h6M23 20v-6h-6"/>
+              <path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/>
+            </svg>
+            <span>Regenerate</span>
+          </button>
           <button
             v-if="msg.content && msg.role === 'assistant'"
-            class="copy-btn"
+            class="action-btn"
             @click="copyContent(msg.content, idx)"
           >
             {{ copiedIdx === idx ? '✓ Copied' : 'Copy' }}
@@ -569,19 +583,27 @@ watch(() => {
   font-size: 11px;
   color: var(--text-muted);
 }
-.copy-btn {
+.action-btn {
   background: none;
   border: 1px solid var(--border);
   border-radius: 4px;
   color: var(--text-muted);
   font-size: 11px;
-  padding: 1px 6px;
+  padding: 2px 6px;
   cursor: pointer;
   transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
-.copy-btn:hover {
+.action-btn:hover {
   color: var(--text);
   border-color: var(--text-muted);
+}
+.action-btn.regenerate-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: rgba(94, 106, 210, 0.08);
 }
 
 /* Typing dots */

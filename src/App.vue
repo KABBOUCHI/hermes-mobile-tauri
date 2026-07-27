@@ -217,6 +217,21 @@ async function exportChat() {
   }
 }
 
+// ── Regenerate ───────────────────────────────────────
+async function handleRegenerate() {
+  if (sending.value) return
+  if (!selectedSessionId.value) return
+
+  sending.value = true
+  try {
+    await gw.regenerateLastMessage(auth.gatewayUrl.value, selectedSessionId.value)
+  } catch (err: any) {
+    alert('Regenerate failed: ' + (err.message || 'Unknown error'))
+  } finally {
+    sending.value = false
+  }
+}
+
 // ── Chat ───────────────────────────────────────────
 async function handleSend(text: string) {
   if (sending.value) return
@@ -300,6 +315,7 @@ async function handleSend(text: string) {
       @back="goBack"
       @send="handleSend"
       @export="exportChat"
+      @regenerate="handleRegenerate"
     />
 
     <!-- Cron Jobs -->

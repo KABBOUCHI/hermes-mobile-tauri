@@ -593,6 +593,8 @@ export function useGateway() {
     sessions,
     messages,
     loading,
+    loadingSessions,
+    loadingMessages,
     loadingMore,
     error,
     wsState,

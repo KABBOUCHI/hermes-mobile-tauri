@@ -36,6 +36,23 @@ const scrollEl = ref<HTMLElement | null>(null)
 const inputEl = ref<HTMLTextAreaElement | null>(null)
 const copiedIdx = ref<number | null>(null)
 
+// Watch for route changes (navigating between sessions without remount)
+watch(() => route.params.id, async (newId) => {
+  selectedSessionId.value = (newId as string) || ''
+  isNewSession.value = !selectedSessionId.value
+  gw.messages.value = []
+  searchQuery.value = ''
+  matchIndices.value = []
+  currentMatchIdx.value = -1
+  if (selectedSessionId.value) {
+    try {
+      await gw.fetchMessages(auth.gatewayUrl.value, selectedSessionId.value)
+    } catch (err: any) {
+      alert('Failed to load messages: ' + (err.message || 'Unknown error'))
+    }
+  }
+})
+
 // ── Message search ──
 const searchOpen = ref(false)
 const searchQuery = ref('')
@@ -408,8 +425,8 @@ function formatTime(ts: number): string {
           <line x1="12" y1="15" x2="12" y2="3" />
         </svg>
       </button>
-      <button class="icon-btn" @click="() => gw.fetchMessages(auth.gatewayUrl.value, selectedSessionId)" :disabled="gw.loading.value">
-        <svg v-if="!gw.loading.value" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <button class="icon-btn" @click="() => gw.fetchMessages(auth.gatewayUrl.value, selectedSessionId)" :disabled="gw.loadingMessages.value">
+        <svg v-if="!gw.loadingMessages.value" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M1 4v6h6M23 20v-6h-6"/>
           <path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/>
         </svg>
@@ -441,7 +458,13 @@ function formatTime(ts: number): string {
 
     <!-- Messages -->
     <div class="chat-messages" ref="scrollEl" @scroll="onScroll" @click="handleMessagesClick">
-      <div v-if="!hasMessages && !gw.loading.value && !gw.error.value" class="empty-state">
+      <!-- Loading state (messages fetch in progress) -->
+      <div v-if="!hasMessages && gw.loadingMessages.value && !gw.error.value" class="loading-state">
+        <div class="Loader" />
+        <span class="loading-label">Loading messages…</span>
+      </div>
+
+      <div v-else-if="!hasMessages && !gw.error.value" class="empty-state">
         <div class="empty-icon">💬</div>
         <div class="empty-text">Start a conversation</div>
       </div>
@@ -731,6 +754,28 @@ function formatTime(ts: number): string {
 }
 .empty-icon { font-size: 32px; }
 .empty-text { font-size: 14px; }
+
+.loading-state {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+.loading-state .Loader {
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+.loading-label {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 
 .error-banner {
   background: rgba(239, 68, 68, 0.1);

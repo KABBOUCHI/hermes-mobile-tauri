@@ -10,6 +10,7 @@ const props = defineProps<{
   gatewayUrl: string
   relativeTime: (ts: number) => string
   modelShort: (model: string) => string
+  pinnedIds: string[]
 }>()
 
 const emit = defineEmits<{
@@ -19,6 +20,7 @@ const emit = defineEmits<{
   (e: 'new-session'): void
   (e: 'delete-session', id: string): void
   (e: 'open-cron'): void
+  (e: 'toggle-pin', id: string): void
 }>()
 
 const search = ref('')
@@ -27,6 +29,18 @@ const pullStart = ref(0)
 const pullDelta = ref(0)
 const listEl = ref<HTMLElement | null>(null)
 const deletingId = ref('')
+const longPressTimer = ref<ReturnType<typeof setTimeout> | null>(null)
+const contextMenuSessionId = ref('')
+const contextMenuVisible = ref(false)
+const contextMenuPos = ref({ x: 0, y: 0 })
+const menuStyle = computed(() => {
+  const maxX = typeof window !== 'undefined' ? window.innerWidth : 400
+  const maxY = typeof window !== 'undefined' ? window.innerHeight : 800
+  return {
+    left: Math.min(contextMenuPos.value.x, maxX - 180) + 'px',
+    top: Math.min(contextMenuPos.value.y, maxY - 140) + 'px',
+  }
+})
 
 // Date grouping
 interface DateGroup {
@@ -63,7 +77,6 @@ function getDateGroups(sessions: Session[]): DateGroup[] {
     }
   }
 
-  // Filter out empty groups
   return groups.filter(group => group.sessions.length > 0)
 }
 
@@ -77,11 +90,23 @@ const filtered = computed(() => {
   )
 })
 
+const pinnedSessions = computed(() =>
+  filtered.value.filter(s => props.pinnedIds.includes(s.id))
+)
+
+const unpinnedSessions = computed(() =>
+  filtered.value.filter(s => !props.pinnedIds.includes(s.id))
+)
+
 const groupedSessions = computed(() => {
   if (search.value) {
     return [{ label: 'Search results', sessions: filtered.value }]
   }
-  return getDateGroups(props.sessions)
+  const groups = getDateGroups(unpinnedSessions.value)
+  if (pinnedSessions.value.length > 0) {
+    groups.unshift({ label: '📌 Pinned', sessions: pinnedSessions.value })
+  }
+  return groups
 })
 
 const hostShort = computed(() => {
@@ -107,6 +132,50 @@ function confirmDelete(e: Event, id: string) {
     deletingId.value = id
     setTimeout(() => { if (deletingId.value === id) deletingId.value = '' }, 3000)
   }
+}
+
+// ── Long press context menu ──
+function isPinned(id: string): boolean {
+  return props.pinnedIds.includes(id)
+}
+
+function handleTouchStart(e: TouchEvent, sessionId: string) {
+  const touch = e.touches[0]
+  longPressTimer.value = setTimeout(() => {
+    contextMenuSessionId.value = sessionId
+    contextMenuPos.value = { x: touch.clientX, y: touch.clientY }
+    contextMenuVisible.value = true
+  }, 500)
+}
+
+function handleTouchMove() {
+  if (longPressTimer.value) {
+    clearTimeout(longPressTimer.value)
+    longPressTimer.value = null
+  }
+}
+
+function handleTouchEnd() {
+  if (longPressTimer.value) {
+    clearTimeout(longPressTimer.value)
+    longPressTimer.value = null
+  }
+}
+
+function closeContextMenu() {
+  contextMenuVisible.value = false
+  contextMenuSessionId.value = ''
+}
+
+function handlePin() {
+  emit('toggle-pin', contextMenuSessionId.value)
+  closeContextMenu()
+}
+
+function handleDelete() {
+  const id = contextMenuSessionId.value
+  closeContextMenu()
+  emit('delete-session', id)
 }
 
 // Pull-to-refresh
@@ -228,9 +297,14 @@ function formatCount(n: number): string {
           v-for="s in group.sessions"
           :key="s.id"
           class="SessionCard"
+          :class="{ pinned: isPinned(s.id) }"
           @click="emit('open', s.id)"
+          @touchstart="handleTouchStart($event, s.id)"
+          @touchmove="handleTouchMove"
+          @touchend="handleTouchEnd"
         >
           <div class="CardTop">
+            <span v-if="isPinned(s.id)" class="PinIcon">📌</span>
             <span class="SessionTitle">{{ s.title || 'Untitled' }}</span>
             <span v-if="s.is_active" class="ActiveDot" />
             <button
@@ -252,6 +326,24 @@ function formatCount(n: number): string {
         </div>
       </template>
     </div>
+
+    <!-- Context Menu -->
+    <Teleport to="body">
+      <div v-if="contextMenuVisible" class="ContextMenuOverlay" @click="closeContextMenu">
+        <div
+          class="ContextMenu"
+          :style="menuStyle"
+          @click.stop
+        >
+          <button class="ContextMenuBtn" @click="handlePin">
+            {{ isPinned(contextMenuSessionId) ? '📌 Unpin' : '📌 Pin to top' }}
+          </button>
+          <button class="ContextMenuBtn danger" @click="handleDelete">
+            ✕ Delete
+          </button>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -553,10 +645,19 @@ function formatCount(n: number): string {
   transform: scale(0.985);
 }
 
+.SessionCard.pinned {
+  border-left: 3px solid var(--accent);
+}
+
 .CardTop {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.PinIcon {
+  font-size: 12px;
+  flex-shrink: 0;
 }
 
 .SessionTitle {
@@ -647,4 +748,52 @@ function formatCount(n: number): string {
 }
 
 @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+
+<!-- Context menu uses global styles (Teleported to body) -->
+<style>
+.ContextMenuOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.ContextMenu {
+  position: fixed;
+  z-index: 1001;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 4px;
+  min-width: 160px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.ContextMenuBtn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 14px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.ContextMenuBtn:hover {
+  background: var(--surface-2);
+}
+
+.ContextMenuBtn.danger {
+  color: var(--error);
+}
+
+.ContextMenuBtn.danger:hover {
+  background: rgba(239, 68, 68, 0.1);
+}
 </style>

@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useAuth } from './composables/useAuth'
 import { useGateway } from './composables/useGateway'
+import { usePins } from './composables/usePins'
 import ConnectView from './views/ConnectView.vue'
 import SessionsView from './views/SessionsView.vue'
 import MessageView from './views/MessageView.vue'
@@ -9,6 +10,7 @@ import CronView from './views/CronView.vue'
 
 const auth = useAuth()
 const gw = useGateway()
+const pins = usePins()
 
 type View = 'loading' | 'connect' | 'sessions' | 'chat' | 'cron'
 const view = ref<View>('loading')
@@ -17,12 +19,17 @@ const sending = ref(false)
 const connectLoading = ref(false)
 const connectError = ref('')
 const isNewSession = ref(false)
+const pinnedIds = ref<string[]>([])
 
 const selectedSessionTitle = computed(() => {
   if (!selectedSessionId.value) return 'Session'
   const s = gw.sessions.value.find(s => s.id === selectedSessionId.value)
   return s?.title || 'Session'
 })
+
+async function loadPinnedIds() {
+  pinnedIds.value = await pins.getPinnedIds()
+}
 
 async function startGateway() {
   await gw.connectWs(
@@ -44,7 +51,7 @@ onMounted(async () => {
   try {
     const ok = await auth.tryAutoLogin()
     if (ok) {
-      await gw.fetchSessions(auth.gatewayUrl.value)
+      await Promise.all([gw.fetchSessions(auth.gatewayUrl.value), loadPinnedIds()])
       await startGateway()
       view.value = 'sessions'
     } else {
@@ -73,7 +80,7 @@ async function handleConnect(url: string, user: string, pass: string) {
 
   try {
     await auth.connect()
-    await gw.fetchSessions(url)
+    await Promise.all([gw.fetchSessions(url), loadPinnedIds()])
     await startGateway()
     view.value = 'sessions'
   } catch (err: any) {
@@ -88,6 +95,7 @@ async function handleConnect(url: string, user: string, pass: string) {
 async function refreshSessions() {
   try {
     await gw.fetchSessions(auth.gatewayUrl.value)
+    await loadPinnedIds()
   } catch (err: any) {
     alert('Failed to refresh: ' + (err.message || 'Unknown error'))
   }
@@ -125,7 +133,16 @@ function createNewSession() {
 
 async function deleteSession(id: string) {
   const ok = await gw.deleteSession(auth.gatewayUrl.value, id)
-  if (!ok) alert('Failed to delete session')
+  if (!ok) {
+    alert('Failed to delete session')
+    return
+  }
+  // If pinned, unpin
+  if (pinnedIds.value.includes(id)) {
+    await pins.unpinSession(id)
+    await pins.setSessionPinnedRemote(id, false, auth.gatewayUrl.value, auth.sessionCookie.value)
+    pinnedIds.value = await pins.getPinnedIds()
+  }
 }
 
 function disconnect() {
@@ -134,7 +151,19 @@ function disconnect() {
   gw.sessions.value = []
   gw.messages.value = []
   selectedSessionId.value = ''
+  pinnedIds.value = []
   view.value = 'connect'
+}
+
+async function handleTogglePin(sessionId: string) {
+  const isNowPinned = await pins.togglePin(sessionId)
+  await pins.setSessionPinnedRemote(
+    sessionId,
+    isNowPinned,
+    auth.gatewayUrl.value,
+    auth.sessionCookie.value,
+  )
+  pinnedIds.value = await pins.getPinnedIds()
 }
 
 // ── Export Chat ─────────────────────────────────────
@@ -246,16 +275,17 @@ async function handleSend(text: string) {
       :loading="gw.loading.value"
       :error="gw.error.value"
       :connected="auth.isConnected.value"
-      :ws-state="gw.wsState.value"
       :gateway-url="auth.gatewayUrl.value"
       :relative-time="gw.relativeTime"
       :model-short="gw.modelShort"
+      :pinned-ids="pinnedIds"
       @open="openSession"
       @refresh="refreshSessions"
       @disconnect="disconnect"
       @new-session="createNewSession"
       @delete-session="deleteSession"
       @open-cron="goToCron"
+      @toggle-pin="handleTogglePin"
     />
 
     <!-- Chat -->

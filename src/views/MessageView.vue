@@ -182,6 +182,33 @@ function handleKeydown(e: KeyboardEvent) {
   }
 }
 
+// ── Jump to bottom button ──
+const showJumpToBottom = ref(false)
+
+function checkScrollPosition() {
+  const el = scrollEl.value
+  if (!el) return
+  const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+  showJumpToBottom.value = distanceFromBottom > 200
+}
+
+function scrollToBottom() {
+  const el = scrollEl.value
+  if (!el) return
+  el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+}
+
+// Update jump-to-bottom visibility on scroll
+function onScroll() {
+  checkScrollPosition()
+}
+
+// Auto-scroll also hides the button
+watch(() => gw.messages.value.length, async () => {
+  await nextTick()
+  showJumpToBottom.value = false
+})
+
 function autoResize() {
   if (!inputEl.value) return
   inputEl.value.style.height = 'auto'
@@ -401,7 +428,7 @@ function formatTime(ts: number): string {
     </div>
 
     <!-- Messages -->
-    <div class="chat-messages" ref="scrollEl">
+    <div class="chat-messages" ref="scrollEl" @scroll="onScroll">
       <div v-if="!hasMessages && !gw.loading.value && !gw.error.value" class="empty-state">
         <div class="empty-icon">💬</div>
         <div class="empty-text">Start a conversation</div>
@@ -475,6 +502,15 @@ function formatTime(ts: number): string {
       </div>
     </div>
 
+    <!-- Jump to bottom button -->
+    <Transition name="jump-fade">
+      <button v-if="showJumpToBottom" class="jump-to-bottom" @click="scrollToBottom">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      </button>
+    </Transition>
+
     <!-- Input -->
     <div class="chat-input-bar">
       <div v-if="sending && elapsedDisplay" class="elapsed-indicator">
@@ -518,6 +554,7 @@ function formatTime(ts: number): string {
   flex-direction: column;
   height: 100%;
   background: var(--bg);
+  position: relative;
 }
 
 /* Header */
@@ -953,5 +990,44 @@ function formatTime(ts: number): string {
   font-size: 12px;
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
+}
+
+/* Jump to bottom button */
+.jump-to-bottom {
+  position: absolute;
+  bottom: 72px;
+  right: 16px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  z-index: 10;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+.jump-to-bottom:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--surface-2);
+}
+.jump-to-bottom:active {
+  transform: scale(0.92);
+}
+
+/* Transition */
+.jump-fade-enter-active,
+.jump-fade-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.jump-fade-enter-from,
+.jump-fade-leave-to {
+  opacity: 0;
+  transform: translateY(8px);
 }
 </style>

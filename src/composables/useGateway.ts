@@ -544,6 +544,42 @@ export function useGateway() {
     }
   }
 
+  /**
+   * Rename a session via WS RPC.
+   * Updates the local session list title on success.
+   */
+  async function renameSession(storedSessionId: string, newTitle: string): Promise<boolean> {
+    if (!ws || wsState.value !== 'open') {
+      // Fallback to REST PATCH
+      try {
+        const base = baseUrl.replace(/\/$/, '')
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+        if (cookie) headers['Cookie'] = cookie
+        const resp = await fetchWithTimeout(
+          `${base}/api/sessions/${encodeURIComponent(storedSessionId)}`,
+          { method: 'PATCH', headers, credentials: 'same-origin', body: JSON.stringify({ title: newTitle }) },
+          FETCH_TIMEOUT
+        )
+        if (!resp.ok) throw new Error('HTTP ' + resp.status)
+        const session = sessions.value.find(s => s.id === storedSessionId)
+        if (session) session.title = newTitle
+        return true
+      } catch (err: any) {
+        error.value = err.message || 'Failed to rename session'
+        return false
+      }
+    }
+    try {
+      await rpcCall('session.rename', { session_id: storedSessionId, title: newTitle })
+      const session = sessions.value.find(s => s.id === storedSessionId)
+      if (session) session.title = newTitle
+      return true
+    } catch (err: any) {
+      error.value = err.message || 'Failed to rename session'
+      return false
+    }
+  }
+
   return {
     sessions,
     messages,
@@ -559,6 +595,7 @@ export function useGateway() {
     fetchSessions,
     fetchMessages,
     deleteSession,
+    renameSession,
     connectWs,
     disconnectWs,
     createSession,

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import type { Session } from '../composables/useGateway'
 import { useAuth } from '../composables/useAuth'
@@ -22,6 +22,55 @@ const contextMenuSessionId = ref('')
 const contextMenuVisible = ref(false)
 const contextMenuPos = ref({ x: 0, y: 0 })
 const pinnedIds = ref<string[]>([])
+
+// ── Rename dialog ──
+const renameVisible = ref(false)
+const renameSessionId = ref('')
+const renameTitle = ref('')
+const renameInputEl = ref<HTMLInputElement | null>(null)
+const renaming = ref(false)
+
+function openRename() {
+  const id = contextMenuSessionId.value
+  const session = gw.sessions.value.find(s => s.id === id)
+  renameTitle.value = session?.title || ''
+  renameSessionId.value = id
+  renameVisible.value = true
+  closeContextMenu()
+  nextTick(() => {
+    renameInputEl.value?.focus()
+    renameInputEl.value?.select()
+  })
+}
+
+async function confirmRename() {
+  const title = renameTitle.value.trim()
+  if (!title || !renameSessionId.value || renaming.value) return
+  renaming.value = true
+  try {
+    await gw.renameSession(renameSessionId.value, title)
+  } catch {
+    // Error handled by gateway
+  } finally {
+    renaming.value = false
+    renameVisible.value = false
+  }
+}
+
+function cancelRename() {
+  renameVisible.value = false
+  renameSessionId.value = ''
+  renameTitle.value = ''
+}
+
+function handleRenameKeydown(e: KeyboardEvent) {
+  if (e.key === 'Enter') {
+    e.preventDefault()
+    confirmRename()
+  } else if (e.key === 'Escape') {
+    cancelRename()
+  }
+}
 
 const menuStyle = computed(() => {
   const maxX = typeof window !== 'undefined' ? window.innerWidth : 400
@@ -371,12 +420,39 @@ function formatCount(n: number): string {
           :style="menuStyle"
           @click.stop
         >
+          <button class="ContextMenuBtn" @click="openRename">
+            ✏️ Rename
+          </button>
           <button class="ContextMenuBtn" @click="handlePin">
             {{ isPinned(contextMenuSessionId) ? '📌 Unpin' : '📌 Pin to top' }}
           </button>
           <button class="ContextMenuBtn danger" @click="handleDelete">
             ✕ Delete
           </button>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- Rename Dialog -->
+    <Teleport to="body">
+      <div v-if="renameVisible" class="RenameOverlay" @click="cancelRename">
+        <div class="RenameDialog" @click.stop>
+          <div class="RenameLabel">Rename session</div>
+          <input
+            ref="renameInputEl"
+            v-model="renameTitle"
+            type="text"
+            class="RenameInput"
+            placeholder="Session title…"
+            maxlength="120"
+            @keydown="handleRenameKeydown"
+          />
+          <div class="RenameActions">
+            <button class="RenameCancel" @click="cancelRename">Cancel</button>
+            <button class="RenameConfirm" :disabled="!renameTitle.trim() || renaming" @click="confirmRename">
+              {{ renaming ? 'Saving…' : 'Rename' }}
+            </button>
+          </div>
         </div>
       </div>
     </Teleport>
@@ -795,4 +871,97 @@ function formatCount(n: number): string {
 .ContextMenuBtn:hover { background: var(--surface-2); }
 .ContextMenuBtn.danger { color: var(--error); }
 .ContextMenuBtn.danger:hover { background: rgba(239, 68, 68, 0.1); }
+
+/* ── Rename Dialog ── */
+.RenameOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1002;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.RenameDialog {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px;
+  width: 100%;
+  max-width: 320px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+}
+
+.RenameLabel {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 14px;
+  letter-spacing: -0.02em;
+}
+
+.RenameInput {
+  width: 100%;
+  height: 40px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0 12px;
+  color: var(--text);
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.15s;
+  box-sizing: border-box;
+}
+
+.RenameInput:focus {
+  border-color: var(--accent);
+}
+
+.RenameInput::placeholder {
+  color: var(--text-muted);
+}
+
+.RenameActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.RenameCancel {
+  height: 36px;
+  padding: 0 16px;
+  border-radius: 8px;
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.RenameCancel:hover {
+  color: var(--text);
+  border-color: var(--text-muted);
+}
+
+.RenameConfirm {
+  height: 36px;
+  padding: 0 16px;
+  border-radius: 8px;
+  background: var(--accent);
+  border: none;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.RenameConfirm:hover { opacity: 0.9; }
+.RenameConfirm:disabled { opacity: 0.4; cursor: default; }
 </style>

@@ -245,7 +245,9 @@ watch(() => {
 /* Messages */
 .chat-messages {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   padding: 12px 14px;
   display: flex;
   flex-direction: column;

@@ -207,7 +207,8 @@ async function handleSend(text: string) {
 
 .Root {
   background-color: var(--bg);
-  min-height: 100vh;
+  height: 100%;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
 }

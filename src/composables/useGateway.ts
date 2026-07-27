@@ -334,9 +334,23 @@ export function useGateway() {
   }
 
   /**
+   * Create a new session via WS.
+   * session.create → { session_id: runtimeId, stored_session_id, ... }
+   */
+  async function createSession(): Promise<{ runtimeId: string; storedSessionId: string | null }> {
+    const result = await rpcCall('session.create', {
+       cols: 96,
+       source: 'desktop',
+     })
+    const runtimeId = result?.session_id
+    if (!runtimeId) throw new Error('session.create returned no session id')
+    return { runtimeId, storedSessionId: result?.stored_session_id ?? null }
+  }
+
+  /**
    * Send a message via the persistent WS.
    *
-   * 1. session.resume → get runtimeId
+   * 1. session.create (new) or session.resume (existing) → get runtimeId
    * 2. Push placeholder assistant message
    * 3. prompt.submit (fire-and-forget) → ack {status: "streaming"}
    * 4. Collect message.delta events → update placeholder
@@ -346,13 +360,25 @@ export function useGateway() {
     _url: string,
     sessionId: string,
     text: string,
-  ): Promise<Message | null> {
+    isNewSession: boolean = false,
+  ): Promise<{ message: Message; newSessionId: string | null } | null> {
     if (!ws || wsState.value !== 'open') {
       throw new Error('WebSocket not connected')
     }
 
-    // Resume session to get runtimeId
-    const runtimeId = await resumeSession(sessionId)
+    // Create or resume session to get runtimeId
+    let runtimeId: string
+    if (isNewSession) {
+      const created = await createSession()
+      runtimeId = created.runtimeId
+      // Update the selectedSessionId with the server-assigned stored ID if available
+      if (created.storedSessionId) {
+        // Store the mapping so future messages use the real ID
+        sessionId = created.storedSessionId
+      }
+    } else {
+      runtimeId = await resumeSession(sessionId)
+    }
 
     // Push placeholder assistant message
     const assistantMsg: Message = {
@@ -391,7 +417,7 @@ export function useGateway() {
     })
 
     assistantMsg.content = content || '[empty response]'
-    return assistantMsg
+    return { message: assistantMsg, newSessionId: isNewSession ? sessionId : null }
   }
 
   async function deleteSession(url: string, sessionId: string): Promise<boolean> {
@@ -428,6 +454,7 @@ export function useGateway() {
     deleteSession,
     connectWs,
     disconnectWs,
+    createSession,
     sendMessage,
   }
 }

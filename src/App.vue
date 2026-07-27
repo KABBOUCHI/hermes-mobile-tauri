@@ -15,6 +15,7 @@ const selectedSessionId = ref('')
 const sending = ref(false)
 const connectLoading = ref(false)
 const connectError = ref('')
+const isNewSession = ref(false)
 
 const selectedSessionTitle = computed(() => {
   if (!selectedSessionId.value) return 'Session'
@@ -101,10 +102,15 @@ function openSession(id: string) {
 
 function goBack() {
   selectedSessionId.value = ''
+  isNewSession.value = false
+  gw.messages.value = []
   view.value = 'sessions'
 }
 
 function createNewSession() {
+  selectedSessionId.value = ''
+  isNewSession.value = true
+  gw.messages.value = []
   view.value = 'chat'
 }
 
@@ -138,9 +144,13 @@ async function handleSend(text: string) {
     content: text,
     timestamp: Date.now() / 1000,
   })
-
   try {
-    await gw.sendMessage(auth.gatewayUrl.value, selectedSessionId.value, text)
+    const result = await gw.sendMessage(auth.gatewayUrl.value, selectedSessionId.value, text, isNewSession.value)
+    // If this was a new session, update the ID with the server-assigned one
+    if (result?.newSessionId) {
+      selectedSessionId.value = result.newSessionId
+      isNewSession.value = false
+    }
   } catch (err: any) {
     gw.messages.value.push({
       role: 'assistant',

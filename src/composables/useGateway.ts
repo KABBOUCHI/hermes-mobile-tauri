@@ -109,17 +109,11 @@ function displayContent(msg: any): string {
     if (!hasText) return ''
   }
   let text = extractText(content)
-  // Strip <think>...</think> blocks (completed)
-  text = text.replace(/<think>[\s\S]*?<\/think>/gi, '')
-  // Strip open <think> blocks (streaming — no closing tag)
-  text = text.replace(/<think>[\s\S]*$/gi, '')
-  // Strip <tool_call>...</tool_call> blocks
+  // Don't strip <think> — let the markdown renderer handle them as collapsible blocks
+  // Strip <tool_call> blocks
   text = text.replace(/<tool_call>[\s\S]*?<\/tool_call>/gi, '')
-  // Strip <result>...</result> wrappers from tool results
-  text = text.replace(/<result>[\s\S]*?<\/result>/gi, (m: string) => {
-    const inner = m.replace(/<\/?result>/gi, '').trim()
-    return inner.length < 500 ? inner : inner.slice(0, 500) + '…'
-  })
+  // Strip <result> wrappers from tool results
+  text = text.replace(/<result>([\s\S]*?)<\/result>/gi, (_m: string, inner: string) => inner.trim())
   return text.trim()
 }
 

@@ -219,6 +219,18 @@ function render(content: string): string {
   return renderMarkdown(content)
 }
 
+function handleMessagesClick(e: Event) {
+  const target = (e.target as HTMLElement).closest('.md-code-copy') as HTMLElement | null
+  if (!target) return
+  const codeBlock = target.closest('.md-code-wrap')
+  const code = codeBlock?.querySelector('code')?.textContent || codeBlock?.querySelector('.md-code')?.textContent || ''
+  if (code) {
+    navigator.clipboard.writeText(code)
+    target.textContent = '✓ Copied'
+    setTimeout(() => { target.textContent = 'Copy' }, 1500)
+  }
+}
+
 function copyContent(content: string, idx: number) {
   navigator.clipboard.writeText(content)
   copiedIdx.value = idx
@@ -428,7 +440,7 @@ function formatTime(ts: number): string {
     </div>
 
     <!-- Messages -->
-    <div class="chat-messages" ref="scrollEl" @scroll="onScroll">
+    <div class="chat-messages" ref="scrollEl" @scroll="onScroll" @click="handleMessagesClick">
       <div v-if="!hasMessages && !gw.loading.value && !gw.error.value" class="empty-state">
         <div class="empty-icon">💬</div>
         <div class="empty-text">Start a conversation</div>

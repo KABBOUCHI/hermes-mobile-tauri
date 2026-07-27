@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { openUrl } from '@tauri-apps/plugin-opener'
 import { useAuth } from './composables/useAuth'
 import { useGateway } from './composables/useGateway'
 import { usePins } from './composables/usePins'
@@ -40,7 +41,74 @@ async function startGateway() {
 }
 
 // ── Boot ───────────────────────────────────────────
+// ── Global link handler: open external links in system browser ──
+function handleGlobalClick(e: Event) {
+  const target = e.target as HTMLElement
+  // Walk up from the click target to find an <a> tag
+  const anchor = target.closest('a') as HTMLAnchorElement | null
+  if (!anchor) return
+
+  const href = anchor.getAttribute('href')
+  if (!href) return
+
+  // Only intercept external links (http/https)
+  if (href.startsWith('http://') || href.startsWith('https://')) {
+    e.preventDefault()
+    e.stopPropagation()
+    openUrl(href).catch(() => {
+      // Fallback: try window.open for non-Tauri environments
+      window.open(href, '_blank')
+    })
+    return
+  }
+
+  // Also handle mailto: and tel: links
+  if (href.startsWith('mailto:') || href.startsWith('tel:')) {
+    e.preventDefault()
+    e.stopPropagation()
+    openUrl(href).catch(() => {})
+    return
+  }
+}
+
+// ── Global code copy handler (delegated) ──
+function handleGlobalCopy(e: Event) {
+  const target = e.target as HTMLElement
+  if (!target.classList.contains('md-code-copy')) return
+
+  e.preventDefault()
+  e.stopPropagation()
+
+  const codeWrap = target.closest('.md-code-wrap')
+  if (!codeWrap) return
+  const codeEl = codeWrap.querySelector('code')
+  if (!codeEl) return
+
+  const text = codeEl.textContent || ''
+  navigator.clipboard.writeText(text).then(() => {
+    target.textContent = 'Copied!'
+    setTimeout(() => { target.textContent = 'Copy' }, 1500)
+  }).catch(() => {
+    // Fallback: select + execCommand
+    const range = document.createRange()
+    range.selectNodeContents(codeEl)
+    const sel = window.getSelection()
+    if (sel) {
+      sel.removeAllRanges()
+      sel.addRange(range)
+      document.execCommand('copy')
+      sel.removeAllRanges()
+      target.textContent = 'Copied!'
+      setTimeout(() => { target.textContent = 'Copy' }, 1500)
+    }
+  })
+}
+
 onMounted(async () => {
+  // Global delegated handlers for links and code copy
+  document.addEventListener('click', handleGlobalClick, true)
+  document.addEventListener('click', handleGlobalCopy, true)
+
   const bootTimer = setTimeout(() => {
     if (view.value === 'loading') {
       console.warn('[boot] stuck on loading, forcing connect view')
@@ -66,6 +134,8 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  document.removeEventListener('click', handleGlobalClick, true)
+  document.removeEventListener('click', handleGlobalCopy, true)
   gw.disconnectWs()
 })
 

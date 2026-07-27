@@ -146,7 +146,7 @@ export function renderMarkdown(text: string): string {
       blocks.push(
         `<div class="md-code-wrap">` +
         `<div class="md-code-header">${langLabel}` +
-        `<button class="md-code-copy" onclick="((el)=>{navigator.clipboard.writeText(el.closest('.md-code-wrap').querySelector('code').textContent).then(()=>{el.textContent='Copied!';setTimeout(()=>el.textContent='Copy',1500)})})(this)">Copy</button>` +
+        `<button class="md-code-copy">Copy</button>` +
         `</div>` +
         `<pre class="md-code-block"><code>${codeLines.map(escapeHtml).join('\n')}</code></pre>` +
         `</div>`

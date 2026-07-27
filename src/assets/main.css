@@ -97,6 +97,10 @@ input, textarea, button {
   color: var(--text);
   border-color: var(--text-muted);
 }
+.md-code-copy:active {
+  transform: scale(0.95);
+  background: var(--surface-2);
+}
 .md-code-block {
   background: var(--bg);
   padding: 12px 14px;
@@ -123,8 +127,11 @@ input, textarea, button {
 .md-link {
   color: var(--accent);
   text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: opacity 0.1s;
 }
 .md-link:hover { text-decoration: underline; }
+.md-link:active { opacity: 0.7; }
 
 .md-img {
   max-width: 100%;

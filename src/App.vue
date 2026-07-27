@@ -221,6 +221,7 @@ async function handleSend(text: string) {
   height: 100dvh;
   display: flex;
   flex-direction: column;
+  padding-top: 20px;
 }
 
 .StateView {

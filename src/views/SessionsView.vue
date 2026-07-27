@@ -27,6 +27,45 @@ const pullDelta = ref(0)
 const listEl = ref<HTMLElement | null>(null)
 const deletingId = ref('')
 
+// Date grouping
+interface DateGroup {
+  label: string
+  sessions: Session[]
+}
+
+function getDateGroups(sessions: Session[]): DateGroup[] {
+  const now = new Date()
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const startOfYesterday = new Date(startOfToday)
+  startOfYesterday.setDate(startOfYesterday.getDate() - 1)
+  const startOfWeek = new Date(startOfToday)
+  startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay())
+
+  const groups: DateGroup[] = [
+    { label: 'Today', sessions: [] },
+    { label: 'Yesterday', sessions: [] },
+    { label: 'This week', sessions: [] },
+    { label: 'Earlier', sessions: [] },
+  ]
+
+  for (const session of sessions) {
+    const sessionDate = new Date(session.last_active * 1000)
+    
+    if (sessionDate >= startOfToday) {
+      groups[0].sessions.push(session)
+    } else if (sessionDate >= startOfYesterday) {
+      groups[1].sessions.push(session)
+    } else if (sessionDate >= startOfWeek) {
+      groups[2].sessions.push(session)
+    } else {
+      groups[3].sessions.push(session)
+    }
+  }
+
+  // Filter out empty groups
+  return groups.filter(group => group.sessions.length > 0)
+}
+
 const filtered = computed(() => {
   const q = search.value.toLowerCase()
   if (!q) return props.sessions
@@ -35,6 +74,13 @@ const filtered = computed(() => {
     (s.preview || '').toLowerCase().includes(q) ||
     (s.model || '').toLowerCase().includes(q)
   )
+})
+
+const groupedSessions = computed(() => {
+  if (search.value) {
+    return [{ label: 'Search results', sessions: filtered.value }]
+  }
+  return getDateGroups(props.sessions)
 })
 
 const hostShort = computed(() => {
@@ -172,32 +218,35 @@ function formatCount(n: number): string {
       @touchmove="onTouchMove"
       @touchend="onTouchEnd"
     >
-      <div
-        v-for="s in filtered"
-        :key="s.id"
-        class="SessionCard"
-        @click="emit('open', s.id)"
-      >
-        <div class="CardTop">
-          <span class="SessionTitle">{{ s.title || 'Untitled' }}</span>
-          <span v-if="s.is_active" class="ActiveDot" />
-          <button
-            class="DeleteBtn"
-            :class="{ confirming: deletingId === s.id }"
-            @click="confirmDelete($event, s.id)"
-            :title="deletingId === s.id ? 'Confirm delete' : 'Delete'"
-          >
-            {{ deletingId === s.id ? '✓' : '✕' }}
-          </button>
+      <template v-for="group in groupedSessions" :key="group.label">
+        <div class="DateGroupLabel">{{ group.label }}</div>
+        <div
+          v-for="s in group.sessions"
+          :key="s.id"
+          class="SessionCard"
+          @click="emit('open', s.id)"
+        >
+          <div class="CardTop">
+            <span class="SessionTitle">{{ s.title || 'Untitled' }}</span>
+            <span v-if="s.is_active" class="ActiveDot" />
+            <button
+              class="DeleteBtn"
+              :class="{ confirming: deletingId === s.id }"
+              @click="confirmDelete($event, s.id)"
+              :title="deletingId === s.id ? 'Confirm delete' : 'Delete'"
+            >
+              {{ deletingId === s.id ? '✓' : '✕' }}
+            </button>
+          </div>
+          <span class="SessionPreview">{{ s.preview || 'No messages' }}</span>
+          <div class="CardMeta">
+            <span class="MetaText">{{ formatCount(s.message_count) }} msgs</span>
+            <span class="MetaDot">·</span>
+            <span class="MetaText">{{ relativeTime(s.last_active) }}</span>
+            <span v-if="s.model" class="ModelBadge">{{ modelShort(s.model) }}</span>
+          </div>
         </div>
-        <span class="SessionPreview">{{ s.preview || 'No messages' }}</span>
-        <div class="CardMeta">
-          <span class="MetaText">{{ formatCount(s.message_count) }} msgs</span>
-          <span class="MetaDot">·</span>
-          <span class="MetaText">{{ relativeTime(s.last_active) }}</span>
-          <span v-if="s.model" class="ModelBadge">{{ modelShort(s.model) }}</span>
-        </div>
-      </div>
+      </template>
     </div>
   </div>
 </template>
@@ -564,6 +613,16 @@ function formatCount(n: number): string {
   border-radius: 4px;
   padding: 2px 6px;
   margin-left: auto;
+}
+
+.DateGroupLabel {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 12px 4px 6px;
+  margin-bottom: 4px;
 }
 
 @keyframes spin { to { transform: rotate(360deg); } }

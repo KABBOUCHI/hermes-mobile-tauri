@@ -11,17 +11,42 @@ function escapeHtml(s: string): string {
     .replace(/"/g, '&quot;')
 }
 
+/**
+ * Auto-link bare URLs that aren't already inside markdown link syntax.
+ * Follows the desktop app's approach in markdown-preprocess.ts:
+ * wraps bare https:// URLs in angle brackets so the markdown renderer
+ * treats them as autolinks. Excludes URLs preceded by < or ](
+ * to avoid double-wrapping existing links.
+ */
+function autoLinkRawUrls(text: string): string {
+  // Match bare URLs: http:// or https:// followed by non-space characters.
+  // Exclude trailing punctuation that's likely sentence-ending, not part of the URL.
+  return text.replace(/https?:\/\/[^\s<>"'`*]+[^\s<>"'`*.,;:!?)]/g, (url, index) => {
+    const prev = text[index - 1] || ''
+    const prevPrev = text[index - 2] || ''
+
+    // Skip if already inside an angle bracket or markdown link
+    if (prev === '<') return url
+    if (prevPrev === ']' && prev === '(') return url
+
+    return `<${url}>`
+  })
+}
+
 function renderInline(text: string): string {
   let out = escapeHtml(text)
 
   // Inline code (must be before other inline rules)
-  out = out.replace(/`([^`\n]+?)`/g, '<code class="md-inline">$1</code>')
+  out = out.replace(/`([^`\\n]+?)`/g, '<code class="md-inline">$1</code>')
 
   // Images
   out = out.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img class="md-img" src="$2" alt="$1" loading="lazy" />')
 
-  // Links
+  // Markdown links [text](url)
   out = out.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a class="md-link" href="$2" target="_blank" rel="noopener">$1</a>')
+
+  // Auto-link bare URLs (before bold/italic so they don't break URLs with underscores)
+  out = autoLinkRawUrls(out)
 
   // Bold
   out = out.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')

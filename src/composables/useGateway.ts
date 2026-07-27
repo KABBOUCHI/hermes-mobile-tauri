@@ -32,13 +32,16 @@ export interface Message {
 
 type ConnectionState = 'idle' | 'connecting' | 'open' | 'closed' | 'error'
 
-// ── Module-level singleton state ────────────────────
+// ── Module-level singleton state ───────────────────
 const sessions = ref<Session[]>([])
 const messages = ref<Message[]>([])
-const loading = ref(false)
+const loadingSessions = ref(false)
+const loadingMessages = ref(false)
 const error = ref('')
 const wsState = ref<ConnectionState>('idle')
 const turnStartedAt = ref<number | null>(null)
+
+const loading = computed(() => loadingSessions.value || loadingMessages.value)
 
 // Persistent WS state
 let ws: any = null
@@ -141,7 +144,7 @@ function formatTime(ts: number): string {
 // ── REST ───────────────────────────────────────────
 
 async function fetchSessions(url: string): Promise<Session[]> {
-  loading.value = true
+  loadingSessions.value = true
   error.value = ''
   try {
     const base = url.replace(/\/$/, '')
@@ -160,12 +163,12 @@ async function fetchSessions(url: string): Promise<Session[]> {
     error.value = err.message || 'Failed to load sessions'
     return []
   } finally {
-    loading.value = false
+    loadingSessions.value = false
   }
 }
 
 async function fetchMessages(url: string, sessionId: string): Promise<Message[]> {
-  loading.value = true
+  loadingMessages.value = true
   error.value = ''
   try {
     const base = url.replace(/\/$/, '')
@@ -192,7 +195,7 @@ async function fetchMessages(url: string, sessionId: string): Promise<Message[]>
     error.value = err.message || 'Failed to load messages'
     return []
   } finally {
-    loading.value = false
+    loadingMessages.value = false
   }
 }
 

@@ -10,13 +10,15 @@ const auth = useAuth()
 interface CronJob {
   id: string
   name: string
-  schedule: string
+  schedule: { kind: string; display: string }
   prompt: string
   enabled: boolean
-  last_run: number | null
-  next_run: number | null
-  created_at: number
+  last_run_at: string | null
+  next_run_at: string | null
+  created_at: string
+  last_status: string | null
   is_running?: boolean
+  latest_execution?: { status: string }
 }
 
 const jobs = ref<CronJob[]>([])
@@ -37,13 +39,13 @@ async function fetchJobs() {
     const headers: Record<string, string> = {}
     if (auth.sessionCookie.value) headers['Cookie'] = auth.sessionCookie.value
     const resp = await fetchWithTimeout(
-      `${base}/api/jobs`,
+      `${base}/api/cron/jobs?profile=all`,
       { method: 'GET', headers, credentials: 'same-origin' },
       10000
     )
     if (!resp.ok) throw new Error('HTTP ' + resp.status)
     const data = await resp.json()
-    jobs.value = data.jobs || data || []
+    jobs.value = Array.isArray(data) ? data : (data.jobs || [])
   } catch (err: any) {
     error.value = err.message || 'Failed to load cron jobs'
   } finally {
@@ -118,14 +120,14 @@ onMounted(fetchJobs)
           <span v-else-if="job.enabled" class="StatusDot enabled" />
           <span v-else class="StatusDot disabled" />
         </div>
-        <span class="JobSchedule">{{ job.schedule }}</span>
+        <span class="JobSchedule">{{ job.schedule?.display || job.schedule }}</span>
         <span v-if="job.prompt" class="JobPrompt">{{ truncate(job.prompt, 120) }}</span>
         <div class="JobMeta">
           <span class="MetaLabel">Last:</span>
-          <span class="MetaValue">{{ relativeTime(job.last_run) }}</span>
+          <span class="MetaValue">{{ job.last_run_at ? relativeTime(new Date(job.last_run_at).getTime() / 1000) : 'never' }}</span>
           <span class="MetaDot">·</span>
           <span class="MetaLabel">Next:</span>
-          <span class="MetaValue">{{ relativeTime(job.next_run) }}</span>
+          <span class="MetaValue">{{ job.next_run_at ? relativeTime(new Date(job.next_run_at).getTime() / 1000) : '—' }}</span>
         </div>
       </div>
     </div>

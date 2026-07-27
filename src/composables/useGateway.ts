@@ -66,24 +66,27 @@ function extractText(content: any): string {
   if (typeof content === 'string') return content
   if (content === null || content === undefined) return ''
   if (Array.isArray(content)) {
-    // Filter to text parts only, skip tool-call parts
+    // Filter to text parts only, skip tool-call/tool-result parts
     return content
-      .filter((p: any) => p?.type === 'text')
-      .map((p: any) => p.text || '')
+      .filter((p: any) => p?.type === 'text' && typeof p.text === 'string')
+      .map((p: any) => p.text)
       .join('\n') || ''
   }
   if (typeof content === 'object') {
-    // Try common text fields
-    const text = content.text ?? content.output_text ?? content.content ?? content.message
+    // Skip tool-call / tool-use objects
+    if (content.type === 'tool-call' || content.type === 'tool_use' || content.type === 'tool-result') return ''
+    if (content.name && (content.input || content.arguments)) return ''
+    // Try common text fields (match desktop app's textFromUnknown)
+    const text = content.text ?? content.output_text ?? content.output ?? content.content ?? content.message ?? content.summary ?? content.rendered
     if (typeof text === 'string') return text
     if (Array.isArray(text)) return extractText(text)
-    // Last resort: stringify (but only if it looks like text)
-    try {
-      const s = JSON.stringify(content)
-      // If it's a tool call object, return empty (don't show raw JSON)
-      if (content.type === 'tool-call' || content.type === 'tool_use' || content.name) return ''
-      return s
-    } catch { return '' }
+    if (text && typeof text === 'object') return extractText(text)
+    // If it has an 'error' boolean field with a string 'error' field, return the error
+    if (typeof content.error === 'string') return `Error: ${content.error}`
+    // If it has 'result' field, try that
+    if (content.result !== undefined) return extractText(content.result)
+    // Don't stringify raw objects — they're tool outputs, not display text
+    return ''
   }
   return String(content || '')
 }
@@ -177,7 +180,7 @@ async function fetchMessages(url: string, sessionId: string): Promise<Message[]>
     const data = await resp.json()
     const raw = data.messages || []
     messages.value = raw
-      .filter((m: any) => m.role !== 'system')
+      .filter((m: any) => m.role !== 'system' && m.role !== 'tool' && m.role !== 'function')
       .map((m: any) => ({
         role: m.role || 'assistant',
         content: displayContent(m),

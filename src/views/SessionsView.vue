@@ -5,11 +5,13 @@ import type { Session } from '../composables/useGateway'
 import { useAuth } from '../composables/useAuth'
 import { useGateway } from '../composables/useGateway'
 import { usePins } from '../composables/usePins'
+import { useUnreads } from '../composables/useUnreads'
 
 const router = useRouter()
 const auth = useAuth()
 const gw = useGateway()
 const pins = usePins()
+const unreads = useUnreads()
 
 const search = ref('')
 const refreshing = ref(false)
@@ -22,6 +24,7 @@ const contextMenuSessionId = ref('')
 const contextMenuVisible = ref(false)
 const contextMenuPos = ref({ x: 0, y: 0 })
 const pinnedIds = ref<string[]>([])
+const unreadIds = ref<Set<string>>(new Set())
 
 // ── Rename dialog ──
 const renameVisible = ref(false)
@@ -163,12 +166,14 @@ onMounted(async () => {
     await gw.fetchSessions(auth.gatewayUrl.value)
     pinnedIds.value = await pins.getPinnedIds()
   }
+  unreadIds.value = await unreads.getUnreadIds(gw.sessions.value)
 })
 
 function handleRefresh() {
   refreshing.value = true
   gw.fetchSessions(auth.gatewayUrl.value).then(async () => {
     pinnedIds.value = await pins.getPinnedIds()
+    unreadIds.value = await unreads.getUnreadIds(gw.sessions.value)
   })
   setTimeout(() => { refreshing.value = false }, 800)
 }
@@ -243,11 +248,21 @@ async function handleDelete() {
 }
 
 function openSession(id: string) {
+  const session = gw.sessions.value.find(s => s.id === id)
+  if (session) {
+    unreads.markSessionRead(id, session.message_count)
+    unreadIds.value = new Set([...unreadIds.value].filter(uid => uid !== id))
+  }
   router.push({ name: 'chat', params: { id } })
 }
 
 function createNewSession() {
   router.push({ name: 'chat' })
+}
+
+async function handleMarkAllRead() {
+  await unreads.markAllRead(gw.sessions.value)
+  unreadIds.value = new Set()
 }
 
 function goToCron() {
@@ -304,6 +319,9 @@ function formatCount(n: number): string {
         </div>
       </div>
       <div class="HeaderActions">
+        <button v-if="unreadIds.size > 0" class="MarkReadBtn" @click="handleMarkAllRead" title="Mark all read">
+          ✓ Read
+        </button>
         <button class="CronBtn" @click="goToCron" title="Cron jobs">
           ⏰
         </button>
@@ -390,6 +408,7 @@ function formatCount(n: number): string {
         >
           <div class="CardTop">
             <span v-if="isPinned(s.id)" class="PinIcon">📌</span>
+            <span v-if="unreadIds.has(s.id)" class="UnreadDot" />
             <span class="SessionTitle">{{ s.title || 'Untitled' }}</span>
             <span v-if="s.is_active" class="ActiveDot" />
             <button
@@ -964,4 +983,33 @@ function formatCount(n: number): string {
 
 .RenameConfirm:hover { opacity: 0.9; }
 .RenameConfirm:disabled { opacity: 0.4; cursor: default; }
+
+/* ── Unread indicator ── */
+.UnreadDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--accent);
+  box-shadow: 0 0 6px rgba(94, 106, 210, 0.5);
+  flex-shrink: 0;
+}
+
+.MarkReadBtn {
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 6px;
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.MarkReadBtn:hover {
+  color: var(--text);
+  border-color: var(--text-muted);
+}
 </style>

@@ -70,16 +70,11 @@ function handleGlobalCopy(e: Event) {
 }
 
 // ── Boot ───────────────────────────────────────────
-onMounted(async () => {
-  document.addEventListener('click', handleGlobalClick, true)
-  document.addEventListener('click', handleGlobalCopy, true)
+let booted = false
 
-  const bootTimer = setTimeout(() => {
-    if (router.currentRoute.value.name === 'loading') {
-      console.warn('[boot] stuck on loading, forcing connect view')
-      router.replace({ name: 'connect' })
-    }
-  }, 5000)
+async function boot() {
+  if (booted) return
+  booted = true
 
   try {
     const ok = await auth.tryAutoLogin()
@@ -97,25 +92,25 @@ onMounted(async () => {
   } catch (err: any) {
     console.error('[boot] unexpected error:', err)
     router.replace({ name: 'connect' })
-  } finally {
-    clearTimeout(bootTimer)
   }
+}
+
+onMounted(() => {
+  document.addEventListener('click', handleGlobalClick, true)
+  document.addEventListener('click', handleGlobalCopy, true)
+  boot()
 })
 
 onUnmounted(() => {
   document.removeEventListener('click', handleGlobalClick, true)
   document.removeEventListener('click', handleGlobalCopy, true)
-  gw.disconnectWs()
+  // Don't disconnect WS here — let it persist across route changes
 })
 </script>
 
 <template>
   <div class="Root">
-    <!-- Loading state while boot resolves -->
-    <div v-if="router.currentRoute.value.name === 'loading'" class="StateView">
-      <div class="Loader" />
-    </div>
-    <router-view v-else />
+    <router-view />
   </div>
 </template>
 
@@ -129,22 +124,4 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
 }
-
-.StateView {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.Loader {
-  width: 28px;
-  height: 28px;
-  border: 2px solid var(--border);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
-@keyframes spin { to { transform: rotate(360deg); } }
 </style>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import type { Session } from '../composables/useGateway'
 import { useAuth } from '../composables/useAuth'
@@ -107,10 +107,13 @@ const hostShort = computed(() => {
   }
 })
 
-// Load pinned IDs on mount
-import { onMounted } from 'vue'
+// Load pinned IDs on mount; also refresh sessions if empty (e.g. direct nav)
 onMounted(async () => {
   pinnedIds.value = await pins.getPinnedIds()
+  if (gw.sessions.value.length === 0 && auth.isConnected.value) {
+    await gw.fetchSessions(auth.gatewayUrl.value)
+    pinnedIds.value = await pins.getPinnedIds()
+  }
 })
 
 function handleRefresh() {

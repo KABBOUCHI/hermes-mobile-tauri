@@ -3,6 +3,7 @@ import ConnectView from './views/ConnectView.vue'
 import SessionsView from './views/SessionsView.vue'
 import MessageView from './views/MessageView.vue'
 import CronView from './views/CronView.vue'
+import { useAuth } from './composables/useAuth'
 
 const routes = [
   { path: '/', name: 'connect', component: ConnectView },
@@ -14,6 +15,15 @@ const routes = [
 const router = createRouter({
   history: createWebHashHistory(),
   routes,
+})
+
+// Redirect to connect if not authenticated
+router.beforeEach((to) => {
+  const auth = useAuth()
+  const publicRoutes = ['connect']
+  if (!publicRoutes.includes(to.name as string) && !auth.isConnected.value) {
+    return { name: 'connect' }
+  }
 })
 
 export default router

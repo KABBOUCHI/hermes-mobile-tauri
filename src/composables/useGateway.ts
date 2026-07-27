@@ -64,13 +64,54 @@ const activeRuntimeId = computed(() => activeTurn?.sessionId ?? null)
 
 function extractText(content: any): string {
   if (typeof content === 'string') return content
+  if (content === null || content === undefined) return ''
   if (Array.isArray(content)) {
+    // Filter to text parts only, skip tool-call parts
     return content
       .filter((p: any) => p?.type === 'text')
       .map((p: any) => p.text || '')
-      .join('\n') || '[non-text content]'
+      .join('\n') || ''
+  }
+  if (typeof content === 'object') {
+    // Try common text fields
+    const text = content.text ?? content.output_text ?? content.content ?? content.message
+    if (typeof text === 'string') return text
+    if (Array.isArray(text)) return extractText(text)
+    // Last resort: stringify (but only if it looks like text)
+    try {
+      const s = JSON.stringify(content)
+      // If it's a tool call object, return empty (don't show raw JSON)
+      if (content.type === 'tool-call' || content.type === 'tool_use' || content.name) return ''
+      return s
+    } catch { return '' }
   }
   return String(content || '')
+}
+
+/** Extract displayable text from a raw gateway message */
+function displayContent(msg: any): string {
+  const kind = msg.display_kind
+  // Skip hidden, timeline, and system-kind messages
+  if (kind === 'hidden' || kind === 'model_switch' || kind === 'auto_continue' || kind === 'async_delegation_complete') return ''
+  // Skip tool-call-only messages (no text content)
+  const content = msg.content
+  if (Array.isArray(content)) {
+    const hasText = content.some((p: any) => p?.type === 'text' && p.text?.trim())
+    if (!hasText) return ''
+  }
+  let text = extractText(content)
+  // Strip <think>...</think> blocks (completed)
+  text = text.replace(/<think>[\s\S]*?<\/think>/gi, '')
+  // Strip open <think> blocks (streaming — no closing tag)
+  text = text.replace(/<think>[\s\S]*$/gi, '')
+  // Strip <tool_call>...</tool_call> blocks
+  text = text.replace(/<tool_call>[\s\S]*?<\/tool_call>/gi, '')
+  // Strip <result>...</result> wrappers from tool results
+  text = text.replace(/<result>[\s\S]*?<\/result>/gi, (m: string) => {
+    const inner = m.replace(/<\/?result>/gi, '').trim()
+    return inner.length < 500 ? inner : inner.slice(0, 500) + '…'
+  })
+  return text.trim()
 }
 
 function relativeTime(ts: number): string {
@@ -139,9 +180,10 @@ async function fetchMessages(url: string, sessionId: string): Promise<Message[]>
       .filter((m: any) => m.role !== 'system')
       .map((m: any) => ({
         role: m.role || 'assistant',
-        content: extractText(m.content),
+        content: displayContent(m),
         timestamp: m.timestamp || 0,
       }))
+      .filter((m: any) => m.content.trim() !== '')
     return messages.value
   } catch (err: any) {
     error.value = err.message || 'Failed to load messages'

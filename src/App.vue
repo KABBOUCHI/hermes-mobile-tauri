@@ -123,5 +123,6 @@ onUnmounted(() => {
   height: 100dvh;
   display: flex;
   flex-direction: column;
+  padding-top: env(safe-area-inset-top, 48px);
 }
 </style>

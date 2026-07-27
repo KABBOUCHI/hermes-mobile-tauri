@@ -13,6 +13,7 @@ const props = defineProps<{
   loading: boolean
   error: string
   sending: boolean
+  turnStartedAt: number | null
   formatTime: (ts: number) => string
   sessionTitle: string
 }>()
@@ -23,6 +24,7 @@ const emit = defineEmits<{
   (e: 'refresh'): void
   (e: 'export'): void
   (e: 'regenerate'): void
+  (e: 'stop'): void
 }>()
 
 const input = ref('')
@@ -163,6 +165,47 @@ function isThinking(content: string): boolean {
 }
 
 const hasMessages = computed(() => props.messages.length > 0)
+
+// ── Live elapsed timer during streaming ──
+const elapsedDisplay = ref('')
+let elapsedTimer: ReturnType<typeof setInterval> | null = null
+
+function formatElapsed(ms: number): string {
+  const totalSeconds = Math.floor(ms / 1000)
+  const seconds = totalSeconds % 60
+  const minutes = Math.floor(totalSeconds / 60)
+  if (minutes > 0) return `${minutes}m ${seconds}s`
+  return `${seconds}s`
+}
+
+function startElapsedTimer() {
+  if (elapsedTimer) return
+  elapsedTimer = setInterval(() => {
+    if (props.turnStartedAt) {
+      elapsedDisplay.value = formatElapsed(Date.now() - props.turnStartedAt)
+    }
+  }, 1000)
+  // Initial tick
+  if (props.turnStartedAt) {
+    elapsedDisplay.value = formatElapsed(Date.now() - props.turnStartedAt)
+  }
+}
+
+function stopElapsedTimer() {
+  if (elapsedTimer) {
+    clearInterval(elapsedTimer)
+    elapsedTimer = null
+  }
+  elapsedDisplay.value = ''
+}
+
+watch(() => props.turnStartedAt, (val) => {
+  if (val) {
+    startElapsedTimer()
+  } else {
+    stopElapsedTimer()
+  }
+}, { immediate: true })
 
 // Auto-scroll to bottom
 watch(() => props.messages.length, async () => {
@@ -317,25 +360,37 @@ watch(() => {
 
     <!-- Input -->
     <div class="chat-input-bar">
-      <textarea
-        ref="inputEl"
-        v-model="input"
-        placeholder="Message…"
-        rows="1"
-        @keydown="handleKeydown"
-        @input="autoResize"
-        :disabled="sending"
-      ></textarea>
-      <button
-        class="send-btn"
-        :disabled="!input.trim() || sending"
-        @click="handleSend"
-      >
-        <svg v-if="!sending" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
-        </svg>
-        <span v-else class="spinner-sm"></span>
-      </button>
+      <div v-if="sending && elapsedDisplay" class="elapsed-indicator">
+        <span class="elapsed-dot"></span>
+        <span class="elapsed-text">{{ elapsedDisplay }}</span>
+      </div>
+      <div v-if="sending" class="stop-bar">
+        <button class="stop-btn" @click="emit('stop')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+            <rect x="6" y="6" width="12" height="12" rx="2" />
+          </svg>
+          <span>Stop generating</span>
+        </button>
+      </div>
+      <template v-else>
+        <textarea
+          ref="inputEl"
+          v-model="input"
+          placeholder="Message…"
+          rows="1"
+          @keydown="handleKeydown"
+          @input="autoResize"
+        ></textarea>
+        <button
+          class="send-btn"
+          :disabled="!input.trim()"
+          @click="handleSend"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
+          </svg>
+        </button>
+      </template>
     </div>
   </div>
 </template>
@@ -673,6 +728,7 @@ watch(() => {
   background: var(--surface);
   border-top: 1px solid var(--border);
   flex-shrink: 0;
+  position: relative;
 }
 .chat-input-bar textarea {
   flex: 1;
@@ -717,5 +773,68 @@ watch(() => {
 .send-btn:disabled {
   opacity: 0.4;
   cursor: default;
+}
+
+/* Stop button */
+.stop-bar {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.stop-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border-radius: 10px;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  background: rgba(239, 68, 68, 0.08);
+  color: var(--error);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  width: 100%;
+  justify-content: center;
+}
+
+.stop-btn:hover {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.5);
+}
+
+.stop-btn:active {
+  transform: scale(0.98);
+}
+
+/* Elapsed indicator */
+.elapsed-indicator {
+  position: absolute;
+  left: 14px;
+  bottom: 100%;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+
+.elapsed-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: think-pulse 1.5s ease-in-out infinite;
+}
+
+.elapsed-text {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
 }
 </style>

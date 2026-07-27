@@ -1,4 +1,4 @@
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { fetch } from '@tauri-apps/plugin-http'
 import WebSocket from '@tauri-apps/plugin-websocket'
 
@@ -38,6 +38,8 @@ export function useGateway() {
   const loading = ref(false)
   const error = ref('')
   const wsState = ref<ConnectionState>('idle')
+  const turnStartedAt = ref<number | null>(null)
+  const activeRuntimeId = computed(() => activeTurn?.sessionId ?? null)
 
   // Persistent WS state
   let ws: any = null
@@ -236,6 +238,7 @@ export function useGateway() {
       const resolve = activeTurn.resolve
       activeTurn = null
       streamingContent = ''
+      turnStartedAt.value = null
       resolve(content)
     }
 
@@ -245,6 +248,7 @@ export function useGateway() {
       const reject = activeTurn.reject
       activeTurn = null
       streamingContent = ''
+      turnStartedAt.value = null
       reject(new Error(errMsg))
     }
   }
@@ -284,6 +288,7 @@ export function useGateway() {
     })
     pendingRequests.clear()
     streamingContent = ''
+    turnStartedAt.value = null
     wsState.value = 'closed'
   }
 
@@ -390,12 +395,14 @@ export function useGateway() {
 
     // Set up streaming turn
     streamingContent = ''
+    turnStartedAt.value = Date.now()
 
     const content = await new Promise<string>((resolve, reject) => {
       const TURN_TIMEOUT = 1_800_000
       const timer = setTimeout(() => {
         activeTurn = null
         streamingContent = ''
+        turnStartedAt.value = null
         reject(new Error('Turn timed out'))
       }, TURN_TIMEOUT)
 
@@ -482,12 +489,14 @@ export function useGateway() {
 
     // Set up streaming turn
     streamingContent = ''
+    turnStartedAt.value = Date.now()
 
     const content = await new Promise<string>((resolve, reject) => {
       const TURN_TIMEOUT = 1_800_000
       const timer = setTimeout(() => {
         activeTurn = null
         streamingContent = ''
+        turnStartedAt.value = null
         reject(new Error('Turn timed out'))
       }, TURN_TIMEOUT)
 
@@ -541,6 +550,8 @@ export function useGateway() {
     loading,
     error,
     wsState,
+    turnStartedAt,
+    activeRuntimeId,
     extractText,
     relativeTime,
     modelShort,

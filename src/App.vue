@@ -232,6 +232,21 @@ async function handleRegenerate() {
   }
 }
 
+// ── Stop / Interrupt ─────────────────────────────────
+async function handleStop() {
+  const runtimeId = gw.activeRuntimeId.value
+  if (!runtimeId) {
+    sending.value = false
+    return
+  }
+  try {
+    await gw.interruptSession(runtimeId)
+  } catch {
+    // Best-effort — the turn may have already completed
+  }
+  sending.value = false
+}
+
 // ── Chat ───────────────────────────────────────────
 async function handleSend(text: string) {
   if (sending.value) return
@@ -310,12 +325,14 @@ async function handleSend(text: string) {
       :loading="gw.loading.value"
       :error="gw.error.value"
       :sending="sending"
+      :turn-started-at="gw.turnStartedAt.value"
       :format-time="gw.formatTime"
       :session-title="selectedSessionTitle"
       @back="goBack"
       @send="handleSend"
       @export="exportChat"
       @regenerate="handleRegenerate"
+      @stop="handleStop"
     />
 
     <!-- Cron Jobs -->

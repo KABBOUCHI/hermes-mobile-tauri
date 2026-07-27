@@ -17,7 +17,7 @@ const isNewSession = ref(!selectedSessionId.value)
 const selectedSessionTitle = computed(() => {
   if (!selectedSessionId.value) return 'New Chat'
   const s = gw.sessions.value.find(s => s.id === selectedSessionId.value)
-  return s?.title || 'Session'
+  return s?.title || s?.preview || 'Session'
 })
 
 // Load messages when entering with an existing session

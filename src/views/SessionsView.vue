@@ -36,7 +36,7 @@ const renaming = ref(false)
 function openRename() {
   const id = contextMenuSessionId.value
   const session = gw.sessions.value.find(s => s.id === id)
-  renameTitle.value = session?.title || ''
+  renameTitle.value = session?.title || session?.preview || ''
   renameSessionId.value = id
   renameVisible.value = true
   closeContextMenu()
@@ -126,7 +126,7 @@ const filtered = computed(() => {
   const q = search.value.toLowerCase()
   if (!q) return gw.sessions.value
   return gw.sessions.value.filter(s =>
-    (s.title || '').toLowerCase().includes(q) ||
+    (s.title || s.preview || '').toLowerCase().includes(q) ||
     (s.preview || '').toLowerCase().includes(q) ||
     (s.model || '').toLowerCase().includes(q)
   )
@@ -409,7 +409,7 @@ function formatCount(n: number): string {
           <div class="CardTop">
             <span v-if="isPinned(s.id)" class="PinIcon">📌</span>
             <span v-if="unreadIds.has(s.id)" class="UnreadDot" />
-            <span class="SessionTitle">{{ s.title || 'Untitled' }}</span>
+            <span class="SessionTitle">{{ s.title || s.preview || 'Untitled' }}</span>
             <span v-if="s.is_active" class="ActiveDot" />
             <button
               class="DeleteBtn"

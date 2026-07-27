@@ -14,12 +14,12 @@ function fetchWithTimeout(url: string, init: RequestInit, ms: number): Promise<R
 
 export interface Session {
   id: string
-  title: string
+  title: string | null
+  preview: string
+  model: string
   message_count: number
   last_active: number
   started_at: number
-  model: string
-  preview: string
   is_active: boolean
   source: string
 }

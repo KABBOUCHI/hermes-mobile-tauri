@@ -171,11 +171,17 @@ onMounted(async () => {
 
 function handleRefresh() {
   refreshing.value = true
-  gw.fetchSessions(auth.gatewayUrl.value).then(async () => {
+  gw.fetchSessions(auth.gatewayUrl.value, false).then(async () => {
     pinnedIds.value = await pins.getPinnedIds()
     unreadIds.value = await unreads.getUnreadIds(gw.sessions.value)
   })
   setTimeout(() => { refreshing.value = false }, 800)
+}
+
+function loadMore() {
+  gw.fetchSessions(auth.gatewayUrl.value, true).then(async () => {
+    pinnedIds.value = await pins.getPinnedIds()
+  })
 }
 
 function confirmDelete(e: Event, id: string) {
@@ -429,6 +435,18 @@ function formatCount(n: number): string {
           </div>
         </div>
       </template>
+
+      <!-- Load more -->
+      <div v-if="gw.hasMoreSessions()" class="LoadMoreWrap">
+        <button
+          class="LoadMoreBtn"
+          :disabled="gw.loadingMore.value"
+          @click="loadMore"
+        >
+          <span v-if="gw.loadingMore.value" class="LoadMoreSpinner" />
+          <span v-else>Load more sessions</span>
+        </button>
+      </div>
     </div>
 
     <!-- Context Menu -->
@@ -748,6 +766,47 @@ function formatCount(n: number): string {
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   padding: 12px 16px;
+}
+
+.LoadMoreWrap {
+  display: flex;
+  justify-content: center;
+  padding: 16px 0 8px;
+}
+
+.LoadMoreBtn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 8px 20px;
+  cursor: pointer;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 140px;
+}
+
+.LoadMoreBtn:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--text-muted);
+  background: var(--surface-2);
+}
+
+.LoadMoreBtn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.LoadMoreSpinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
 }
 
 .DateGroupLabel {

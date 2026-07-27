@@ -36,10 +36,13 @@ type ConnectionState = 'idle' | 'connecting' | 'open' | 'closed' | 'error'
 const sessions = ref<Session[]>([])
 const messages = ref<Message[]>([])
 const loadingSessions = ref(false)
+const loadingMore = ref(false)
 const loadingMessages = ref(false)
 const error = ref('')
 const wsState = ref<ConnectionState>('idle')
 const turnStartedAt = ref<number | null>(null)
+let sessionsTotal = 0
+let sessionsOffset = 0
 
 const loading = computed(() => loadingSessions.value || loadingMessages.value)
 
@@ -143,28 +146,47 @@ function formatTime(ts: number): string {
 
 // ── REST ───────────────────────────────────────────
 
-async function fetchSessions(url: string): Promise<Session[]> {
-  loadingSessions.value = true
+const PAGE_SIZE = 40
+
+async function fetchSessions(url: string, append = false): Promise<Session[]> {
+  if (append) {
+    loadingMore.value = true
+  } else {
+    loadingSessions.value = true
+    sessionsOffset = 0
+  }
   error.value = ''
   try {
     const base = url.replace(/\/$/, '')
     const headers: Record<string, string> = {}
     if (cookie) headers['Cookie'] = cookie
     const resp = await fetchWithTimeout(
-      `${base}/api/sessions?limit=40&offset=0&min_messages=1&archived=exclude&order=recent&source=desktop`,
+      `${base}/api/sessions?limit=${PAGE_SIZE}&offset=${append ? sessionsOffset : 0}&min_messages=1&archived=exclude&order=recent&source=desktop`,
       { method: 'GET', headers, credentials: 'same-origin' },
       FETCH_TIMEOUT
     )
     if (!resp.ok) throw new Error('HTTP ' + resp.status)
     const data = await resp.json()
-    sessions.value = data.sessions || []
+    const incoming = data.sessions || []
+    sessionsTotal = data.total ?? incoming.length
+    sessionsOffset += incoming.length
+    if (append) {
+      sessions.value = [...sessions.value, ...incoming]
+    } else {
+      sessions.value = incoming
+    }
     return sessions.value
   } catch (err: any) {
     error.value = err.message || 'Failed to load sessions'
     return []
   } finally {
     loadingSessions.value = false
+    loadingMore.value = false
   }
+}
+
+function hasMoreSessions(): boolean {
+  return sessionsOffset < sessionsTotal
 }
 
 async function fetchMessages(url: string, sessionId: string): Promise<Message[]> {
@@ -577,6 +599,7 @@ export function useGateway() {
     sessions,
     messages,
     loading,
+    loadingMore,
     error,
     wsState,
     turnStartedAt,
@@ -586,6 +609,7 @@ export function useGateway() {
     modelShort,
     formatTime,
     fetchSessions,
+    hasMoreSessions,
     fetchMessages,
     deleteSession,
     renameSession,

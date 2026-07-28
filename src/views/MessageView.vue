@@ -282,7 +282,7 @@ function handleSend() {
   sendText(text)
 }
 
-function sendText(text: string) {
+function sendText(text: string, preserveUserMessage = false) {
   sending.value = true
   shouldFollowMessages.value = true
 
@@ -291,12 +291,15 @@ function sendText(text: string) {
     selectedSessionId.value = crypto.randomUUID()
   }
 
-  // Optimistic user message
-  gw.messages.value.push({
-    role: 'user',
-    content: text,
-    timestamp: Date.now() / 1000,
-  })
+  // A failed turn already has its user message in the thread. Preserve that
+  // record when retrying so the chat does not display the same prompt twice.
+  if (!preserveUserMessage) {
+    gw.messages.value.push({
+      role: 'user',
+      content: text,
+      timestamp: Date.now() / 1000,
+    })
+  }
 
   input.value = ''
   if (inputEl.value) {
@@ -311,12 +314,21 @@ function sendText(text: string) {
       }
     })
     .catch((err: any) => {
-      gw.messages.value.push({
-        role: 'assistant',
-        content: err.message || 'Unknown error',
-        timestamp: Date.now() / 1000,
-        error: true,
-      })
+      const message = err.message || 'Unknown error'
+      // sendMessage adds an empty assistant bubble before submitting. Turn that
+      // placeholder into the failure state instead of adding a second bubble.
+      const last = gw.messages.value[gw.messages.value.length - 1]
+      if (last?.role === 'assistant' && !last.content && !last.error) {
+        last.content = message
+        last.error = true
+      } else {
+        gw.messages.value.push({
+          role: 'assistant',
+          content: message,
+          timestamp: Date.now() / 1000,
+          error: true,
+        })
+      }
     })
     .finally(() => {
       sending.value = false
@@ -324,13 +336,14 @@ function sendText(text: string) {
 }
 
 function retryFailed(failedMsgIdx: number) {
-  // Find the user message that preceded this failed assistant message
+  if (sending.value) return
+  // Find the user message that preceded this failed assistant message.
   for (let i = failedMsgIdx - 1; i >= 0; i--) {
     if (gw.messages.value[i].role === 'user') {
       const userText = gw.messages.value[i].content
-      // Remove the failed assistant message
+      // Keep the original user message and replace only its failed response.
       gw.messages.value.splice(failedMsgIdx, 1)
-      sendText(userText)
+      sendText(userText, true)
       return
     }
   }
@@ -852,6 +865,7 @@ function formatTime(ts: number): string {
                   <line x1="12" y1="16" x2="12.01" y2="16"/>
                 </svg>
                 <span class="error-text">{{ msg.content || 'Failed to send' }}</span>
+                <button class="retry-btn" :disabled="sending" @click.stop="retryFailed(idx)">Retry</button>
               </div>
 
               <!-- Streaming thinking indicator -->
@@ -1396,13 +1410,24 @@ function formatTime(ts: number): string {
   line-height: 1.4;
 }
 .retry-btn {
-  color: var(--error) !important;
-  border-color: rgba(239, 68, 68, 0.25) !important;
+  margin-left: auto;
+  padding: 4px 8px;
+  background: transparent;
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: 5px;
+  color: var(--error);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
 }
-.retry-btn:hover {
-  color: #fff !important;
-  background: rgba(239, 68, 68, 0.15) !important;
-  border-color: rgba(239, 68, 68, 0.4) !important;
+.retry-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.retry-btn:hover:not(:disabled) {
+  color: #fff;
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.4);
 }
 
 /* Search match styling */

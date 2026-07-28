@@ -25,6 +25,7 @@ const contextMenuVisible = ref(false)
 const contextMenuPos = ref({ x: 0, y: 0 })
 const pinnedIds = ref<string[]>([])
 const unreadIds = ref<Set<string>>(new Set())
+const showingArchived = ref(false)
 
 // ── Rename dialog ──
 const renameVisible = ref(false)
@@ -163,7 +164,7 @@ const hostShort = computed(() => {
 onMounted(async () => {
   pinnedIds.value = await pins.getPinnedIds()
   if (gw.sessions.value.length === 0 && auth.isConnected.value) {
-    await gw.fetchSessions(auth.gatewayUrl.value)
+    await gw.fetchSessions(auth.gatewayUrl.value, false, showingArchived.value ? 'only' : 'exclude')
     pinnedIds.value = await pins.getPinnedIds()
   }
   unreadIds.value = await unreads.getUnreadIds(gw.sessions.value)
@@ -171,7 +172,7 @@ onMounted(async () => {
 
 function handleRefresh() {
   refreshing.value = true
-  gw.fetchSessions(auth.gatewayUrl.value, false).then(async () => {
+  gw.fetchSessions(auth.gatewayUrl.value, false, showingArchived.value ? 'only' : 'exclude').then(async () => {
     pinnedIds.value = await pins.getPinnedIds()
     unreadIds.value = await unreads.getUnreadIds(gw.sessions.value)
   })
@@ -179,9 +180,19 @@ function handleRefresh() {
 }
 
 function loadMore() {
-  gw.fetchSessions(auth.gatewayUrl.value, true).then(async () => {
+  gw.fetchSessions(auth.gatewayUrl.value, true, showingArchived.value ? 'only' : 'exclude').then(async () => {
     pinnedIds.value = await pins.getPinnedIds()
   })
+}
+
+function toggleArchived() {
+  showingArchived.value = !showingArchived.value
+  gw.sessions.value = []
+  if (auth.isConnected.value) {
+    gw.fetchSessions(auth.gatewayUrl.value, false, showingArchived.value ? 'only' : 'exclude').then(async () => {
+      pinnedIds.value = await pins.getPinnedIds()
+    })
+  }
 }
 
 function confirmDelete(e: Event, id: string) {
@@ -251,6 +262,23 @@ async function handleDelete() {
     await pins.setSessionPinnedRemote(id, false, auth.gatewayUrl.value, auth.sessionCookie.value)
     pinnedIds.value = await pins.getPinnedIds()
   }
+}
+
+async function handleArchive() {
+  const id = contextMenuSessionId.value
+  closeContextMenu()
+  await gw.archiveSession(auth.gatewayUrl.value, id)
+  if (pinnedIds.value.includes(id)) {
+    await pins.unpinSession(id)
+    await pins.setSessionPinnedRemote(id, false, auth.gatewayUrl.value, auth.sessionCookie.value)
+    pinnedIds.value = await pins.getPinnedIds()
+  }
+}
+
+async function handleUnarchive() {
+  const id = contextMenuSessionId.value
+  closeContextMenu()
+  await gw.unarchiveSession(auth.gatewayUrl.value, id)
 }
 
 function openSession(id: string) {
@@ -325,6 +353,18 @@ function formatCount(n: number): string {
         </div>
       </div>
       <div class="HeaderActions">
+        <button
+          class="ArchiveToggleBtn"
+          :class="{ active: showingArchived }"
+          @click="toggleArchived"
+          title="Archived sessions"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="21 8 21 21 3 21 3 8" />
+            <rect x="1" y="3" width="22" height="5" />
+            <line x1="10" y1="12" x2="14" y2="12" />
+          </svg>
+        </button>
         <button v-if="unreadIds.size > 0" class="MarkReadBtn" @click="handleMarkAllRead" title="Mark all read">
           ✓ Read
         </button>
@@ -387,7 +427,7 @@ function formatCount(n: number): string {
     <!-- Empty -->
     <div v-else-if="filtered.length === 0" class="StateView">
       <span class="EmptyIcon">📭</span>
-      <span class="StateText">{{ search ? 'No matching sessions' : 'No sessions found' }}</span>
+      <span class="StateText">{{ search ? 'No matching sessions' : showingArchived ? 'No archived sessions' : 'No sessions found' }}</span>
       <button class="NewBtn" @click="createNewSession">Start a conversation</button>
     </div>
 
@@ -463,6 +503,12 @@ function formatCount(n: number): string {
           </button>
           <button class="ContextMenuBtn" @click="handlePin">
             {{ isPinned(contextMenuSessionId) ? '📌 Unpin' : '📌 Pin to top' }}
+          </button>
+          <button v-if="!showingArchived" class="ContextMenuBtn" @click="handleArchive">
+            📦 Archive
+          </button>
+          <button v-else class="ContextMenuBtn" @click="handleUnarchive">
+            📤 Unarchive
           </button>
           <button class="ContextMenuBtn danger" @click="handleDelete">
             ✕ Delete
@@ -581,6 +627,23 @@ function formatCount(n: number): string {
 }
 
 .NewSessionBtn:hover { opacity: 0.9; }
+
+.ArchiveToggleBtn {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.ArchiveToggleBtn:hover { background-color: var(--surface-2); color: var(--text); }
+.ArchiveToggleBtn.active { color: var(--accent); border-color: rgba(94, 106, 210, 0.3); background-color: rgba(94, 106, 210, 0.1); }
 
 .CronBtn {
   width: 36px;

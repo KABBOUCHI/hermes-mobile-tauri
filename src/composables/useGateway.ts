@@ -44,6 +44,8 @@ const wsState = ref<ConnectionState>('idle')
 const turnStartedAt = ref<number | null>(null)
 let sessionsTotal = 0
 let sessionsOffset = 0
+let archivedSessionsTotal = 0
+let archivedSessionsOffset = 0
 
 const loading = computed(() => loadingSessions.value || loadingMessages.value)
 
@@ -178,12 +180,16 @@ function sourceLabel(source: string | null | undefined): string {
 
 const PAGE_SIZE = 40
 
-async function fetchSessions(url: string, append = false): Promise<Session[]> {
+async function fetchSessions(url: string, append = false, archived: 'exclude' | 'only' = 'exclude'): Promise<Session[]> {
   if (append) {
     loadingMore.value = true
   } else {
     loadingSessions.value = true
-    sessionsOffset = 0
+    if (archived === 'only') {
+      archivedSessionsOffset = 0
+    } else {
+      sessionsOffset = 0
+    }
   }
   error.value = ''
   try {
@@ -191,15 +197,20 @@ async function fetchSessions(url: string, append = false): Promise<Session[]> {
     const headers: Record<string, string> = {}
     if (cookie) headers['Cookie'] = cookie
     const resp = await fetchWithTimeout(
-      `${base}/api/sessions?limit=${PAGE_SIZE}&offset=${append ? sessionsOffset : 0}&min_messages=1&archived=exclude&order=recent&source=desktop`,
+      `${base}/api/sessions?limit=${PAGE_SIZE}&offset=${append ? (archived === 'only' ? archivedSessionsOffset : sessionsOffset) : 0}&min_messages=1&archived=${archived}&order=recent&source=desktop`,
       { method: 'GET', headers, credentials: 'same-origin' },
       FETCH_TIMEOUT
     )
     if (!resp.ok) throw new Error('HTTP ' + resp.status)
     const data = await resp.json()
     const incoming = data.sessions || []
-    sessionsTotal = data.total ?? incoming.length
-    sessionsOffset += incoming.length
+    if (archived === 'only') {
+      archivedSessionsTotal = data.total ?? incoming.length
+      archivedSessionsOffset += incoming.length
+    } else {
+      sessionsTotal = data.total ?? incoming.length
+      sessionsOffset += incoming.length
+    }
     if (append) {
       sessions.value = [...sessions.value, ...incoming]
     } else {
@@ -217,6 +228,10 @@ async function fetchSessions(url: string, append = false): Promise<Session[]> {
 
 function hasMoreSessions(): boolean {
   return sessionsOffset < sessionsTotal
+}
+
+function hasMoreArchivedSessions(): boolean {
+  return archivedSessionsOffset < archivedSessionsTotal
 }
 
 async function fetchMessages(url: string, sessionId: string): Promise<Message[]> {
@@ -622,6 +637,44 @@ async function deleteSession(url: string, sessionId: string): Promise<boolean> {
   }
 }
 
+async function archiveSession(url: string, sessionId: string): Promise<boolean> {
+  try {
+    const base = url.replace(/\/$/, '')
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (cookie) headers['Cookie'] = cookie
+    const resp = await fetchWithTimeout(
+      `${base}/api/sessions/${encodeURIComponent(sessionId)}`,
+      { method: 'PATCH', headers, credentials: 'same-origin', body: JSON.stringify({ archived: true }) },
+      FETCH_TIMEOUT
+    )
+    if (!resp.ok) throw new Error('HTTP ' + resp.status)
+    sessions.value = sessions.value.filter(s => s.id !== sessionId)
+    return true
+  } catch (err: any) {
+    error.value = err.message || 'Failed to archive session'
+    return false
+  }
+}
+
+async function unarchiveSession(url: string, sessionId: string): Promise<boolean> {
+  try {
+    const base = url.replace(/\/$/, '')
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (cookie) headers['Cookie'] = cookie
+    const resp = await fetchWithTimeout(
+      `${base}/api/sessions/${encodeURIComponent(sessionId)}`,
+      { method: 'PATCH', headers, credentials: 'same-origin', body: JSON.stringify({ archived: false }) },
+      FETCH_TIMEOUT
+    )
+    if (!resp.ok) throw new Error('HTTP ' + resp.status)
+    sessions.value = sessions.value.filter(s => s.id !== sessionId)
+    return true
+  } catch (err: any) {
+    error.value = err.message || 'Failed to unarchive session'
+    return false
+  }
+}
+
 // ── Model Options ──────────────────────────────────
 
 export interface ModelProvider {
@@ -700,8 +753,11 @@ export function useGateway() {
     sourceLabel,
     fetchSessions,
     hasMoreSessions,
+    hasMoreArchivedSessions,
     fetchMessages,
     deleteSession,
+    archiveSession,
+    unarchiveSession,
     renameSession,
     connectWs,
     disconnectWs,

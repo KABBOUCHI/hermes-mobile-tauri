@@ -1,13 +1,15 @@
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onMounted } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { renderMarkdown } from '../utils/markdown'
 import { useAuth } from '../composables/useAuth'
 import { useGateway, type ModelProvider } from '../composables/useGateway'
+import { useToast } from '../composables/useToast'
 
 const router = useRouter()
 const route = useRoute()
 const auth = useAuth()
+const toast = useToast()
 const gw = useGateway()
 
 const sending = ref(false)
@@ -74,18 +76,33 @@ onMounted(async () => {
     try {
       await gw.fetchMessages(auth.gatewayUrl.value, selectedSessionId.value)
     } catch (err: any) {
-      alert('Failed to load messages: ' + (err.message || 'Unknown error'))
+      toast.show(err.message || 'Failed to load messages', 'error')
     }
   }
   // Load current model for the pill
   loadModels()
+
+  // Keyboard overlap handling for mobile
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', onViewportResize)
+    onViewportResize()
+  }
 })
+
+onUnmounted(() => {
+  if (window.visualViewport) {
+    window.visualViewport.removeEventListener('resize', onViewportResize)
+  }
+})
+
+function onViewportResize() {
+  const vh = window.visualViewport?.height || window.innerHeight
+  document.documentElement.style.setProperty('--app-height', `${vh}px`)
+}
 
 const input = ref('')
 const scrollEl = ref<HTMLElement | null>(null)
 const inputEl = ref<HTMLTextAreaElement | null>(null)
-const copiedIdx = ref<number | null>(null)
-
 // ── User message editing ──
 const editingIdx = ref<number | null>(null)
 const editText = ref('')
@@ -118,7 +135,7 @@ async function saveEdit() {
   try {
     await gw.editMessage(auth.gatewayUrl.value, selectedSessionId.value, idx, text)
   } catch (err: any) {
-    alert('Edit failed: ' + (err.message || 'Unknown error'))
+    toast.show(err.message || 'Edit failed', 'error')
   } finally {
     editing.value = false
     editingIdx.value = null
@@ -155,7 +172,7 @@ watch(() => route.params.id, async (newId) => {
     try {
       await gw.fetchMessages(auth.gatewayUrl.value, selectedSessionId.value)
     } catch (err: any) {
-      alert('Failed to load messages: ' + (err.message || 'Unknown error'))
+      toast.show(err.message || 'Failed to load messages', 'error')
     }
   }
 })
@@ -344,6 +361,32 @@ function onScroll() {
   checkScrollPosition()
 }
 
+// ── Pull-to-refresh in chat ──
+const pullStart = ref(0)
+const pullDelta = ref(0)
+
+function onChatTouchStart(e: TouchEvent) {
+  if (scrollEl.value && scrollEl.value.scrollTop === 0) {
+    pullStart.value = e.touches[0].clientY
+  }
+}
+
+function onChatTouchMove(e: TouchEvent) {
+  if (pullStart.value === 0) return
+  const delta = e.touches[0].clientY - pullStart.value
+  if (delta > 0 && scrollEl.value && scrollEl.value.scrollTop === 0) {
+    pullDelta.value = Math.min(delta * 0.5, 80)
+  }
+}
+
+async function onChatTouchEnd() {
+  if (pullDelta.value > 50 && selectedSessionId.value) {
+    await gw.fetchMessages(auth.gatewayUrl.value, selectedSessionId.value)
+  }
+  pullStart.value = 0
+  pullDelta.value = 0
+}
+
 // Auto-scroll also hides the button
 watch(() => gw.messages.value.length, async () => {
   await nextTick()
@@ -372,10 +415,105 @@ function handleMessagesClick(e: Event) {
   }
 }
 
-function copyContent(content: string, idx: number) {
-  navigator.clipboard.writeText(content)
-  copiedIdx.value = idx
-  setTimeout(() => { copiedIdx.value = null }, 1500)
+// ── Message Action Sheet ──
+const actionSheetOpen = ref(false)
+const actionSheetMsgIdx = ref<number>(-1)
+const actionSheetMsg = computed(() => {
+  if (actionSheetMsgIdx.value < 0) return null
+  return gw.messages.value[actionSheetMsgIdx.value] || null
+})
+const actionSheetIsLastAssistant = computed(() => {
+  const msgs = gw.messages.value
+  const idx = actionSheetMsgIdx.value
+  return idx >= 0 && msgs[idx]?.role === 'assistant' && idx === msgs.length - 1
+})
+
+const hasShareApi = typeof navigator !== 'undefined' && !!navigator.share
+
+let longPressTimer: ReturnType<typeof setTimeout> | null = null
+
+function handleMessageLongPress(e: TouchEvent, idx: number) {
+  const touch = e.touches[0]
+  longPressTimer = setTimeout(() => {
+    openActionSheet(idx)
+  }, 500)
+  // Store start position to detect movement
+  const startY = touch.clientY
+  const onMove = (ev: TouchEvent) => {
+    if (Math.abs(ev.touches[0].clientY - startY) > 10) {
+      clearTimeout(longPressTimer!)
+      longPressTimer = null
+    }
+  }
+  const onEnd = () => {
+    clearTimeout(longPressTimer!)
+    longPressTimer = null
+    document.removeEventListener('touchmove', onMove)
+    document.removeEventListener('touchend', onEnd)
+  }
+  document.addEventListener('touchmove', onMove)
+  document.addEventListener('touchend', onEnd)
+}
+
+function handleMessageTouchEnd() {
+  if (longPressTimer) {
+    clearTimeout(longPressTimer)
+    longPressTimer = null
+  }
+}
+
+function openActionSheet(idx: number) {
+  actionSheetMsgIdx.value = idx
+  actionSheetOpen.value = true
+}
+
+function closeActionSheet() {
+  actionSheetOpen.value = false
+  actionSheetMsgIdx.value = -1
+}
+
+async function actionCopyText() {
+  const msg = actionSheetMsg.value
+  if (msg?.content) {
+    await navigator.clipboard.writeText(msg.content)
+    toast.show('Copied to clipboard', 'success')
+  }
+  closeActionSheet()
+}
+
+function actionEdit() {
+  const idx = actionSheetMsgIdx.value
+  closeActionSheet()
+  startEdit(idx)
+}
+
+function actionRetry() {
+  const idx = actionSheetMsgIdx.value
+  closeActionSheet()
+  retryFailed(idx)
+}
+
+async function actionRegenerate() {
+  closeActionSheet()
+  await handleRegenerate()
+}
+
+async function actionShare() {
+  const msg = actionSheetMsg.value
+  if (msg?.content && navigator.share) {
+    try {
+      await navigator.share({ text: msg.content })
+    } catch { /* cancelled */ }
+  }
+  closeActionSheet()
+}
+
+function actionDeleteMessage() {
+  const idx = actionSheetMsgIdx.value
+  if (idx >= 0 && idx < gw.messages.value.length) {
+    gw.messages.value.splice(idx, 1)
+  }
+  closeActionSheet()
 }
 
 function isThinking(content: string): boolean {
@@ -481,7 +619,7 @@ watch(() => {
 async function exportChat() {
   const msgs = gw.messages.value
   if (!msgs || msgs.length === 0) {
-    alert('No messages to export')
+    toast.show('No messages to export', 'info')
     return
   }
 
@@ -506,21 +644,21 @@ async function exportChat() {
       await navigator.share({ title, text: md })
     } else if (navigator.clipboard) {
       await navigator.clipboard.writeText(md)
-      alert('Chat copied to clipboard')
+      toast.show('Chat copied to clipboard', 'success')
     } else {
-      alert('Export not available on this device')
+      toast.show('Export not available on this device', 'error')
     }
   } catch (err: any) {
     if (err?.name === 'AbortError') return
     try {
       if (navigator.clipboard) {
         await navigator.clipboard.writeText(md)
-        alert('Chat copied to clipboard')
+        toast.show('Chat copied to clipboard', 'success')
       } else {
-        alert('Export failed: ' + (err?.message || 'Unknown error'))
+        toast.show(err?.message || 'Export failed', 'error')
       }
     } catch {
-      alert('Export failed')
+      toast.show('Export failed', 'error')
     }
   }
 }
@@ -534,7 +672,7 @@ async function handleRegenerate() {
   try {
     await gw.regenerateLastMessage(auth.gatewayUrl.value, selectedSessionId.value)
   } catch (err: any) {
-    alert('Regenerate failed: ' + (err.message || 'Unknown error'))
+    toast.show(err.message || 'Regenerate failed', 'error')
   } finally {
     sending.value = false
   }
@@ -617,7 +755,16 @@ function formatTime(ts: number): string {
     </div>
 
     <!-- Messages -->
-    <div class="chat-messages" ref="scrollEl" @scroll="onScroll" @click="handleMessagesClick">
+    <div class="chat-messages" ref="scrollEl" @scroll="onScroll" @click="handleMessagesClick" @touchstart="onChatTouchStart" @touchmove="onChatTouchMove" @touchend="onChatTouchEnd">
+      <!-- Pull-to-refresh indicator -->
+      <div
+        v-if="pullDelta > 0"
+        class="pull-refresh-indicator"
+        :style="{ height: pullDelta + 'px', opacity: pullDelta / 80 }"
+      >
+        <div class="pull-spinner" :class="{ active: gw.loadingMessages.value }" />
+      </div>
+
       <!-- Loading state (messages fetch in progress) -->
       <div v-if="!hasMessages && gw.loadingMessages.value && !gw.error.value" class="loading-state">
         <div class="Loader" />
@@ -647,7 +794,13 @@ function formatTime(ts: number): string {
         class="message"
         :class="[msg.role, { 'search-match': isMatch(idx), 'search-current': matchIndices[currentMatchIdx] === idx }]"
       >
-        <div class="message-bubble" :class="[msg.role, { error: msg.error, editing: editingIdx === idx }]">
+        <div
+          class="message-bubble"
+          :class="[msg.role, { error: msg.error, editing: editingIdx === idx }]"
+          @touchstart="handleMessageLongPress($event, idx)"
+          @touchend="handleMessageTouchEnd"
+          @touchmove="handleMessageTouchEnd"
+        >
           <!-- Edit mode for user messages -->
           <div v-if="editingIdx === idx" class="edit-mode">
             <textarea
@@ -689,12 +842,7 @@ function formatTime(ts: number): string {
 
             <!-- Rendered markdown content -->
             <div
-              v-if="msg.content && !isThinking(msg.content)"
-              class="md-content"
-              v-html="searchQuery.trim() && isMatch(idx) ? highlightText(msg.content, searchQuery) : render(msg.content)"
-            ></div>
-            <div
-              v-else-if="msg.content && isThinking(msg.content)"
+              v-if="msg.content"
               class="md-content"
               v-html="searchQuery.trim() && isMatch(idx) ? highlightText(msg.content, searchQuery) : render(msg.content)"
             ></div>
@@ -709,47 +857,13 @@ function formatTime(ts: number): string {
         <div class="message-footer" :class="msg.role">
           <span v-if="msg.timestamp" class="message-time">{{ formatTime(msg.timestamp) }}</span>
           <button
-            v-if="msg.role === 'user' && !sending && editingIdx === null && !msg.error"
-            class="action-btn edit-btn"
-            @click="startEdit(idx)"
-            title="Edit message"
+            class="menu-btn"
+            @click.stop="openActionSheet(idx)"
+            title="Actions"
           >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="5" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="12" cy="19" r="1" />
             </svg>
-            <span>Edit</span>
-          </button>
-          <button
-            v-if="msg.error && !sending"
-            class="action-btn retry-btn"
-            @click="retryFailed(idx)"
-            title="Retry sending"
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M1 4v6h6M23 20v-6h-6"/>
-              <path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/>
-            </svg>
-            <span>Retry</span>
-          </button>
-          <button
-            v-if="msg.role === 'assistant' && idx === gw.messages.value.length - 1 && !sending && msg.content && idx > 0 && !msg.error"
-            class="action-btn regenerate-btn"
-            @click="handleRegenerate"
-            title="Regenerate response"
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M1 4v6h6M23 20v-6h-6"/>
-              <path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/>
-            </svg>
-            <span>Regenerate</span>
-          </button>
-          <button
-            v-if="msg.content && msg.role === 'assistant'"
-            class="action-btn"
-            @click="copyContent(msg.content, idx)"
-          >
-            {{ copiedIdx === idx ? '✓ Copied' : 'Copy' }}
           </button>
         </div>
       </div>
@@ -846,6 +960,68 @@ function formatTime(ts: number): string {
         </div>
       </div>
     </Teleport>
+
+    <!-- Message Action Sheet -->
+    <Teleport to="body">
+      <Transition name="sheet-fade">
+        <div v-if="actionSheetOpen" class="ActionSheetOverlay" @click="closeActionSheet">
+          <div class="ActionSheet" @click.stop>
+            <div class="ActionSheetHandle" />
+            <div class="ActionSheetPreview" v-if="actionSheetMsg">
+              <span class="ActionSheetRole">{{ actionSheetMsg.role === 'user' ? 'You' : 'Assistant' }}</span>
+              <span class="ActionSheetSnippet">{{ (actionSheetMsg.content || '').slice(0, 120) }}{{ (actionSheetMsg.content || '').length > 120 ? '…' : '' }}</span>
+            </div>
+            <div class="ActionSheetActions">
+              <button class="ActionSheetBtn" @click="actionCopyText">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <span>Copy text</span>
+              </button>
+              <button
+                v-if="actionSheetMsg?.role === 'user' && !sending && editingIdx === null && !actionSheetMsg?.error"
+                class="ActionSheetBtn"
+                @click="actionEdit"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                <span>Edit message</span>
+              </button>
+              <button
+                v-if="actionSheetMsg?.error && !sending"
+                class="ActionSheetBtn"
+                @click="actionRetry"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 4v6h6M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg>
+                <span>Retry</span>
+              </button>
+              <button
+                v-if="actionSheetIsLastAssistant && !sending && actionSheetMsg?.content"
+                class="ActionSheetBtn"
+                @click="actionRegenerate"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 4v6h6M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg>
+                <span>Regenerate</span>
+              </button>
+              <button
+                v-if="actionSheetMsg?.content && hasShareApi"
+                class="ActionSheetBtn"
+                @click="actionShare"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+                <span>Share</span>
+              </button>
+              <button
+                v-if="actionSheetMsg && !actionSheetMsg.error"
+                class="ActionSheetBtn danger"
+                @click="actionDeleteMessage"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                <span>Delete message</span>
+              </button>
+            </div>
+            <button class="ActionSheetCancel" @click="closeActionSheet">Cancel</button>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
@@ -853,7 +1029,7 @@ function formatTime(ts: number): string {
 .chat-view {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  height: var(--app-height, 100%);
   background: var(--bg);
   position: relative;
 }
@@ -1030,6 +1206,24 @@ function formatTime(ts: number): string {
   overscroll-behavior: contain;
 }
 
+.pull-refresh-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  transition: height 0.1s ease;
+}
+.pull-spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+}
+.pull-spinner.active {
+  animation: spin 0.8s linear infinite;
+}
+
 .empty-state {
   flex: 1;
   display: flex;
@@ -1062,7 +1256,6 @@ function formatTime(ts: number): string {
   font-size: 13px;
   color: var(--text-muted);
 }
-@keyframes spin { to { transform: rotate(360deg); } }
 
 .error-banner {
   background: rgba(239, 68, 68, 0.1);
@@ -1632,4 +1825,142 @@ function formatTime(ts: number): string {
   border-color: var(--accent);
   border-bottom-right-radius: 14px;
 }
+
+/* ── Menu button in message footer ── */
+.menu-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+}
+.message:hover .menu-btn,
+.menu-btn:focus-visible {
+  opacity: 1;
+}
+/* Always visible on touch devices */
+@media (hover: none) {
+  .menu-btn { opacity: 0.6; }
+  .menu-btn:active { opacity: 1; }
+}
+
+/* ── Action Sheet ── */
+.ActionSheetOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 2000;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.ActionSheet {
+  width: 100%;
+  max-width: 400px;
+  background: var(--surface);
+  border-radius: 16px 16px 0 0;
+  padding: 8px 12px calc(env(safe-area-inset-bottom, 0px) + 12px);
+  display: flex;
+  flex-direction: column;
+  animation: sheetSlideUp 0.22s ease;
+}
+@keyframes sheetSlideUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+.ActionSheetHandle {
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border);
+  margin: 4px auto 10px;
+  flex-shrink: 0;
+}
+.ActionSheetPreview {
+  padding: 8px 12px 12px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.ActionSheetRole {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+.ActionSheetSnippet {
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+.ActionSheetActions {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 0;
+}
+.ActionSheetBtn {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  border: none;
+  border-radius: 10px;
+  background: none;
+  color: var(--text);
+  font-size: 15px;
+  cursor: pointer;
+  transition: background 0.12s;
+  text-align: left;
+}
+.ActionSheetBtn:hover {
+  background: var(--surface-2);
+}
+.ActionSheetBtn:active {
+  background: var(--surface-3, var(--surface-2));
+}
+.ActionSheetBtn.danger {
+  color: var(--error);
+}
+.ActionSheetBtn svg {
+  flex-shrink: 0;
+}
+.ActionSheetCancel {
+  width: 100%;
+  padding: 14px;
+  border: none;
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 6px;
+  transition: background 0.12s;
+}
+.ActionSheetCancel:hover {
+  background: var(--surface-3, var(--surface-2));
+}
+
+/* Sheet transition */
+.sheet-fade-enter-active { transition: opacity 0.2s ease; }
+.sheet-fade-leave-active { transition: opacity 0.15s ease; }
+.sheet-fade-enter-from,
+.sheet-fade-leave-to { opacity: 0; }
 </style>

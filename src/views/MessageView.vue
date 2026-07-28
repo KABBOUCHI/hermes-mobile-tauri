@@ -2,6 +2,7 @@
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { renderMarkdown } from '../utils/markdown'
+import { isNearChatBottom } from '../utils/chatScroll'
 import { useAuth } from '../composables/useAuth'
 import { useGateway, type ModelProvider } from '../composables/useGateway'
 import { useToast } from '../composables/useToast'
@@ -168,6 +169,7 @@ watch(() => route.params.id, async (newId) => {
   editText.value = ''
   matchIndices.value = []
   currentMatchIdx.value = -1
+  shouldFollowMessages.value = true
   if (selectedSessionId.value) {
     try {
       await gw.fetchMessages(auth.gatewayUrl.value, selectedSessionId.value)
@@ -282,6 +284,7 @@ function handleSend() {
 
 function sendText(text: string) {
   sending.value = true
+  shouldFollowMessages.value = true
 
   // Generate session ID for new sessions
   if (!selectedSessionId.value) {
@@ -342,17 +345,20 @@ function handleKeydown(e: KeyboardEvent) {
 
 // ── Jump to bottom button ──
 const showJumpToBottom = ref(false)
+const shouldFollowMessages = ref(true)
 
 function checkScrollPosition() {
   const el = scrollEl.value
   if (!el) return
-  const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
-  showJumpToBottom.value = distanceFromBottom > 200
+  shouldFollowMessages.value = isNearChatBottom(el)
+  showJumpToBottom.value = !shouldFollowMessages.value
 }
 
 function scrollToBottom() {
   const el = scrollEl.value
   if (!el) return
+  shouldFollowMessages.value = true
+  showJumpToBottom.value = false
   el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
 }
 
@@ -386,12 +392,6 @@ async function onChatTouchEnd() {
   pullStart.value = 0
   pullDelta.value = 0
 }
-
-// Auto-scroll also hides the button
-watch(() => gw.messages.value.length, async () => {
-  await nextTick()
-  showJumpToBottom.value = false
-})
 
 function autoResize() {
   if (!inputEl.value) return
@@ -592,26 +592,27 @@ watch(() => gw.turnStartedAt.value, (val) => {
   }
 }, { immediate: true })
 
-// Auto-scroll to bottom
+// Keep following only while the reader is already at the newest messages.
+// This mirrors the desktop thread: a new streamed turn must not pull someone
+// reading older context back to the composer.
 watch(() => gw.messages.value.length, async () => {
   await nextTick()
-  if (scrollEl.value) {
-    scrollEl.value.scrollTop = scrollEl.value.scrollHeight
+  const el = scrollEl.value
+  if (el && shouldFollowMessages.value) {
+    el.scrollTop = el.scrollHeight
   }
 })
 
-// Also scroll when last message content changes (streaming)
+// Streaming updates grow the final bubble without stealing the reader's place.
 watch(() => {
   const msgs = gw.messages.value
   if (msgs.length === 0) return ''
   return msgs[msgs.length - 1].content
 }, async () => {
   await nextTick()
-  if (scrollEl.value) {
-    const el = scrollEl.value
-    if (el.scrollHeight - el.scrollTop - el.clientHeight < 150) {
-      el.scrollTop = el.scrollHeight
-    }
+  const el = scrollEl.value
+  if (el && shouldFollowMessages.value) {
+    el.scrollTop = el.scrollHeight
   }
 })
 

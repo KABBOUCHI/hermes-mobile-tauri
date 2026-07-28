@@ -115,6 +115,41 @@ input, textarea, button {
   white-space: pre;
 }
 
+/* ═══ Syntax Highlighting — Linear-inspired dark theme ═══ */
+/* Matches the GitHub Dark palette used in the desktop app */
+.hljs { color: #e6edf3; }
+.hljs-comment,
+.hljs-quote { color: #8b949e; font-style: italic; }
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-type { color: #ff7b72; }
+.hljs-literal,
+.hljs-number,
+.hljs-tag .hljs-attr,
+.hljs-template-variable,
+.hljs-variable { color: #79c0ff; }
+.hljs-string,
+.hljs-doctag,
+.hljs-regexp { color: #a5d6ff; }
+.hljs-title,
+.hljs-title.class_,
+.hljs-section,
+.hljs-selector-id { color: #ffa657; font-weight: 600; }
+.hljs-subst { color: #e6edf3; }
+.hljs-symbol,
+.hljs-bullet { color: #79c0ff; }
+.hljs-link,
+.hljs-meta,
+.hljs-selector-class { color: #79c0ff; }
+.hljs-built_in,
+.hljs-name { color: #7ee787; }
+.hljs-attr { color: #79c0ff; }
+.hljs-params { color: #e6edf3; }
+.hljs-addition { color: #aff5b4; background: rgba(46, 160, 67, 0.15); }
+.hljs-deletion { color: #ffdcd7; background: rgba(248, 81, 73, 0.15); }
+.hljs-emphasis { font-style: italic; }
+.hljs-strong { font-weight: 700; }
+
 .md-inline {
   background: rgba(94, 106, 210, 0.12);
   border-radius: 4px;

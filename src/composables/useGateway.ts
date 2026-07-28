@@ -57,6 +57,9 @@ let sessionsTotal = 0
 let sessionsOffset = 0
 let archivedSessionsTotal = 0
 let archivedSessionsOffset = 0
+// A message request can finish after the user has opened another session. Keep
+// only the newest request authoritative so an older thread cannot replace it.
+let messageFetchGeneration = 0
 
 const loading = computed(() => loadingSessions.value || loadingMessages.value)
 
@@ -272,6 +275,7 @@ function hasMoreArchivedSessions(): boolean {
 }
 
 async function fetchMessages(url: string, sessionId: string): Promise<Message[]> {
+  const generation = ++messageFetchGeneration
   loadingMessages.value = true
   error.value = ''
   try {
@@ -286,7 +290,7 @@ async function fetchMessages(url: string, sessionId: string): Promise<Message[]>
     if (!resp.ok) throw new Error('HTTP ' + resp.status)
     const data = await resp.json()
     const raw = data.messages || []
-    messages.value = raw
+    const incoming = raw
       .filter((m: any) => m.role !== 'system' && m.role !== 'tool' && m.role !== 'function')
       .map((m: any) => ({
         role: m.role || 'assistant',
@@ -294,12 +298,21 @@ async function fetchMessages(url: string, sessionId: string): Promise<Message[]>
         timestamp: m.timestamp || 0,
       }))
       .filter((m: any) => m.content.trim() !== '')
-    return messages.value
+
+    // Navigation may have started a newer fetch while this request was in
+    // flight. Preserve the foreground thread in that case.
+    if (generation !== messageFetchGeneration) return []
+    messages.value = incoming
+    return incoming
   } catch (err: any) {
-    error.value = err.message || 'Failed to load messages'
+    if (generation === messageFetchGeneration) {
+      error.value = err.message || 'Failed to load messages'
+    }
     return []
   } finally {
-    loadingMessages.value = false
+    if (generation === messageFetchGeneration) {
+      loadingMessages.value = false
+    }
   }
 }
 

@@ -598,6 +598,86 @@ async function regenerateLastMessage(
   return assistantMsg
 }
 
+/** Edit a user message at the given index and resend from that point. */
+async function editMessage(
+  _url: string,
+  sessionId: string,
+  msgIndex: number,
+  newText: string,
+): Promise<Message | null> {
+  if (!ws || wsState.value !== 'open') {
+    throw new Error('WebSocket not connected')
+  }
+
+  const msg = messages.value[msgIndex]
+  if (!msg || msg.role !== 'user') {
+    throw new Error('No user message at that index')
+  }
+
+  // Count user messages up to (but not including) this index to get the ordinal
+  let userOrdinal = 0
+  for (let i = 0; i < msgIndex; i++) {
+    if (messages.value[i].role === 'user') userOrdinal++
+  }
+
+  const runtimeId = await resumeSession(sessionId)
+
+  // Truncate: keep everything up to and including this user message, remove assistant responses after
+  // Find the end of this user message's block (next user message or end)
+  let truncateIdx = msgIndex + 1
+  while (truncateIdx < messages.value.length && messages.value[truncateIdx].role !== 'user') {
+    truncateIdx++
+  }
+  messages.value = messages.value.slice(0, truncateIdx)
+
+  // Update the user message content with the edited text
+  messages.value[msgIndex].content = newText
+
+  await interruptSession(runtimeId)
+
+  const assistantMsg: Message = {
+    role: 'assistant',
+    content: '',
+    timestamp: Date.now() / 1000,
+  }
+  messages.value.push(assistantMsg)
+
+  streamingContent = ''
+  turnStartedAt.value = Date.now()
+
+  const content = await new Promise<string>((resolve, reject) => {
+    const TURN_TIMEOUT = 1_800_000
+    const timer = setTimeout(() => {
+      activeTurn = null
+      streamingContent = ''
+      turnStartedAt.value = null
+      reject(new Error('Turn timed out'))
+    }, TURN_TIMEOUT)
+
+    activeTurn = { sessionId: runtimeId, resolve, reject, timer }
+
+    const id = ++nextId
+    ws.send(JSON.stringify({
+      jsonrpc: '2.0',
+      id,
+      method: 'prompt.submit',
+      params: {
+        session_id: runtimeId,
+        text: newText,
+        truncate_before_user_ordinal: userOrdinal,
+      },
+    })).catch((err: any) => {
+      clearTimeout(timer)
+      activeTurn = null
+      streamingContent = ''
+      reject(err)
+    })
+  })
+
+  assistantMsg.content = content || '[empty response]'
+  return assistantMsg
+}
+
 async function renameSession(sessionId: string, title: string): Promise<boolean> {
   try {
     const base = baseUrl.replace(/\/$/, '')
@@ -765,6 +845,7 @@ export function useGateway() {
     sendMessage,
     interruptSession,
     regenerateLastMessage,
+    editMessage,
     fetchModels,
     setModel,
   }

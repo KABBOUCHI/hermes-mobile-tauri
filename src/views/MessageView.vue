@@ -86,12 +86,69 @@ const scrollEl = ref<HTMLElement | null>(null)
 const inputEl = ref<HTMLTextAreaElement | null>(null)
 const copiedIdx = ref<number | null>(null)
 
+// ── User message editing ──
+const editingIdx = ref<number | null>(null)
+const editText = ref('')
+const editEl = ref<HTMLTextAreaElement | null>(null)
+const editing = ref(false)
+
+function startEdit(idx: number) {
+  const msg = gw.messages.value[idx]
+  if (!msg || msg.role !== 'user') return
+  editingIdx.value = idx
+  editText.value = msg.content
+  nextTick(() => {
+    editEl.value?.focus()
+    editEl.value?.select()
+  })
+}
+
+function cancelEdit() {
+  editingIdx.value = null
+  editText.value = ''
+}
+
+async function saveEdit() {
+  const idx = editingIdx.value
+  if (idx === null || !selectedSessionId.value || editing.value) return
+  const text = editText.value.trim()
+  if (!text) return
+
+  editing.value = true
+  try {
+    await gw.editMessage(auth.gatewayUrl.value, selectedSessionId.value, idx, text)
+  } catch (err: any) {
+    alert('Edit failed: ' + (err.message || 'Unknown error'))
+  } finally {
+    editing.value = false
+    editingIdx.value = null
+    editText.value = ''
+  }
+}
+
+function handleEditKeydown(e: KeyboardEvent) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault()
+    saveEdit()
+  } else if (e.key === 'Escape') {
+    cancelEdit()
+  }
+}
+
+function autoResizeEdit() {
+  if (!editEl.value) return
+  editEl.value.style.height = 'auto'
+  editEl.value.style.height = Math.min(editEl.value.scrollHeight, 120) + 'px'
+}
+
 // Watch for route changes (navigating between sessions without remount)
 watch(() => route.params.id, async (newId) => {
   selectedSessionId.value = (newId as string) || ''
   isNewSession.value = !selectedSessionId.value
   gw.messages.value = []
   searchQuery.value = ''
+  editingIdx.value = null
+  editText.value = ''
   matchIndices.value = []
   currentMatchIdx.value = -1
   if (selectedSessionId.value) {
@@ -590,45 +647,79 @@ function formatTime(ts: number): string {
         class="message"
         :class="[msg.role, { 'search-match': isMatch(idx), 'search-current': matchIndices[currentMatchIdx] === idx }]"
       >
-        <div class="message-bubble" :class="[msg.role, { error: msg.error }]">
-          <!-- Error state -->
-          <div v-if="msg.error" class="error-content">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="12" cy="12" r="10"/>
-              <line x1="12" y1="8" x2="12" y2="12"/>
-              <line x1="12" y1="16" x2="12.01" y2="16"/>
-            </svg>
-            <span class="error-text">{{ msg.content || 'Failed to send' }}</span>
+        <div class="message-bubble" :class="[msg.role, { error: msg.error, editing: editingIdx === idx }]">
+          <!-- Edit mode for user messages -->
+          <div v-if="editingIdx === idx" class="edit-mode">
+            <textarea
+              ref="editEl"
+              v-model="editText"
+              class="edit-textarea"
+              rows="1"
+              @keydown="handleEditKeydown"
+              @input="autoResizeEdit"
+            ></textarea>
+            <div class="edit-actions">
+              <button class="edit-action-btn cancel" @click="cancelEdit" :disabled="editing">Cancel</button>
+              <button class="edit-action-btn save" @click="saveEdit" :disabled="editing || !editText.trim()">
+                <span v-if="editing" class="spinner-sm"></span>
+                <span v-else>Send</span>
+              </button>
+            </div>
           </div>
 
-          <!-- Streaming thinking indicator -->
-          <div v-else-if="msg.role === 'assistant' && isThinking(msg.content)" class="thinking-indicator">
-            <span class="thinking-dot"></span>
-            <span class="thinking-dot"></span>
-            <span class="thinking-dot"></span>
-            <span class="thinking-label">Thinking…</span>
-          </div>
+          <!-- Normal content (not editing) -->
+          <template v-else>
+            <!-- Error state -->
+            <div v-if="msg.error" class="error-content">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="12" y1="8" x2="12" y2="12"/>
+                <line x1="12" y1="16" x2="12.01" y2="16"/>
+              </svg>
+              <span class="error-text">{{ msg.content || 'Failed to send' }}</span>
+            </div>
 
-          <!-- Rendered markdown content -->
-          <div
-            v-if="msg.content && !isThinking(msg.content)"
-            class="md-content"
-            v-html="searchQuery.trim() && isMatch(idx) ? highlightText(msg.content, searchQuery) : render(msg.content)"
-          ></div>
-          <div
-            v-else-if="msg.content && isThinking(msg.content)"
-            class="md-content"
-            v-html="searchQuery.trim() && isMatch(idx) ? highlightText(msg.content, searchQuery) : render(msg.content)"
-          ></div>
+            <!-- Streaming thinking indicator -->
+            <div v-else-if="msg.role === 'assistant' && isThinking(msg.content)" class="thinking-indicator">
+              <span class="thinking-dot"></span>
+              <span class="thinking-dot"></span>
+              <span class="thinking-dot"></span>
+              <span class="thinking-label">Thinking…</span>
+            </div>
 
-          <!-- Empty assistant placeholder (streaming start) -->
-          <div v-if="msg.role === 'assistant' && !msg.content" class="typing-dots">
-            <span></span><span></span><span></span>
-          </div>
+            <!-- Rendered markdown content -->
+            <div
+              v-if="msg.content && !isThinking(msg.content)"
+              class="md-content"
+              v-html="searchQuery.trim() && isMatch(idx) ? highlightText(msg.content, searchQuery) : render(msg.content)"
+            ></div>
+            <div
+              v-else-if="msg.content && isThinking(msg.content)"
+              class="md-content"
+              v-html="searchQuery.trim() && isMatch(idx) ? highlightText(msg.content, searchQuery) : render(msg.content)"
+            ></div>
+
+            <!-- Empty assistant placeholder (streaming start) -->
+            <div v-if="msg.role === 'assistant' && !msg.content" class="typing-dots">
+              <span></span><span></span><span></span>
+            </div>
+          </template>
         </div>
 
         <div class="message-footer" :class="msg.role">
           <span v-if="msg.timestamp" class="message-time">{{ formatTime(msg.timestamp) }}</span>
+          <button
+            v-if="msg.role === 'user' && !sending && editingIdx === null && !msg.error"
+            class="action-btn edit-btn"
+            @click="startEdit(idx)"
+            title="Edit message"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+            </svg>
+            <span>Edit</span>
+          </button>
           <button
             v-if="msg.error && !sending"
             class="action-btn retry-btn"
@@ -1458,5 +1549,87 @@ function formatTime(ts: number): string {
   color: var(--accent);
   font-weight: 600;
   margin-left: 8px;
+}
+
+/* ── User message editing ── */
+.edit-btn:hover {
+  color: var(--accent) !important;
+  border-color: var(--accent) !important;
+  background: rgba(94, 106, 210, 0.08) !important;
+}
+.message-bubble.editing {
+  background: var(--surface-2) !important;
+  border-color: var(--accent) !important;
+}
+.edit-mode {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.edit-textarea {
+  width: 100%;
+  min-height: 36px;
+  max-height: 120px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.4;
+  resize: none;
+  outline: none;
+  font-family: inherit;
+  transition: border-color 0.15s;
+}
+.edit-textarea:focus {
+  border-color: var(--accent);
+}
+.edit-textarea::placeholder {
+  color: var(--text-muted);
+}
+.edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.edit-action-btn {
+  padding: 4px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: none;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.edit-action-btn.cancel {
+  color: var(--text-muted);
+}
+.edit-action-btn.cancel:hover {
+  color: var(--text);
+  border-color: var(--text-muted);
+}
+.edit-action-btn.save {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.edit-action-btn.save:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+.edit-action-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+/* Message bubble editing override for user messages */
+.message.user .message-bubble.editing {
+  background: var(--surface-2);
+  color: var(--text);
+  border-color: var(--accent);
+  border-bottom-right-radius: 14px;
 }
 </style>

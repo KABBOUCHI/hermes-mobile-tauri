@@ -24,6 +24,17 @@ export interface Session {
   source: string
 }
 
+/** A full-text match returned by the gateway for a session outside the loaded page. */
+export interface SessionSearchResult {
+  lineage_root?: string | null
+  model: string | null
+  role: string | null
+  session_id: string
+  session_started: number | null
+  snippet: string
+  source: string | null
+}
+
 export interface Message {
   role: string
   content: string
@@ -223,6 +234,32 @@ async function fetchSessions(url: string, append = false, archived: 'exclude' | 
   } finally {
     loadingSessions.value = false
     loadingMore.value = false
+  }
+}
+
+/**
+ * Search the gateway's full session index. The list endpoint is paginated, so
+ * client-side filtering alone cannot find older conversations.
+ */
+async function searchSessions(url: string, query: string): Promise<SessionSearchResult[]> {
+  const q = query.trim()
+  if (!q) return []
+
+  try {
+    const base = url.replace(/\/$/, '')
+    const headers: Record<string, string> = {}
+    if (cookie) headers['Cookie'] = cookie
+    const resp = await fetchWithTimeout(
+      `${base}/api/sessions/search?q=${encodeURIComponent(q)}`,
+      { method: 'GET', headers, credentials: 'same-origin' },
+      FETCH_TIMEOUT
+    )
+    if (!resp.ok) throw new Error('HTTP ' + resp.status)
+    const data = await resp.json()
+    return Array.isArray(data.results) ? data.results : []
+  } catch {
+    // Search remains useful for already-loaded rows when the index is unavailable.
+    return []
   }
 }
 
@@ -832,6 +869,7 @@ export function useGateway() {
     formatTime,
     sourceLabel,
     fetchSessions,
+    searchSessions,
     hasMoreSessions,
     hasMoreArchivedSessions,
     fetchMessages,

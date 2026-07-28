@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import type { Session } from '../composables/useGateway'
+import type { Session, SessionSearchResult } from '../composables/useGateway'
 import { useAuth } from '../composables/useAuth'
 import { useGateway } from '../composables/useGateway'
 import { usePins } from '../composables/usePins'
@@ -26,6 +26,10 @@ const contextMenuPos = ref({ x: 0, y: 0 })
 const pinnedIds = ref<string[]>([])
 const unreadIds = ref<Set<string>>(new Set())
 const showingArchived = ref(false)
+const serverSearchResults = ref<SessionSearchResult[]>([])
+const searchPending = ref(false)
+let searchTimer: ReturnType<typeof setTimeout> | null = null
+let searchGeneration = 0
 
 // ── Rename dialog ──
 const renameVisible = ref(false)
@@ -124,13 +128,37 @@ function getDateGroups(sessions: Session[]): DateGroup[] {
 }
 
 const filtered = computed(() => {
-  const q = search.value.toLowerCase()
+  const q = search.value.trim().toLowerCase()
   if (!q) return gw.sessions.value
-  return gw.sessions.value.filter(s =>
-    (s.title || s.preview || '').toLowerCase().includes(q) ||
-    (s.preview || '').toLowerCase().includes(q) ||
-    (s.model || '').toLowerCase().includes(q)
-  )
+
+  const results = new Map<string, Session>()
+  for (const session of gw.sessions.value) {
+    if ([session.id, session.title || '', session.preview || '', session.model || '', session.source || '']
+      .some(value => value.toLowerCase().includes(q))) {
+      results.set(session.id, session)
+    }
+  }
+
+  if (!showingArchived.value) {
+    for (const result of serverSearchResults.value) {
+      if (!results.has(result.session_id)) {
+        const timestamp = result.session_started || 0
+        results.set(result.session_id, {
+          id: result.session_id,
+          title: null,
+          preview: result.snippet?.trim() || 'Matched conversation',
+          model: result.model || '',
+          message_count: 0,
+          last_active: timestamp,
+          started_at: timestamp,
+          is_active: false,
+          source: result.source || '',
+        })
+      }
+    }
+  }
+
+  return [...results.values()]
 })
 
 const pinnedSessions = computed(() =>
@@ -168,6 +196,37 @@ onMounted(async () => {
     pinnedIds.value = await pins.getPinnedIds()
   }
   unreadIds.value = await unreads.getUnreadIds(gw.sessions.value)
+})
+
+// Match loaded sessions immediately, then ask the gateway's full-text index for
+// conversations beyond the current page. A generation guard prevents a late
+// response for an earlier query from replacing the current results.
+watch(search, query => {
+  if (searchTimer) {
+    clearTimeout(searchTimer)
+    searchTimer = null
+  }
+
+  const q = query.trim()
+  const generation = ++searchGeneration
+  serverSearchResults.value = []
+  if (!q) {
+    searchPending.value = false
+    return
+  }
+
+  searchPending.value = true
+  searchTimer = setTimeout(async () => {
+    const results = await gw.searchSessions(auth.gatewayUrl.value, q)
+    if (generation === searchGeneration) {
+      serverSearchResults.value = results
+      searchPending.value = false
+    }
+  }, 200)
+})
+
+onUnmounted(() => {
+  if (searchTimer) clearTimeout(searchTimer)
 })
 
 function handleRefresh() {
@@ -396,6 +455,7 @@ function formatCount(n: number): string {
         placeholder="Search sessions…"
       />
       <span v-if="search" class="SearchClear" @click="search = ''">✕</span>
+      <span v-if="searchPending" class="SearchStatus">Searching…</span>
     </div>
 
     <!-- Pull indicator -->
@@ -719,7 +779,7 @@ function formatCount(n: number): string {
   background-color: var(--surface);
   border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 0 36px 0 40px;
+  padding: 0 86px 0 40px;
   color: var(--text);
   font-size: 14px;
   outline: none;
@@ -738,6 +798,16 @@ function formatCount(n: number): string {
   cursor: pointer;
   font-size: 14px;
   padding: 4px;
+}
+
+.SearchStatus {
+  position: absolute;
+  right: 52px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  font-size: 11px;
+  pointer-events: none;
 }
 
 /* ── Pull indicator ── */

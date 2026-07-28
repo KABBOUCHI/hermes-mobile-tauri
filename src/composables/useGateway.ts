@@ -586,6 +586,63 @@ async function deleteSession(url: string, sessionId: string): Promise<boolean> {
   }
 }
 
+// ── Model Options ──────────────────────────────────
+
+export interface ModelProvider {
+  slug: string
+  name: string
+  models: string[]
+  is_current?: boolean
+  authenticated?: boolean
+}
+
+export interface ModelOptions {
+  model?: string
+  provider?: string
+  providers: ModelProvider[]
+}
+
+async function fetchModels(url: string): Promise<ModelOptions> {
+  try {
+    const base = url.replace(/\/$/, '')
+    const headers: Record<string, string> = {}
+    if (cookie) headers['Cookie'] = cookie
+    const resp = await fetchWithTimeout(
+      `${base}/api/model/options?explicit_only=1`,
+      { method: 'GET', headers, credentials: 'same-origin' },
+      FETCH_TIMEOUT
+    )
+    if (!resp.ok) throw new Error('HTTP ' + resp.status)
+    const data = await resp.json()
+    return {
+      model: data.model || '',
+      provider: data.provider || '',
+      providers: data.providers || [],
+    }
+  } catch (err: any) {
+    error.value = err.message || 'Failed to load models'
+    return { providers: [] }
+  }
+}
+
+async function setModel(url: string, provider: string, model: string): Promise<boolean> {
+  try {
+    const base = url.replace(/\/$/, '')
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (cookie) headers['Cookie'] = cookie
+    const resp = await fetchWithTimeout(
+      `${base}/api/model/set`,
+      { method: 'POST', headers, credentials: 'same-origin', body: JSON.stringify({ scope: 'main', provider, model }) },
+      FETCH_TIMEOUT
+    )
+    if (!resp.ok) throw new Error('HTTP ' + resp.status)
+    return true
+  } catch (err: any) {
+    error.value = err.message || 'Failed to set model'
+    return false
+  }
+}
+
 // ── Composable ─────────────────────────────────────
 
 export function useGateway() {
@@ -615,5 +672,7 @@ export function useGateway() {
     sendMessage,
     interruptSession,
     regenerateLastMessage,
+    fetchModels,
+    setModel,
   }
 }

@@ -3,7 +3,7 @@ import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { renderMarkdown } from '../utils/markdown'
 import { useAuth } from '../composables/useAuth'
-import { useGateway } from '../composables/useGateway'
+import { useGateway, type ModelProvider } from '../composables/useGateway'
 
 const router = useRouter()
 const route = useRoute()
@@ -13,6 +13,54 @@ const gw = useGateway()
 const sending = ref(false)
 const selectedSessionId = ref((route.params.id as string) || '')
 const isNewSession = ref(!selectedSessionId.value)
+
+// ── Model Picker ──
+const modelPickerOpen = ref(false)
+const modelProviders = ref<ModelProvider[]>([])
+const currentModel = ref('')
+const currentProvider = ref('')
+const modelLoading = ref(false)
+const switchingModel = ref(false)
+
+async function loadModels() {
+  modelLoading.value = true
+  const opts = await gw.fetchModels(auth.gatewayUrl.value)
+  modelProviders.value = opts.providers
+  currentModel.value = opts.model || ''
+  currentProvider.value = opts.provider || ''
+  modelLoading.value = false
+}
+
+async function selectModel(provider: string, model: string) {
+  if (switchingModel.value) return
+  switchingModel.value = true
+  try {
+    const ok = await gw.setModel(auth.gatewayUrl.value, provider, model)
+    if (ok) {
+      currentModel.value = model
+      currentProvider.value = provider
+      modelPickerOpen.value = false
+    }
+  } finally {
+    switchingModel.value = false
+  }
+}
+
+const currentModelShort = computed(() => {
+  if (!currentModel.value) return 'Model'
+  return gw.modelShort(currentModel.value)
+})
+
+function toggleModelPicker() {
+  modelPickerOpen.value = !modelPickerOpen.value
+  if (modelPickerOpen.value && modelProviders.value.length === 0) {
+    loadModels()
+  }
+}
+
+function closeModelPicker() {
+  modelPickerOpen.value = false
+}
 
 const selectedSessionTitle = computed(() => {
   if (!selectedSessionId.value) return 'New Chat'
@@ -29,6 +77,8 @@ onMounted(async () => {
       alert('Failed to load messages: ' + (err.message || 'Unknown error'))
     }
   }
+  // Load current model for the pill
+  loadModels()
 })
 
 const input = ref('')
@@ -412,6 +462,12 @@ function formatTime(ts: number): string {
     <div class="chat-header">
       <button class="back-btn" @click="goBack">‹</button>
       <div class="chat-title">{{ selectedSessionTitle }}</div>
+      <button class="model-pill" @click="toggleModelPicker" :class="{ active: modelPickerOpen }">
+        <span class="model-pill-text">{{ currentModelShort }}</span>
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      </button>
       <button class="icon-btn" @click="toggleSearch" :class="{ active: searchOpen }">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="11" cy="11" r="8" />
@@ -580,6 +636,46 @@ function formatTime(ts: number): string {
         </button>
       </template>
     </div>
+
+    <!-- Model Picker Dropdown -->
+    <Teleport to="body">
+      <div v-if="modelPickerOpen" class="ModelPickerOverlay" @click="closeModelPicker">
+        <div class="ModelPicker" @click.stop>
+          <div class="ModelPickerHeader">
+            <span class="ModelPickerTitle">Switch model</span>
+            <button class="ModelPickerClose" @click="closeModelPicker">✕</button>
+          </div>
+          <div v-if="modelLoading" class="ModelPickerLoading">
+            <span class="spinner-sm" />
+            <span>Loading models…</span>
+          </div>
+          <div v-else-if="modelProviders.length === 0" class="ModelPickerEmpty">
+            No models available
+          </div>
+          <div v-else class="ModelPickerList">
+            <template v-for="provider in modelProviders" :key="provider.slug">
+              <div class="ModelProviderGroup">
+                <div class="ModelProviderName">{{ provider.name }}</div>
+                <button
+                  v-for="model in provider.models"
+                  :key="model"
+                  class="ModelOption"
+                  :class="{
+                    active: model === currentModel && provider.slug === currentProvider,
+                    disabled: switchingModel,
+                  }"
+                  :disabled="switchingModel"
+                  @click="selectModel(provider.slug, model)"
+                >
+                  <span class="ModelOptionName">{{ gw.modelShort(model) }}</span>
+                  <span v-if="model === currentModel && provider.slug === currentProvider" class="ModelOptionCheck">✓</span>
+                </button>
+              </div>
+            </template>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -1086,5 +1182,156 @@ function formatTime(ts: number): string {
 .jump-fade-leave-to {
   opacity: 0;
   transform: translateY(8px);
+}
+
+/* Model pill in header */
+.model-pill {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  flex-shrink: 0;
+  max-width: 120px;
+}
+.model-pill:hover,
+.model-pill.active {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: rgba(94, 106, 210, 0.1);
+}
+.model-pill-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Model Picker Overlay */
+.ModelPickerOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 1000;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.ModelPicker {
+  width: 100%;
+  max-width: 400px;
+  max-height: 70vh;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: 16px 16px 0 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: slideUp 0.2s ease;
+}
+@keyframes slideUp {
+  from { transform: translateY(20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.ModelPickerHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.ModelPickerTitle {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.02em;
+}
+.ModelPickerClose {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: color 0.15s;
+}
+.ModelPickerClose:hover {
+  color: var(--error);
+}
+.ModelPickerLoading,
+.ModelPickerEmpty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 32px 16px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.ModelPickerList {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 8px 0;
+}
+.ModelProviderGroup {
+  padding: 0 8px;
+}
+.ModelProviderGroup + .ModelProviderGroup {
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.ModelProviderName {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  padding: 6px 8px 4px;
+}
+.ModelOption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: none;
+  background: none;
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.12s;
+  text-align: left;
+}
+.ModelOption:hover:not(.disabled) {
+  background: var(--surface-2);
+}
+.ModelOption.active {
+  color: var(--accent);
+  background: rgba(94, 106, 210, 0.1);
+}
+.ModelOption.disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.ModelOptionName {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ModelOptionCheck {
+  color: var(--accent);
+  font-weight: 600;
+  margin-left: 8px;
 }
 </style>

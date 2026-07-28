@@ -327,6 +327,36 @@ function isThinking(content: string): boolean {
 
 const hasMessages = computed(() => gw.messages.value.length > 0)
 
+// ── Date separators ──
+function getDateLabel(ts: number): string {
+  if (!ts) return ''
+  const date = new Date(ts * 1000)
+  const now = new Date()
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const startOfYesterday = new Date(startOfToday)
+  startOfYesterday.setDate(startOfYesterday.getDate() - 1)
+
+  if (date >= startOfToday) return 'Today'
+  if (date >= startOfYesterday) return 'Yesterday'
+
+  const diff = Math.floor((startOfToday.getTime() - date.getTime()) / 86400000)
+  if (diff < 7) {
+    return date.toLocaleDateString(undefined, { weekday: 'long' })
+  }
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+function showDateSeparator(idx: number): boolean {
+  const msgs = gw.messages.value
+  if (idx === 0) return !!msgs[0]?.timestamp
+  const prev = msgs[idx - 1]
+  const curr = msgs[idx]
+  if (!prev?.timestamp || !curr?.timestamp) return false
+  const prevDate = new Date(prev.timestamp * 1000)
+  const currDate = new Date(curr.timestamp * 1000)
+  return prevDate.toDateString() !== currDate.toDateString()
+}
+
 // ── Live elapsed timer during streaming ──
 const elapsedDisplay = ref('')
 let elapsedTimer: ReturnType<typeof setInterval> | null = null
@@ -544,9 +574,18 @@ function formatTime(ts: number): string {
 
       <div v-if="gw.error.value && !hasMessages" class="error-banner">{{ gw.error.value }}</div>
 
-      <div
+      <template
         v-for="(msg, idx) in gw.messages.value"
         :key="idx"
+      >
+      <!-- Date separator -->
+      <div v-if="showDateSeparator(idx)" class="date-separator">
+        <span class="date-separator-line" />
+        <span class="date-separator-label">{{ getDateLabel(msg.timestamp) }}</span>
+        <span class="date-separator-line" />
+      </div>
+
+      <div
         :data-msg-idx="idx"
         class="message"
         :class="[msg.role, { 'search-match': isMatch(idx), 'search-current': matchIndices[currentMatchIdx] === idx }]"
@@ -623,6 +662,7 @@ function formatTime(ts: number): string {
           </button>
         </div>
       </div>
+      </template>
 
       <!-- Typing indicator -->
       <div v-if="sending && (gw.messages.value.length === 0 || gw.messages.value[gw.messages.value.length - 1].role !== 'assistant' || gw.messages.value[gw.messages.value.length - 1].content)" class="message assistant">
@@ -863,6 +903,27 @@ function formatTime(ts: number): string {
 }
 .search-close-btn:hover {
   color: var(--error);
+}
+
+/* Date separators */
+.date-separator {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 0 4px;
+}
+.date-separator-line {
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+.date-separator-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 /* Messages */

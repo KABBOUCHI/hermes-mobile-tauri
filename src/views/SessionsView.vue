@@ -431,6 +431,7 @@ function formatCount(n: number): string {
             <span class="MetaText">{{ formatCount(s.message_count) }} msgs</span>
             <span class="MetaDot">·</span>
             <span class="MetaText">{{ gw.relativeTime(s.last_active) }}</span>
+            <span v-if="s.source && s.source !== 'desktop'" class="SourceBadge">{{ gw.sourceLabel(s.source) }}</span>
             <span v-if="s.model" class="ModelBadge">{{ gw.modelShort(s.model) }}</span>
           </div>
         </div>
@@ -913,6 +914,14 @@ function formatCount(n: number): string {
   border-radius: 4px;
   padding: 1px 6px;
   margin-left: auto;
+}
+
+.SourceBadge {
+  font-size: 11px;
+  color: var(--success);
+  background-color: rgba(34, 197, 94, 0.1);
+  border-radius: 4px;
+  padding: 1px 6px;
 }
 
 /* ── Context Menu ── */

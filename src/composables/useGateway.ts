@@ -139,6 +139,41 @@ function formatTime(ts: number): string {
   return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
 }
 
+// ── Source labels (mirrors desktop session-source.ts) ──
+const SOURCE_LABELS: Record<string, string> = {
+  api_server: 'API',
+  cli: 'CLI',
+  codex: 'Codex',
+  desktop: 'Desktop',
+  discord: 'Discord',
+  email: 'Email',
+  gateway: 'Gateway',
+  local: 'Local',
+  matrix: 'Matrix',
+  mattermost: 'Mattermost',
+  qqbot: 'QQ',
+  signal: 'Signal',
+  slack: 'Slack',
+  sms: 'SMS',
+  telegram: 'Telegram',
+  tui: 'TUI',
+  webhook: 'Webhook',
+  weixin: 'WeChat',
+  whatsapp: 'WhatsApp',
+  yuanbao: 'Yuanbao',
+  homeassistant: 'HA',
+  bluebubbles: 'iMessage',
+  dingtalk: 'DingTalk',
+  feishu: 'Feishu',
+  wecom: 'WeCom',
+}
+
+function sourceLabel(source: string | null | undefined): string {
+  if (!source) return ''
+  const id = source.toLowerCase().trim()
+  return SOURCE_LABELS[id] || id.replace(/[_-]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+}
+
 // ── REST ───────────────────────────────────────────
 
 const PAGE_SIZE = 40
@@ -662,6 +697,7 @@ export function useGateway() {
     relativeTime,
     modelShort,
     formatTime,
+    sourceLabel,
     fetchSessions,
     hasMoreSessions,
     fetchMessages,

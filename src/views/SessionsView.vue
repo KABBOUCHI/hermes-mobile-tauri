@@ -538,7 +538,7 @@ function formatCount(n: number): string {
       </template>
 
       <!-- Load more -->
-      <div v-if="gw.hasMoreSessions()" class="LoadMoreWrap">
+      <div v-if="showingArchived ? gw.hasMoreArchivedSessions() : gw.hasMoreSessions()" class="LoadMoreWrap">
         <button
           class="LoadMoreBtn"
           :disabled="gw.loadingMore.value"

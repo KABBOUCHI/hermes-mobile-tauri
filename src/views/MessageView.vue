@@ -203,6 +203,10 @@ function goBack() {
 function handleSend() {
   const text = input.value.trim()
   if (!text || sending.value) return
+  sendText(text)
+}
+
+function sendText(text: string) {
   sending.value = true
 
   // Generate session ID for new sessions
@@ -232,14 +236,27 @@ function handleSend() {
     .catch((err: any) => {
       gw.messages.value.push({
         role: 'assistant',
-        content: 'Failed to send: ' + (err.message || 'Unknown error'),
+        content: err.message || 'Unknown error',
         timestamp: Date.now() / 1000,
+        error: true,
       })
-      alert('Send failed: ' + (err.message || 'Unknown error'))
     })
     .finally(() => {
       sending.value = false
     })
+}
+
+function retryFailed(failedMsgIdx: number) {
+  // Find the user message that preceded this failed assistant message
+  for (let i = failedMsgIdx - 1; i >= 0; i--) {
+    if (gw.messages.value[i].role === 'user') {
+      const userText = gw.messages.value[i].content
+      // Remove the failed assistant message
+      gw.messages.value.splice(failedMsgIdx, 1)
+      sendText(userText)
+      return
+    }
+  }
 }
 
 function handleKeydown(e: KeyboardEvent) {
@@ -534,9 +551,19 @@ function formatTime(ts: number): string {
         class="message"
         :class="[msg.role, { 'search-match': isMatch(idx), 'search-current': matchIndices[currentMatchIdx] === idx }]"
       >
-        <div class="message-bubble" :class="msg.role">
+        <div class="message-bubble" :class="[msg.role, { error: msg.error }]">
+          <!-- Error state -->
+          <div v-if="msg.error" class="error-content">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="12" y1="8" x2="12" y2="12"/>
+              <line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+            <span class="error-text">{{ msg.content || 'Failed to send' }}</span>
+          </div>
+
           <!-- Streaming thinking indicator -->
-          <div v-if="msg.role === 'assistant' && isThinking(msg.content)" class="thinking-indicator">
+          <div v-else-if="msg.role === 'assistant' && isThinking(msg.content)" class="thinking-indicator">
             <span class="thinking-dot"></span>
             <span class="thinking-dot"></span>
             <span class="thinking-dot"></span>
@@ -564,7 +591,19 @@ function formatTime(ts: number): string {
         <div class="message-footer" :class="msg.role">
           <span v-if="msg.timestamp" class="message-time">{{ formatTime(msg.timestamp) }}</span>
           <button
-            v-if="msg.role === 'assistant' && idx === gw.messages.value.length - 1 && !sending && msg.content && idx > 0"
+            v-if="msg.error && !sending"
+            class="action-btn retry-btn"
+            @click="retryFailed(idx)"
+            title="Retry sending"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M1 4v6h6M23 20v-6h-6"/>
+              <path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/>
+            </svg>
+            <span>Retry</span>
+          </button>
+          <button
+            v-if="msg.role === 'assistant' && idx === gw.messages.value.length - 1 && !sending && msg.content && idx > 0 && !msg.error"
             class="action-btn regenerate-btn"
             @click="handleRegenerate"
             title="Regenerate response"
@@ -906,6 +945,31 @@ function formatTime(ts: number): string {
   color: var(--text);
   border-bottom-left-radius: 4px;
   border: 1px solid var(--border);
+}
+
+/* Error message */
+.message-bubble.error {
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.25);
+}
+.error-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--error);
+}
+.error-text {
+  font-size: 13px;
+  line-height: 1.4;
+}
+.retry-btn {
+  color: var(--error) !important;
+  border-color: rgba(239, 68, 68, 0.25) !important;
+}
+.retry-btn:hover {
+  color: #fff !important;
+  background: rgba(239, 68, 68, 0.15) !important;
+  border-color: rgba(239, 68, 68, 0.4) !important;
 }
 
 /* Search match styling */

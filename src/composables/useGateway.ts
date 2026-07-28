@@ -28,6 +28,7 @@ export interface Message {
   role: string
   content: string
   timestamp: number
+  error?: boolean
 }
 
 type ConnectionState = 'idle' | 'connecting' | 'open' | 'closed' | 'error'

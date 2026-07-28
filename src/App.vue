@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { openUrl } from '@tauri-apps/plugin-opener'
 import { useAuth } from './composables/useAuth'
@@ -73,6 +73,7 @@ function handleGlobalCopy(e: Event) {
 
 // ── Boot ───────────────────────────────────────────
 let booted = false
+const bootReady = ref(false)
 
 async function boot() {
   if (booted) return
@@ -87,13 +88,19 @@ async function boot() {
         auth.sessionCookie.value,
         auth.fetchWsTicket,
       )
-      router.replace({ name: 'sessions' })
+      // Preserve a deep link to an existing conversation. The ordinary launch
+      // route is ConnectView, so only that route becomes the session list.
+      if (router.currentRoute.value.name === 'connect') {
+        await router.replace({ name: 'sessions' })
+      }
     } else {
-      router.replace({ name: 'connect' })
+      await router.replace({ name: 'connect' })
     }
   } catch (err: any) {
     console.error('[boot] unexpected error:', err)
-    router.replace({ name: 'connect' })
+    await router.replace({ name: 'connect' })
+  } finally {
+    bootReady.value = true
   }
 }
 
@@ -112,7 +119,13 @@ onUnmounted(() => {
 
 <template>
   <div class="Root">
-    <router-view />
+    <div v-if="!bootReady" class="BootScreen" role="status" aria-label="Connecting to Hermes">
+      <div class="BootMark">☤</div>
+      <div class="BootTitle">Hermes</div>
+      <div class="BootProgress"><span /></div>
+      <div class="BootLabel">Restoring your workspace…</div>
+    </div>
+    <router-view v-else />
 
     <!-- Toast notifications -->
     <Teleport to="body">
@@ -145,6 +158,22 @@ onUnmounted(() => {
   flex-direction: column;
   padding-top: env(safe-area-inset-top, 48px);
 }
+
+.BootScreen {
+  flex: 1;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 10px;
+  padding: 32px;
+  background: var(--bg);
+}
+.BootMark { color: var(--accent); font-size: 31px; line-height: 1; }
+.BootTitle { font-size: 17px; font-weight: 650; letter-spacing: -0.04em; }
+.BootLabel { color: var(--text-muted); font-size: 12px; }
+.BootProgress { width: 112px; height: 2px; overflow: hidden; background: var(--surface-3); }
+.BootProgress span { display: block; width: 46%; height: 100%; background: var(--accent); animation: boot-progress 1.15s ease-in-out infinite; }
+@keyframes boot-progress { from { transform: translateX(-110%); } to { transform: translateX(250%); } }
 
 /* ── Toast notifications ── */
 .ToastContainer {

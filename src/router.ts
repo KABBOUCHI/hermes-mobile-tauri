@@ -20,6 +20,10 @@ const router = createRouter({
 // Redirect to connect if not authenticated
 router.beforeEach((to) => {
   const auth = useAuth()
+  // Saved-cookie validation is asynchronous. Keep the intended route mounted
+  // behind the app shell until it settles, rather than flashing ConnectView.
+  if (auth.isBooting.value) return true
+
   const publicRoutes = ['connect']
   if (!publicRoutes.includes(to.name as string) && !auth.isConnected.value) {
     return { name: 'connect' }

@@ -822,35 +822,57 @@ function formatTime(ts: number): string {
 
           <!-- Normal content (not editing) -->
           <template v-else>
-            <!-- Error state -->
-            <div v-if="msg.error" class="error-content">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="10"/>
-                <line x1="12" y1="8" x2="12" y2="12"/>
-                <line x1="12" y1="16" x2="12.01" y2="16"/>
-              </svg>
-              <span class="error-text">{{ msg.content || 'Failed to send' }}</span>
-            </div>
+            <!-- Tool results are durable session records, not hidden transport noise. -->
+            <details v-if="msg.role === 'tool'" class="tool-message">
+              <summary>
+                <span class="tool-status-dot">✓</span>
+                <span>{{ msg.toolName || 'Tool' }}</span>
+                <span class="tool-result-label">completed</span>
+              </summary>
+              <pre v-if="msg.content" class="tool-output">{{ msg.content }}</pre>
+            </details>
 
-            <!-- Streaming thinking indicator -->
-            <div v-else-if="msg.role === 'assistant' && isThinking(msg.content)" class="thinking-indicator">
-              <span class="thinking-dot"></span>
-              <span class="thinking-dot"></span>
-              <span class="thinking-dot"></span>
-              <span class="thinking-label">Thinking…</span>
-            </div>
+            <template v-else>
+              <!-- The gateway sends reasoning in dedicated fields, not only <think> tags. -->
+              <details v-if="msg.reasoning" class="reasoning-message">
+                <summary>Thought</summary>
+                <div class="reasoning-content">{{ msg.reasoning }}</div>
+              </details>
 
-            <!-- Rendered markdown content -->
-            <div
-              v-if="msg.content"
-              class="md-content"
-              v-html="searchQuery.trim() && isMatch(idx) ? highlightText(msg.content, searchQuery) : render(msg.content)"
-            ></div>
+              <div v-if="msg.role === 'assistant' && msg.toolCalls?.length" class="tool-call-list">
+                <span v-for="tool in msg.toolCalls" :key="tool.id" class="tool-call-chip">{{ tool.name }}</span>
+              </div>
 
-            <!-- Empty assistant placeholder (streaming start) -->
-            <div v-if="msg.role === 'assistant' && !msg.content" class="typing-dots">
-              <span></span><span></span><span></span>
-            </div>
+              <!-- Error state -->
+              <div v-if="msg.error" class="error-content">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="10"/>
+                  <line x1="12" y1="8" x2="12" y2="12"/>
+                  <line x1="12" y1="16" x2="12.01" y2="16"/>
+                </svg>
+                <span class="error-text">{{ msg.content || 'Failed to send' }}</span>
+              </div>
+
+              <!-- Streaming thinking indicator -->
+              <div v-else-if="msg.role === 'assistant' && isThinking(msg.content)" class="thinking-indicator">
+                <span class="thinking-dot"></span>
+                <span class="thinking-dot"></span>
+                <span class="thinking-dot"></span>
+                <span class="thinking-label">Thinking…</span>
+              </div>
+
+              <!-- Rendered markdown content -->
+              <div
+                v-if="msg.content"
+                class="md-content"
+                v-html="searchQuery.trim() && isMatch(idx) ? highlightText(msg.content, searchQuery) : render(msg.content)"
+              ></div>
+
+              <!-- Empty assistant placeholder (streaming start) -->
+              <div v-if="msg.role === 'assistant' && !msg.content && !msg.reasoning && !msg.toolCalls?.length" class="typing-dots">
+                <span></span><span></span><span></span>
+              </div>
+            </template>
           </template>
         </div>
 
@@ -1271,6 +1293,7 @@ function formatTime(ts: number): string {
 .message { display: flex; flex-direction: column; gap: 4px; }
 .message.user { align-items: flex-end; }
 .message.assistant { align-items: flex-start; }
+.message.tool { align-items: stretch; padding: 0 2px; }
 
 .message-bubble {
   max-width: 88%;
@@ -1290,6 +1313,70 @@ function formatTime(ts: number): string {
   color: var(--text);
   border-bottom-left-radius: 4px;
   border: 1px solid var(--border);
+}
+.message-bubble.tool {
+  width: 100%;
+  max-width: 100%;
+  padding: 0;
+  background: transparent;
+  border: 0;
+}
+
+/* Durable reasoning and tool records */
+.reasoning-message,
+.tool-message {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 88%, var(--accent));
+  overflow: hidden;
+}
+.reasoning-message { margin: 0 0 8px; }
+.reasoning-message summary,
+.tool-message summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 32px;
+  padding: 7px 10px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  list-style: none;
+}
+.reasoning-message summary::before { content: '◈'; color: var(--accent); }
+.tool-message summary::-webkit-details-marker,
+.reasoning-message summary::-webkit-details-marker { display: none; }
+.reasoning-content {
+  padding: 0 10px 10px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+.tool-status-dot { color: var(--success); font-size: 11px; }
+.tool-result-label { margin-left: auto; color: var(--text-muted); opacity: .7; font-size: 11px; }
+.tool-output {
+  max-height: 260px;
+  overflow: auto;
+  margin: 0;
+  padding: 10px;
+  border-top: 1px solid var(--border);
+  color: #b9bbc8;
+  background: var(--bg);
+  font: 11px/1.5 'SF Mono', 'Fira Code', monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.tool-call-list { display: flex; flex-wrap: wrap; gap: 5px; margin: 0 0 8px; }
+.tool-call-chip {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px 7px;
+  color: var(--text-muted);
+  background: var(--surface-3);
+  font: 11px/1.1 'SF Mono', 'Fira Code', monospace;
 }
 
 /* Error message */

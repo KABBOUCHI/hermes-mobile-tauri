@@ -1,6 +1,7 @@
 import { ref, computed } from 'vue'
 import { fetch } from '@tauri-apps/plugin-http'
 import WebSocket from '@tauri-apps/plugin-websocket'
+import { normalizeSessionMessages, type SessionMessage } from '../utils/sessionMessages'
 
 const FETCH_TIMEOUT = 12000
 const RECONNECT_BASE_MS = 1000
@@ -35,12 +36,7 @@ export interface SessionSearchResult {
   source: string | null
 }
 
-export interface Message {
-  role: string
-  content: string
-  timestamp: number
-  error?: boolean
-}
+export type Message = SessionMessage
 
 type ConnectionState = 'idle' | 'connecting' | 'open' | 'closed' | 'error'
 
@@ -60,6 +56,19 @@ let archivedSessionsOffset = 0
 // A message request can finish after the user has opened another session. Keep
 // only the newest request authoritative so an older thread cannot replace it.
 let messageFetchGeneration = 0
+// Fast navigation cache only. The gateway remains authoritative and every
+// selection revalidates, so another Hermes surface cannot leave us stale.
+const messageCache = new Map<string, Message[]>()
+const MESSAGE_CACHE_LIMIT = 12
+
+function rememberMessages(sessionId: string, incoming: Message[]) {
+  messageCache.delete(sessionId)
+  messageCache.set(sessionId, incoming)
+  if (messageCache.size > MESSAGE_CACHE_LIMIT) {
+    const oldest = messageCache.keys().next().value
+    if (oldest) messageCache.delete(oldest)
+  }
+}
 
 const loading = computed(() => loadingSessions.value || loadingMessages.value)
 
@@ -112,26 +121,6 @@ function extractText(content: any): string {
     return ''
   }
   return String(content || '')
-}
-
-/** Extract displayable text from a raw gateway message */
-function displayContent(msg: any): string {
-  const kind = msg.display_kind
-  // Skip hidden, timeline, and system-kind messages
-  if (kind === 'hidden' || kind === 'model_switch' || kind === 'auto_continue' || kind === 'async_delegation_complete') return ''
-  // Skip tool-call-only messages (no text content)
-  const content = msg.content
-  if (Array.isArray(content)) {
-    const hasText = content.some((p: any) => p?.type === 'text' && p.text?.trim())
-    if (!hasText) return ''
-  }
-  let text = extractText(content)
-  // Don't strip <think> — let the markdown renderer handle them as collapsible blocks
-  // Strip <tool_call> blocks
-  text = text.replace(/<tool_call>[\s\S]*?<\/tool_call>/gi, '')
-  // Strip <result> wrappers from tool results
-  text = text.replace(/<result>([\s\S]*?)<\/result>/gi, (_m: string, inner: string) => inner.trim())
-  return text.trim()
 }
 
 function relativeTime(ts: number): string {
@@ -276,6 +265,11 @@ function hasMoreArchivedSessions(): boolean {
 
 async function fetchMessages(url: string, sessionId: string): Promise<Message[]> {
   const generation = ++messageFetchGeneration
+  const cached = messageCache.get(sessionId)
+  if (cached) {
+    // Publish immediately, then reconcile with the authoritative response.
+    messages.value = cached
+  }
   loadingMessages.value = true
   error.value = ''
   try {
@@ -290,18 +284,12 @@ async function fetchMessages(url: string, sessionId: string): Promise<Message[]>
     if (!resp.ok) throw new Error('HTTP ' + resp.status)
     const data = await resp.json()
     const raw = data.messages || []
-    const incoming = raw
-      .filter((m: any) => m.role !== 'system' && m.role !== 'tool' && m.role !== 'function')
-      .map((m: any) => ({
-        role: m.role || 'assistant',
-        content: displayContent(m),
-        timestamp: m.timestamp || 0,
-      }))
-      .filter((m: any) => m.content.trim() !== '')
+    const incoming = normalizeSessionMessages(raw)
 
     // Navigation may have started a newer fetch while this request was in
     // flight. Preserve the foreground thread in that case.
     if (generation !== messageFetchGeneration) return []
+    rememberMessages(sessionId, incoming)
     messages.value = incoming
     return incoming
   } catch (err: any) {

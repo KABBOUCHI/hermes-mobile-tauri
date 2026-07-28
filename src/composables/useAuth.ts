@@ -9,6 +9,7 @@ const gatewayUrl = ref('')
 const username = ref('')
 const password = ref('')
 const isConnected = ref(false)
+const isBooting = ref(true)
 const sessionCookie = ref('')
 
 const FETCH_TIMEOUT = 8000
@@ -141,14 +142,17 @@ export function useAuth() {
   }
 
   async function tryAutoLogin(): Promise<boolean> {
-    const hasSession = await loadSavedSession()
-    if (!hasSession) return false
+    isBooting.value = true
     try {
+      const hasSession = await loadSavedSession()
+      if (!hasSession) return false
       await fetchStatus()
       isConnected.value = true
       return true
     } catch {
       return false
+    } finally {
+      isBooting.value = false
     }
   }
 
@@ -157,6 +161,7 @@ export function useAuth() {
     username,
     password,
     isConnected,
+    isBooting,
     sessionCookie,
     loadSavedSession,
     saveSession,

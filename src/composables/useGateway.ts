@@ -930,6 +930,50 @@ async function unarchiveSession(url: string, sessionId: string): Promise<boolean
 
 // ── Model Options ──────────────────────────────────
 
+export interface GatewayProfile {
+  name: string
+  model?: string
+  provider?: string
+  is_default?: boolean
+}
+
+async function fetchProfiles(url: string): Promise<GatewayProfile[]> {
+  try {
+    const base = url.replace(/\/$/, '')
+    const headers: Record<string, string> = {}
+    if (cookie) headers['Cookie'] = cookie
+    const resp = await fetchWithTimeout(
+      `${base}/api/profiles`,
+      { method: 'GET', headers, credentials: 'same-origin' },
+      FETCH_TIMEOUT
+    )
+    if (!resp.ok) throw new Error('HTTP ' + resp.status)
+    const data = await resp.json()
+    return Array.isArray(data?.profiles) ? data.profiles : Array.isArray(data) ? data : []
+  } catch (err: any) {
+    error.value = err.message || 'Failed to load profiles'
+    return []
+  }
+}
+
+async function activateProfile(url: string, profile: string): Promise<boolean> {
+  try {
+    const base = url.replace(/\/$/, '')
+    const headers: Record<string, string> = {}
+    if (cookie) headers['Cookie'] = cookie
+    const resp = await fetchWithTimeout(
+      `${base}/api/profiles/${encodeURIComponent(profile)}/activate`,
+      { method: 'POST', headers, credentials: 'same-origin' },
+      FETCH_TIMEOUT
+    )
+    if (!resp.ok) throw new Error('HTTP ' + resp.status)
+    return true
+  } catch (err: any) {
+    error.value = err.message || 'Failed to set active profile'
+    return false
+  }
+}
+
 export interface ModelProvider {
   slug: string
   name: string
@@ -1022,6 +1066,8 @@ export function useGateway() {
     regenerateLastMessage,
     restoreMessage,
     editMessage,
+    fetchProfiles,
+    activateProfile,
     fetchModels,
     setModel,
   }

@@ -7,6 +7,7 @@ import { openUrl } from '@tauri-apps/plugin-opener'
 import { useAuth } from './composables/useAuth'
 import { useGateway } from './composables/useGateway'
 import { usePins } from './composables/usePins'
+import { usePreferences } from './composables/usePreferences'
 import { useToast } from './composables/useToast'
 
 const router = useRouter()
@@ -14,6 +15,7 @@ const route = useRoute()
 const auth = useAuth()
 const gw = useGateway()
 const pins = usePins()
+const preferences = usePreferences()
 const toast = useToast()
 
 // ── Global link handler: open external links in system browser ──
@@ -84,6 +86,7 @@ async function boot() {
   booted = true
 
   try {
+    await preferences.init()
     const ok = await auth.tryAutoLogin()
     if (ok) {
       await Promise.all([gw.fetchSessions(auth.gatewayUrl.value), pins.getPinnedIds()])

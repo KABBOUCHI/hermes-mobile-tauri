@@ -46,8 +46,8 @@ async function handleConnect() {
 </script>
 
 <template>
-  <div class="ConnectView">
-    <div class="ConnectCard">
+  <div class="ConnectView flex w-full min-h-0 flex-col items-center bg-app-bg text-app-text font-sans">
+    <div class="ConnectCard w-full bg-app-surface">
       <!-- Header -->
       <div class="Header">
         <div class="IconWrap">

@@ -1,18 +1,38 @@
-/* Hermes Mobile — Linear-inspired dark theme */
+@import "tailwindcss";
+
+@theme {
+  --color-app-bg: #010102;
+  --color-app-surface: #0d0d0f;
+  --color-app-surface-2: #16161a;
+  --color-app-surface-3: #1e1e22;
+  --color-app-accent: #5e6ad2;
+  --color-app-accent-hover: #6e7ae2;
+  --color-app-text: #e8e8ec;
+  --color-app-muted: #6b6b76;
+  --color-app-border: #232328;
+  --color-app-error: #ef4444;
+  --color-app-success: #22c55e;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --radius-app: 12px;
+}
+
+/* Hermes Mobile — Linear-inspired dark theme. Component CSS remains scoped for
+   detailed message rendering; new layout and state work can use the Tailwind
+   semantic tokens above without duplicating raw colour values. */
 :root {
-  --bg: #010102;
-  --surface: #0d0d0f;
-  --surface-2: #16161a;
-  --surface-3: #1e1e22;
-  --accent: #5e6ad2;
-  --accent-hover: #6e7ae2;
-  --text: #e8e8ec;
-  --text-muted: #6b6b76;
-  --border: #232328;
-  --error: #ef4444;
-  --success: #22c55e;
-  --radius: 12px;
-  --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --bg: var(--color-app-bg);
+  --surface: var(--color-app-surface);
+  --surface-2: var(--color-app-surface-2);
+  --surface-3: var(--color-app-surface-3);
+  --accent: var(--color-app-accent);
+  --accent-hover: var(--color-app-accent-hover);
+  --text: var(--color-app-text);
+  --text-muted: var(--color-app-muted);
+  --border: var(--color-app-border);
+  --error: var(--color-app-error);
+  --success: var(--color-app-success);
+  --radius: var(--radius-app);
+  --font: var(--font-sans);
 }
 
 * {
@@ -23,9 +43,7 @@
 
 html, body, #app {
   height: 100%;
-  background: var(--bg);
-  color: var(--text);
-  font-family: var(--font);
+  @apply bg-app-bg text-app-text font-sans;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   overflow: hidden;

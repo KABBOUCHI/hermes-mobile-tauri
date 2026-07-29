@@ -118,14 +118,14 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="Root">
-    <div v-if="!bootReady" class="BootScreen" role="status" aria-label="Connecting to Hermes">
+  <div class="Root flex min-h-0 flex-col bg-app-bg text-app-text font-sans">
+    <div v-if="!bootReady" class="BootScreen flex-1" role="status" aria-label="Connecting to Hermes">
       <div class="BootMark">☤</div>
       <div class="BootTitle">Hermes</div>
       <div class="BootProgress"><span /></div>
       <div class="BootLabel">Restoring your workspace…</div>
     </div>
-    <router-view v-else class="AppRoute" />
+    <router-view v-else class="AppRoute min-h-0 flex-1" />
 
     <!-- Toast notifications -->
     <Teleport to="body">

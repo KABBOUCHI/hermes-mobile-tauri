@@ -83,7 +83,7 @@ onMounted(fetchJobs)
 </script>
 
 <template>
-  <div class="CronView">
+  <div class="CronView flex min-h-0 flex-1 flex-col bg-app-bg text-app-text font-sans">
     <!-- Header -->
     <div class="Header">
       <button class="BackBtn" @click="goBack">

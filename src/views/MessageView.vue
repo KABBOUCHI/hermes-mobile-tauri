@@ -845,7 +845,7 @@ function formatTime(ts: number): string {
 </script>
 
 <template>
-  <div class="chat-view">
+  <div class="chat-view flex min-h-0 flex-col bg-app-bg text-app-text font-sans">
     <!-- Header -->
     <div class="chat-header">
       <button class="back-btn" @click="goBack">‹</button>

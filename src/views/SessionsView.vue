@@ -509,7 +509,7 @@ function formatCount(n: number): string {
 </script>
 
 <template>
-  <div class="SessionsView">
+  <div class="SessionsView flex min-h-0 flex-1 flex-col bg-app-bg text-app-text font-sans">
     <!-- Header -->
     <div class="Header">
       <div class="HeaderLeft">

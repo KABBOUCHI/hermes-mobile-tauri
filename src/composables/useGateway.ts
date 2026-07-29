@@ -213,6 +213,15 @@ function sourceLabel(source: string | null | undefined): string {
 
 const PAGE_SIZE = 40
 
+/**
+ * Match desktop's unscoped recent-session query. Source is display metadata,
+ * not a filter: restricting this list to desktop sessions hides mobile, CLI,
+ * and messaging conversations from the user's history.
+ */
+export function sessionListPath(limit: number, offset: number, archived: 'exclude' | 'only'): string {
+  return `/api/sessions?limit=${limit}&offset=${offset}&min_messages=1&archived=${archived}&order=recent`
+}
+
 async function fetchSessions(url: string, append = false, archived: 'exclude' | 'only' = 'exclude'): Promise<Session[]> {
   if (append) {
     loadingMore.value = true
@@ -230,7 +239,11 @@ async function fetchSessions(url: string, append = false, archived: 'exclude' | 
     const headers: Record<string, string> = {}
     if (cookie) headers['Cookie'] = cookie
     const resp = await fetchWithTimeout(
-      `${base}/api/sessions?limit=${PAGE_SIZE}&offset=${append ? (archived === 'only' ? archivedSessionsOffset : sessionsOffset) : 0}&min_messages=1&archived=${archived}&order=recent&source=desktop`,
+      `${base}${sessionListPath(
+        PAGE_SIZE,
+        append ? (archived === 'only' ? archivedSessionsOffset : sessionsOffset) : 0,
+        archived,
+      )}`,
       { method: 'GET', headers, credentials: 'same-origin' },
       FETCH_TIMEOUT
     )

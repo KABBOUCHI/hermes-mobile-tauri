@@ -1,5 +1,18 @@
 import { describe, expect, it } from 'vitest'
-import { MESSAGE_FETCH_TIMEOUT } from './useGateway'
+import { MESSAGE_FETCH_TIMEOUT, sessionListPath } from './useGateway'
+
+
+describe('session list request policy', () => {
+  it('matches desktop’s unscoped list path so sessions from every source remain visible', () => {
+    expect(sessionListPath(40, 80, 'exclude')).toBe(
+      '/api/sessions?limit=40&offset=80&min_messages=1&archived=exclude&order=recent',
+    )
+  })
+
+  it('keeps the archived scope in the list request', () => {
+    expect(sessionListPath(40, 0, 'only')).toContain('archived=only')
+  })
+})
 
 describe('message history fetch policy', () => {
   it('allows long mobile transcript downloads more time than lightweight gateway calls', () => {

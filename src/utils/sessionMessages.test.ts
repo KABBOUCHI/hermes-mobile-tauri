@@ -82,6 +82,30 @@ describe('normalizeSessionMessages', () => {
     })
   })
 
+  it('groups alternating structural thoughts and tool results into one activity run', () => {
+    const messages = normalizeSessionMessages([
+      { id: 'a1', role: 'assistant', content: '', reasoning: 'Inspect the source.', timestamp: 1 },
+      { id: 't1', role: 'tool', tool_name: 'read_file', content: 'source', timestamp: 2 },
+      { id: 'a2', role: 'assistant', content: '', reasoning: 'Run the test.', timestamp: 3 },
+      { id: 't2', role: 'tool', tool_name: 'terminal', content: 'passed', timestamp: 5 },
+      { id: 'a3', role: 'assistant', content: 'Done.', timestamp: 6 },
+    ])
+
+    expect(messages).toHaveLength(2)
+    expect(messages[0]).toMatchObject({
+      role: 'tool',
+      activityThoughts: [
+        { id: 'a1', content: 'Inspect the source.', durationSeconds: 1 },
+        { id: 'a2', content: 'Run the test.', durationSeconds: 2 },
+      ],
+      toolResults: [
+        { id: 't1', name: 'read_file' },
+        { id: 't2', name: 'terminal' },
+      ],
+    })
+    expect(messages[1]).toMatchObject({ role: 'assistant', content: 'Done.' })
+  })
+
   it('hides expanded attached context from user messages while preserving missing references', () => {
     const messages = normalizeSessionMessages([
       {

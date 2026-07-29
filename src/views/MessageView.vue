@@ -3,6 +3,8 @@ import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { renderMarkdown } from '../utils/markdown'
 import { highlightRenderedHtml } from '../utils/renderedSearchHighlight'
+import { extractUnifiedDiff, summarizeToolActivity, thoughtActivityLabel } from '../utils/activitySummary'
+import PatchDiff from '../components/PatchDiff.vue'
 import { isNearChatBottom } from '../utils/chatScroll'
 import { writeClipboardText } from '../utils/clipboard'
 import { useAuth } from '../composables/useAuth'
@@ -630,7 +632,24 @@ function toolResults(message: {
 
 function toolSummaryLabel(message: Parameters<typeof toolResults>[0]): string {
   const results = toolResults(message)
-  return results.length === 1 ? results[0].name : `${results.length} tools`
+  return summarizeToolActivity(results)
+}
+
+function isActivityMessage(message: { role: string; content: string; reasoning?: string; toolCalls?: unknown[] }): boolean {
+  return message.role === 'tool' || (message.role === 'assistant' && !message.content && Boolean(message.reasoning || message.toolCalls?.length))
+}
+
+function thoughtLabel(message: { timestamp: number }, idx: number): string {
+  const next = gw.messages.value.slice(idx + 1).find(item => item.timestamp > message.timestamp)
+  return thoughtActivityLabel(next ? next.timestamp - message.timestamp : 0)
+}
+
+function activityThoughtLabel(seconds: number): string {
+  return thoughtActivityLabel(seconds)
+}
+
+function toolDiff(content: string): string | null {
+  return extractUnifiedDiff(content)
 }
 
 const hasMessages = computed(() => gw.messages.value.length > 0)
@@ -936,6 +955,7 @@ function formatTime(ts: number): string {
             'search-match': isMatch(idx),
             'search-current': matchIndices[currentMatchIdx] === idx,
             'message-virtualized': shouldVirtualizeMessage(idx),
+            'message-activity': isActivityMessage(msg),
           },
         ]"
       >
@@ -975,13 +995,27 @@ function formatTime(ts: number): string {
                 <span>{{ toolSummaryLabel(msg) }}</span>
                 <span class="tool-result-label">completed</span>
               </summary>
+              <div v-if="msg.activityThoughts?.length" class="activity-thought-list">
+                <details v-for="thought in msg.activityThoughts" :key="thought.id" class="tool-result activity-thought">
+                  <summary>{{ activityThoughtLabel(thought.durationSeconds) }}</summary>
+                  <div class="reasoning-content">{{ thought.content }}</div>
+                </details>
+              </div>
               <template v-if="toolResults(msg).length === 1">
-                <pre v-if="toolResults(msg)[0].content" class="tool-output">{{ toolResults(msg)[0].content }}</pre>
+                <div v-if="toolDiff(toolResults(msg)[0].content)" class="activity-diff" aria-label="Diff view">
+                  <div class="activity-diff-label">Diff</div>
+                  <PatchDiff :patch="toolDiff(toolResults(msg)[0].content)!" />
+                </div>
+                <pre v-else-if="toolResults(msg)[0].content" class="tool-output">{{ toolResults(msg)[0].content }}</pre>
               </template>
               <div v-else class="tool-result-list">
                 <details v-for="tool in toolResults(msg)" :key="tool.id" class="tool-result">
                   <summary>{{ tool.name }}</summary>
-                  <pre v-if="tool.content" class="tool-output">{{ tool.content }}</pre>
+                  <div v-if="toolDiff(tool.content)" class="activity-diff" aria-label="Diff view">
+                    <div class="activity-diff-label">Diff</div>
+                    <PatchDiff :patch="toolDiff(tool.content)!" />
+                  </div>
+                  <pre v-else-if="tool.content" class="tool-output">{{ tool.content }}</pre>
                 </details>
               </div>
             </details>
@@ -989,7 +1023,7 @@ function formatTime(ts: number): string {
             <template v-else>
               <!-- The gateway sends reasoning in dedicated fields, not only <think> tags. -->
               <details v-if="msg.reasoning" class="reasoning-message">
-                <summary>Thought</summary>
+                <summary>{{ thoughtLabel(msg, idx) }}</summary>
                 <div class="reasoning-content">{{ msg.reasoning }}</div>
               </details>
 
@@ -1031,7 +1065,7 @@ function formatTime(ts: number): string {
           </template>
         </div>
 
-        <div class="message-footer" :class="msg.role">
+        <div v-if="!isActivityMessage(msg)" class="message-footer" :class="msg.role">
           <span v-if="msg.timestamp" class="message-time">{{ formatTime(msg.timestamp) }}</span>
           <button
             class="menu-btn"
@@ -1496,6 +1530,10 @@ function formatTime(ts: number): string {
 .message.user { align-items: flex-end; }
 .message.assistant { align-items: flex-start; }
 .message.tool { align-items: stretch; padding: 0 2px; }
+.message.message-activity {
+  gap: 0;
+  padding: 0 2px;
+}
 
 .message-bubble {
   max-width: 88%;
@@ -1522,6 +1560,14 @@ function formatTime(ts: number): string {
   padding: 0;
   background: transparent;
   border: 0;
+}
+.message-activity .message-bubble.assistant {
+  width: 100%;
+  max-width: 100%;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
 }
 
 /* Durable reasoning and tool records */
@@ -1574,6 +1620,37 @@ function formatTime(ts: number): string {
 .tool-result-list { border-top: 1px solid var(--border); }
 .tool-result + .tool-result { border-top: 1px solid var(--border); }
 .tool-result summary { min-height: 28px; padding: 6px 10px; font-size: 11px; }
+.message-activity .reasoning-message,
+.message-activity .tool-message {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.message-activity .reasoning-message { margin: 0; }
+.message-activity .reasoning-message summary,
+.message-activity .tool-message summary {
+  min-height: 27px;
+  padding: 4px 4px;
+  font-size: 12px;
+}
+.message-activity .reasoning-message[open],
+.message-activity .tool-message[open] {
+  margin: 2px 0;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+}
+.activity-diff-label {
+  padding: 7px 10px 3px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.activity-diff .tool-output { max-height: 220px; }
+.activity-diff .add { display: block; background: color-mix(in srgb, var(--success) 15%, transparent); color: #8fdaa9; }
+.activity-diff .remove { display: block; background: color-mix(in srgb, var(--error) 15%, transparent); color: #f09a9a; }
 .tool-call-summary {
   margin: 0 0 6px;
   color: var(--text-muted);

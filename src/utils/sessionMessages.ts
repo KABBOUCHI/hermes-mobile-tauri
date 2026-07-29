@@ -12,6 +12,12 @@ export interface ToolResultSummary {
   timestamp: number
 }
 
+export interface ActivityThought {
+  id: string
+  content: string
+  durationSeconds: number
+}
+
 export interface SessionMessage {
   id?: string
   role: MessageRole
@@ -22,6 +28,7 @@ export interface SessionMessage {
   toolCallId?: string
   toolCalls?: ToolCallSummary[]
   toolResults?: ToolResultSummary[]
+  activityThoughts?: ActivityThought[]
   error?: boolean
 }
 
@@ -193,22 +200,55 @@ export function normalizeSessionMessages(rawMessages: unknown[]): SessionMessage
       return [message]
     })
 
-  return messages.reduce<SessionMessage[]>((grouped, message) => {
-    const previous = grouped[grouped.length - 1]
-    if (message.role === 'tool' && previous?.role === 'tool') {
-      previous.toolResults = [
-        ...(previous.toolResults || [{
-          id: previous.id || 'tool',
-          name: previous.toolName || 'Tool',
-          content: previous.content,
-          timestamp: previous.timestamp,
-        }]),
-        ...(message.toolResults || []),
-      ]
-      return grouped
+  const grouped: SessionMessage[] = []
+
+  for (let index = 0; index < messages.length;) {
+    const message = messages[index]
+    const isStructuralAssistant = message.role === 'assistant' && !message.content && Boolean(message.reasoning || message.toolCalls?.length)
+    if (message.role !== 'tool' && !isStructuralAssistant) {
+      grouped.push(message)
+      index += 1
+      continue
     }
 
-    grouped.push(message)
-    return grouped
-  }, [])
+    const run: SessionMessage[] = []
+    while (index < messages.length) {
+      const candidate = messages[index]
+      const isStructural = candidate.role === 'tool'
+        || (candidate.role === 'assistant' && !candidate.content && Boolean(candidate.reasoning || candidate.toolCalls?.length))
+      if (!isStructural) break
+      run.push(candidate)
+      index += 1
+    }
+
+    const toolResults = run.flatMap(item => item.toolResults || [])
+    if (run.length === 1 && toolResults.length === 0) {
+      grouped.push(run[0])
+      continue
+    }
+
+    const activityThoughts = run.flatMap((item, runIndex) => {
+      if (!item.reasoning) return []
+      const next = run[runIndex + 1]
+      return [{
+        id: item.id || `thought-${runIndex}`,
+        content: item.reasoning,
+        durationSeconds: next && next.timestamp > item.timestamp ? next.timestamp - item.timestamp : 0,
+      }]
+    })
+    const first = run[0]
+    const firstTool = run.find(item => item.role === 'tool')
+    grouped.push({
+      id: first.id,
+      role: 'tool',
+      content: toolResults.length === 1 ? toolResults[0].content : '',
+      timestamp: first.timestamp,
+      toolResults,
+      ...(toolResults.length === 1 && firstTool?.toolName ? { toolName: firstTool.toolName } : {}),
+      ...(toolResults.length === 1 && firstTool?.toolCallId ? { toolCallId: firstTool.toolCallId } : {}),
+      ...(activityThoughts.length ? { activityThoughts } : {}),
+    })
+  }
+
+  return grouped
 }

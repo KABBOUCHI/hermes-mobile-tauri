@@ -19,6 +19,11 @@ export interface ActivityThought {
   durationSeconds: number
 }
 
+export interface ImageAttachment {
+  label: string
+  src?: string
+}
+
 export interface SessionMessage {
   id?: string
   role: MessageRole
@@ -30,6 +35,7 @@ export interface SessionMessage {
   toolCalls?: ToolCallSummary[]
   toolResults?: ToolResultSummary[]
   activityThoughts?: ActivityThought[]
+  imageAttachments?: ImageAttachment[]
   error?: boolean
 }
 
@@ -128,11 +134,51 @@ const ATTACHED_CONTEXT_MARKER_RE = /(?:^|\n)--- Attached Context ---\s*\n/
 const CONTEXT_WARNINGS_MARKER_RE = /(?:^|\n)--- Context Warnings ---[\s\S]*$/
 const CONTEXT_REF_RE = /@(file|folder|url|image|tool|terminal):(?:"[^"\n]+"|'[^'\n]+'|`[^`\n]+`|\S+)/g
 const CONTEXT_COMPACTION_MARKER = '[CONTEXT COMPACTION — REFERENCE ONLY]'
+const IMAGE_ATTACHMENT_HINT_RE = /(?:^|\n)\[Image attached(?: at)?:\s*([^\]\n]+)\]\s*/gi
+
+function isPortableImageSource(value: string): boolean {
+  return /^(?:https?:\/\/|data:image\/)/i.test(value.trim())
+}
+
+function imageAttachmentsFromRaw(content: unknown): ImageAttachment[] {
+  const sources: string[] = []
+  const visit = (value: unknown, depth = 0) => {
+    if (depth > 3 || !value) return
+    if (Array.isArray(value)) {
+      value.forEach(item => visit(item, depth + 1))
+      return
+    }
+    if (typeof value !== 'object') return
+    const record = value as Record<string, unknown>
+    const imageUrl = record.image_url
+    const src = typeof imageUrl === 'string'
+      ? imageUrl
+      : imageUrl && typeof imageUrl === 'object' && typeof (imageUrl as Record<string, unknown>).url === 'string'
+        ? (imageUrl as Record<string, unknown>).url as string
+        : typeof record.url === 'string' && (record.type === 'image' || record.type === 'image_url')
+          ? record.url
+          : ''
+    if (src && isPortableImageSource(src)) sources.push(src.trim())
+  }
+  visit(content)
+
+  const text = textFromUnknown(content)
+  const localHints: string[] = []
+  for (const match of text.matchAll(IMAGE_ATTACHMENT_HINT_RE)) {
+    const source = match[1]?.trim() || ''
+    if (isPortableImageSource(source)) sources.push(source)
+    else if (source) localHints.push(source)
+  }
+
+  const attachments = [...new Set(sources)].map((src, index) => ({ label: `Image ${index + 1}`, src }))
+  const unavailableCount = Math.max(0, localHints.length - attachments.length)
+  return [...attachments, ...Array.from({ length: unavailableCount }, () => ({ label: 'Image attached' }))]
+}
 
 function displayContentForRole(role: MessageRole, text: string): string {
   if (role !== 'user') return text
 
-  const withoutWarnings = text.replace(CONTEXT_WARNINGS_MARKER_RE, '').trim()
+  const withoutWarnings = text.replace(CONTEXT_WARNINGS_MARKER_RE, '').replace(IMAGE_ATTACHMENT_HINT_RE, '\n').trim()
   const marker = withoutWarnings.match(ATTACHED_CONTEXT_MARKER_RE)
   if (!marker || marker.index === undefined) return withoutWarnings
 
@@ -187,8 +233,9 @@ export function normalizeSessionMessages(rawMessages: unknown[]): SessionMessage
       const toolName = role === 'tool' && typeof raw.tool_name === 'string' ? raw.tool_name : undefined
       const toolCallId = role === 'tool' && typeof raw.tool_call_id === 'string' ? raw.tool_call_id : undefined
       const inlineDiff = role === 'tool' && typeof raw.inline_diff === 'string' ? raw.inline_diff.trim() : ''
+      const imageAttachments = role === 'user' ? imageAttachmentsFromRaw(raw.content) : []
 
-      if (!content && !reasoning && !toolCalls?.length && role !== 'tool') return []
+      if (!content && !reasoning && !toolCalls?.length && role !== 'tool' && !imageAttachments.length) return []
 
       const id = typeof raw.id === 'string' ? raw.id : `${role}-${index}`
       const timestamp = typeof raw.timestamp === 'number' ? raw.timestamp : 0
@@ -201,6 +248,7 @@ export function normalizeSessionMessages(rawMessages: unknown[]): SessionMessage
         ...(toolName ? { toolName } : {}),
         ...(toolCallId ? { toolCallId } : {}),
         ...(toolCalls ? { toolCalls } : {}),
+        ...(imageAttachments.length ? { imageAttachments } : {}),
         ...(role === 'tool' ? {
           toolResults: [{ id, name: toolName || 'Tool', content, timestamp, ...(inlineDiff ? { diff: inlineDiff } : {}) }],
         } : {}),

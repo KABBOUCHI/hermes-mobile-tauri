@@ -452,6 +452,11 @@ function openImagePreview(image: HTMLImageElement) {
   imagePreview.value = { src, alt: image.alt || 'Image preview' }
 }
 
+function openAttachmentPreview(attachment: { src?: string; label: string }) {
+  if (!attachment.src) return
+  imagePreview.value = { src: attachment.src, alt: attachment.label }
+}
+
 function closeImagePreview() {
   imagePreview.value = null
 }
@@ -1048,6 +1053,24 @@ function formatTime(ts: number): string {
                 <span class="thinking-dot"></span>
                 <span class="thinking-dot"></span>
                 <span class="thinking-label">Thinking…</span>
+              </div>
+
+              <!-- Desktop-local image paths cannot be fetched by a phone. Show
+                   portable image parts as thumbnails and local-only ones as a
+                   concise attachment indicator rather than raw path text. -->
+              <div v-if="msg.role === 'user' && msg.imageAttachments?.length" class="message-image-attachments">
+                <template v-for="(attachment, attachmentIdx) in msg.imageAttachments" :key="`${attachment.label}-${attachmentIdx}`">
+                  <button
+                    v-if="attachment.src"
+                    type="button"
+                    class="message-image-thumb"
+                    :aria-label="`Preview ${attachment.label}`"
+                    @click.stop="openAttachmentPreview(attachment)"
+                  >
+                    <img :src="attachment.src" :alt="attachment.label" />
+                  </button>
+                  <span v-else class="message-image-unavailable">▧ {{ attachment.label }}</span>
+                </template>
               </div>
 
               <!-- Rendered markdown content -->
@@ -1711,6 +1734,38 @@ function formatTime(ts: number): string {
 }
 .message-bubble :deep(.md-img) {
   cursor: zoom-in;
+}
+.message-image-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.message-image-thumb {
+  width: 76px;
+  height: 76px;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  cursor: zoom-in;
+}
+.message-image-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.message-image-unavailable {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--text-tertiary);
+  font-size: 12px;
 }
 
 /* Search highlight */

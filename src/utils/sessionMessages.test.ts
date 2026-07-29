@@ -124,6 +124,45 @@ describe('normalizeSessionMessages', () => {
     expect(messages).toEqual([expect.objectContaining({ id: 'u1', content: 'Actual user prompt' })])
   })
 
+  it('renders portable image parts and replaces desktop-local image hints with an attachment indicator', () => {
+    const messages = normalizeSessionMessages([
+      {
+        id: 'u1',
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Please inspect this.\n\n[Image attached at: /home/hermes/.hermes/images/shot.png]' },
+          { type: 'image_url', image_url: { url: 'data:image/png;base64,cGl4ZWxz' } },
+        ],
+        timestamp: 1,
+      },
+      {
+        id: 'u2',
+        role: 'user',
+        content: 'This is local only.\n\n[Image attached at: /tmp/desktop-only.png]',
+        timestamp: 2,
+      },
+      {
+        id: 'u3',
+        role: 'user',
+        content: '[Image attached at: /tmp/image-only.png]',
+        timestamp: 3,
+      },
+    ])
+
+    expect(messages[0]).toMatchObject({
+      content: 'Please inspect this.',
+      imageAttachments: [{ label: 'Image 1', src: 'data:image/png;base64,cGl4ZWxz' }],
+    })
+    expect(messages[1]).toMatchObject({
+      content: 'This is local only.',
+      imageAttachments: [{ label: 'Image attached' }],
+    })
+    expect(messages[2]).toMatchObject({
+      content: '',
+      imageAttachments: [{ label: 'Image attached' }],
+    })
+  })
+
   it('hides expanded attached context from user messages while preserving missing references', () => {
     const messages = normalizeSessionMessages([
       {

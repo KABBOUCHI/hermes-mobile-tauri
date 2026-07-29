@@ -125,7 +125,7 @@ onUnmounted(() => {
       <div class="BootProgress"><span /></div>
       <div class="BootLabel">Restoring your workspace…</div>
     </div>
-    <router-view v-else />
+    <router-view v-else class="AppRoute" />
 
     <!-- Toast notifications -->
     <Teleport to="body">
@@ -153,10 +153,15 @@ onUnmounted(() => {
 .Root {
   background-color: var(--bg);
   height: 100%;
-  height: 100dvh;
+  height: var(--app-height, 100dvh);
   display: flex;
   flex-direction: column;
+  box-sizing: border-box;
   padding-top: env(safe-area-inset-top, 48px);
+}
+.AppRoute {
+  flex: 1;
+  min-height: 0;
 }
 
 .BootScreen {

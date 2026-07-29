@@ -21,6 +21,7 @@ const isNewSession = ref(!selectedSessionId.value)
 
 // ── Model Picker ──
 const modelPickerOpen = ref(false)
+const headerMenuOpen = ref(false)
 const modelProviders = ref<ModelProvider[]>([])
 const currentModel = ref('')
 const currentProvider = ref('')
@@ -65,6 +66,23 @@ function toggleModelPicker() {
 
 function closeModelPicker() {
   modelPickerOpen.value = false
+}
+
+function openSearchFromMenu() {
+  headerMenuOpen.value = false
+  if (!searchOpen.value) toggleSearch()
+}
+
+function refreshMessages() {
+  headerMenuOpen.value = false
+  if (selectedSessionId.value) {
+    void gw.fetchMessages(auth.gatewayUrl.value, selectedSessionId.value)
+  }
+}
+
+function exportChatFromMenu() {
+  headerMenuOpen.value = false
+  void exportChat()
 }
 
 const selectedSessionTitle = computed(() => {
@@ -165,10 +183,16 @@ function autoResizeEdit() {
 watch(() => route.params.id, async (newId) => {
   selectedSessionId.value = (newId as string) || ''
   isNewSession.value = !selectedSessionId.value
+  // The module-level message store is reused across routes. Clear it in Vue's
+  // synchronous route phase so the outgoing session cannot paint beneath the
+  // next session title while its request is starting.
   gw.messages.value = []
+  gw.error.value = ''
   searchQuery.value = ''
+  searchOpen.value = false
   editingIdx.value = null
   editText.value = ''
+  closeActionSheet()
   matchIndices.value = []
   currentMatchIdx.value = -1
   shouldFollowMessages.value = true
@@ -179,7 +203,7 @@ watch(() => route.params.id, async (newId) => {
       toast.show(err.message || 'Failed to load messages', 'error')
     }
   }
-})
+}, { flush: 'sync' })
 
 // ── Message search ──
 const searchOpen = ref(false)
@@ -588,6 +612,30 @@ function isThinking(content: string): boolean {
   return content.includes('<think>') && !content.includes('</think>')
 }
 
+function messageKey(message: { id?: string; role: string; timestamp: number }, idx: number): string {
+  return `${selectedSessionId.value || 'new'}:${message.id || `${message.role}-${message.timestamp}-${idx}`}`
+}
+
+function toolResults(message: {
+  toolResults?: { id: string; name: string; content: string; timestamp: number }[]
+  id?: string
+  toolName?: string
+  content: string
+  timestamp: number
+}) {
+  return message.toolResults || [{
+    id: message.id || 'tool',
+    name: message.toolName || 'Tool',
+    content: message.content,
+    timestamp: message.timestamp,
+  }]
+}
+
+function toolSummaryLabel(message: Parameters<typeof toolResults>[0]): string {
+  const results = toolResults(message)
+  return results.length === 1 ? results[0].name : `${results.length} tools`
+}
+
 const hasMessages = computed(() => gw.messages.value.length > 0)
 
 // Keep the currently streaming tail fully laid out, while allowing Chromium to
@@ -808,26 +856,21 @@ function formatTime(ts: number): string {
           <polyline points="6 9 12 15 18 9" />
         </svg>
       </button>
-      <button class="icon-btn" @click="toggleSearch" :class="{ active: searchOpen }">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="11" cy="11" r="8" />
-          <line x1="21" y1="21" x2="16.65" y2="16.65" />
-        </svg>
-      </button>
-      <button class="icon-btn" @click="exportChat" title="Export chat">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-          <polyline points="7 10 12 15 17 10" />
-          <line x1="12" y1="15" x2="12" y2="3" />
-        </svg>
-      </button>
-      <button class="icon-btn" @click="() => gw.fetchMessages(auth.gatewayUrl.value, selectedSessionId)" :disabled="gw.loadingMessages.value">
-        <svg v-if="!gw.loadingMessages.value" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M1 4v6h6M23 20v-6h-6"/>
-          <path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/>
-        </svg>
-        <span v-else class="spinner-sm"></span>
-      </button>
+      <div class="header-menu-wrap">
+        <button
+          class="icon-btn"
+          :class="{ active: headerMenuOpen }"
+          aria-label="Chat actions"
+          @click="headerMenuOpen = !headerMenuOpen"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
+        </button>
+        <div v-if="headerMenuOpen" class="header-menu">
+          <button @click="openSearchFromMenu">Search messages</button>
+          <button :disabled="!selectedSessionId || gw.loadingMessages.value" @click="refreshMessages">Refresh</button>
+          <button :disabled="!hasMessages" @click="exportChatFromMenu">Export chat</button>
+        </div>
+      </div>
     </div>
 
     <!-- Search bar -->
@@ -878,7 +921,7 @@ function formatTime(ts: number): string {
 
       <template
         v-for="(msg, idx) in gw.messages.value"
-        :key="idx"
+        :key="messageKey(msg, idx)"
       >
       <!-- Date separator -->
       <div v-if="showDateSeparator(idx)" class="date-separator">
@@ -927,14 +970,23 @@ function formatTime(ts: number): string {
 
           <!-- Normal content (not editing) -->
           <template v-else>
-            <!-- Tool results are durable session records, not hidden transport noise. -->
+            <!-- Consecutive tool results are grouped by the normaliser so one
+                 tool-heavy agent turn occupies one compact timeline row. -->
             <details v-if="msg.role === 'tool'" class="tool-message">
               <summary>
                 <span class="tool-status-dot">✓</span>
-                <span>{{ msg.toolName || 'Tool' }}</span>
+                <span>{{ toolSummaryLabel(msg) }}</span>
                 <span class="tool-result-label">completed</span>
               </summary>
-              <pre v-if="msg.content" class="tool-output">{{ msg.content }}</pre>
+              <template v-if="toolResults(msg).length === 1">
+                <pre v-if="toolResults(msg)[0].content" class="tool-output">{{ toolResults(msg)[0].content }}</pre>
+              </template>
+              <div v-else class="tool-result-list">
+                <details v-for="tool in toolResults(msg)" :key="tool.id" class="tool-result">
+                  <summary>{{ tool.name }}</summary>
+                  <pre v-if="tool.content" class="tool-output">{{ tool.content }}</pre>
+                </details>
+              </div>
             </details>
 
             <template v-else>
@@ -944,8 +996,8 @@ function formatTime(ts: number): string {
                 <div class="reasoning-content">{{ msg.reasoning }}</div>
               </details>
 
-              <div v-if="msg.role === 'assistant' && msg.toolCalls?.length" class="tool-call-list">
-                <span v-for="tool in msg.toolCalls" :key="tool.id" class="tool-call-chip">{{ tool.name }}</span>
+              <div v-if="msg.role === 'assistant' && msg.toolCalls?.length && !msg.content && !msg.reasoning" class="tool-call-summary">
+                {{ msg.toolCalls.length }} {{ msg.toolCalls.length === 1 ? 'tool used' : 'tools used' }}
               </div>
 
               <!-- Error state -->
@@ -1172,7 +1224,8 @@ function formatTime(ts: number): string {
 .chat-view {
   display: flex;
   flex-direction: column;
-  height: var(--app-height, 100%);
+  height: 100%;
+  min-height: 0;
   background: var(--bg);
   position: relative;
 }
@@ -1181,11 +1234,11 @@ function formatTime(ts: number): string {
 .chat-header {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 12px 16px;
+  gap: 8px;
+  padding: 8px 12px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
-  min-height: 52px;
+  min-height: 48px;
   flex-shrink: 0;
 }
 .back-btn {
@@ -1221,6 +1274,32 @@ function formatTime(ts: number): string {
   opacity: 0.4;
   cursor: default;
 }
+.header-menu-wrap { position: relative; flex-shrink: 0; }
+.header-menu {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 148px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.32);
+}
+.header-menu button {
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.header-menu button:hover:not(:disabled) { background: var(--surface-3); }
+.header-menu button:disabled { color: var(--text-muted); cursor: default; }
 .chat-title {
   flex: 1;
   font-size: 15px;
@@ -1342,7 +1421,7 @@ function formatTime(ts: number): string {
   min-height: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  padding: 12px 14px;
+  padding: 10px 12px;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -1484,7 +1563,7 @@ function formatTime(ts: number): string {
 .tool-status-dot { color: var(--success); font-size: 11px; }
 .tool-result-label { margin-left: auto; color: var(--text-muted); opacity: .7; font-size: 11px; }
 .tool-output {
-  max-height: 260px;
+  max-height: 160px;
   overflow: auto;
   margin: 0;
   padding: 10px;
@@ -1495,14 +1574,13 @@ function formatTime(ts: number): string {
   white-space: pre-wrap;
   word-break: break-word;
 }
-.tool-call-list { display: flex; flex-wrap: wrap; gap: 5px; margin: 0 0 8px; }
-.tool-call-chip {
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 3px 7px;
+.tool-result-list { border-top: 1px solid var(--border); }
+.tool-result + .tool-result { border-top: 1px solid var(--border); }
+.tool-result summary { min-height: 28px; padding: 6px 10px; font-size: 11px; }
+.tool-call-summary {
+  margin: 0 0 6px;
   color: var(--text-muted);
-  background: var(--surface-3);
-  font: 11px/1.1 'SF Mono', 'Fira Code', monospace;
+  font-size: 12px;
 }
 
 /* Error message */
@@ -1667,7 +1745,7 @@ function formatTime(ts: number): string {
   display: flex;
   align-items: flex-end;
   gap: 8px;
-  padding: 10px 14px;
+  padding: 8px 12px max(8px, env(safe-area-inset-bottom));
   background: var(--surface);
   border-top: 1px solid var(--border);
   flex-shrink: 0;

@@ -5,6 +5,13 @@ export interface ToolCallSummary {
   name: string
 }
 
+export interface ToolResultSummary {
+  id: string
+  name: string
+  content: string
+  timestamp: number
+}
+
 export interface SessionMessage {
   id?: string
   role: MessageRole
@@ -14,6 +21,7 @@ export interface SessionMessage {
   toolName?: string
   toolCallId?: string
   toolCalls?: ToolCallSummary[]
+  toolResults?: ToolResultSummary[]
   error?: boolean
 }
 
@@ -152,7 +160,7 @@ function isVisible(message: Record<string, unknown>): boolean {
 }
 
 export function normalizeSessionMessages(rawMessages: unknown[]): SessionMessage[] {
-  return rawMessages
+  const messages = rawMessages
     .filter((raw): raw is Record<string, unknown> => Boolean(raw) && typeof raw === 'object')
     .filter(isVisible)
     .flatMap((raw, index) => {
@@ -167,15 +175,40 @@ export function normalizeSessionMessages(rawMessages: unknown[]): SessionMessage
 
       if (!content && !reasoning && !toolCalls?.length && role !== 'tool') return []
 
-      return [{
-        id: typeof raw.id === 'string' ? raw.id : `${role}-${index}`,
+      const id = typeof raw.id === 'string' ? raw.id : `${role}-${index}`
+      const timestamp = typeof raw.timestamp === 'number' ? raw.timestamp : 0
+      const message: SessionMessage = {
+        id,
         role,
         content,
-        timestamp: typeof raw.timestamp === 'number' ? raw.timestamp : 0,
+        timestamp,
         ...(reasoning ? { reasoning } : {}),
         ...(toolName ? { toolName } : {}),
         ...(toolCallId ? { toolCallId } : {}),
         ...(toolCalls ? { toolCalls } : {}),
-      }]
+        ...(role === 'tool' ? {
+          toolResults: [{ id, name: toolName || 'Tool', content, timestamp }],
+        } : {}),
+      }
+      return [message]
     })
+
+  return messages.reduce<SessionMessage[]>((grouped, message) => {
+    const previous = grouped[grouped.length - 1]
+    if (message.role === 'tool' && previous?.role === 'tool') {
+      previous.toolResults = [
+        ...(previous.toolResults || [{
+          id: previous.id || 'tool',
+          name: previous.toolName || 'Tool',
+          content: previous.content,
+          timestamp: previous.timestamp,
+        }]),
+        ...(message.toolResults || []),
+      ]
+      return grouped
+    }
+
+    grouped.push(message)
+    return grouped
+  }, [])
 }

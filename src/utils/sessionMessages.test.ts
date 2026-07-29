@@ -63,6 +63,25 @@ describe('normalizeSessionMessages', () => {
     ])
   })
 
+  it('groups adjacent tool results into one compact transcript record', () => {
+    const messages = normalizeSessionMessages([
+      { id: 't1', role: 'tool', tool_name: 'search_files', content: 'first', timestamp: 1 },
+      { id: 't2', role: 'tool', tool_name: 'read_file', content: 'second', timestamp: 2 },
+      { id: 't3', role: 'tool', tool_name: 'terminal', content: 'third', timestamp: 3 },
+      { id: 'a1', role: 'assistant', content: 'Finished.', timestamp: 4 },
+    ])
+
+    expect(messages).toHaveLength(2)
+    expect(messages[0]).toMatchObject({
+      role: 'tool',
+      toolResults: [
+        { id: 't1', name: 'search_files', content: 'first' },
+        { id: 't2', name: 'read_file', content: 'second' },
+        { id: 't3', name: 'terminal', content: 'third' },
+      ],
+    })
+  })
+
   it('hides expanded attached context from user messages while preserving missing references', () => {
     const messages = normalizeSessionMessages([
       {

@@ -8,6 +8,7 @@ import { usePins } from '../composables/usePins'
 import { useUnreads } from '../composables/useUnreads'
 import { sessionMatchesSearch } from '../utils/sessionSearch'
 import { flattenSessionsWithBranches, type SessionBranchEntry } from '../utils/sessionList'
+import { filterSessionsBySource } from '../utils/sessionSource'
 import { Archive, ArchiveRestore, Atom, Check, CircleX, Inbox, Pencil, Pin, Plus, RefreshCw, Search, Trash2 } from '@lucide/vue'
 
 const router = useRouter()
@@ -17,6 +18,7 @@ const pins = usePins()
 const unreads = useUnreads()
 
 const search = ref('')
+const sourceFilter = ref('desktop')
 const refreshing = ref(false)
 const pullStart = ref(0)
 const pullDelta = ref(0)
@@ -157,7 +159,7 @@ function getDateGroups(entries: SessionBranchEntry<Session>[]): DateGroup[] {
 
 const filtered = computed(() => {
   const q = search.value.trim().toLowerCase()
-  if (!q) return gw.sessions.value
+  if (!q) return filterSessionsBySource(gw.sessions.value, sourceFilter.value)
 
   const results = new Map<string, Session>()
   for (const session of gw.sessions.value) {
@@ -185,7 +187,18 @@ const filtered = computed(() => {
     }
   }
 
-  return [...results.values()]
+  return filterSessionsBySource([...results.values()], sourceFilter.value)
+})
+
+const sourceOptions = computed(() => {
+  const known = new Set(['desktop', 'cron'])
+  for (const session of gw.sessions.value) {
+    if (session.source) known.add(session.source)
+  }
+  for (const result of serverSearchResults.value) {
+    if (result.source) known.add(result.source)
+  }
+  return [...known].sort((a, b) => a.localeCompare(b))
 })
 
 const pinnedSessions = computed(() =>
@@ -554,6 +567,14 @@ function formatCount(n: number): string {
       />
       <button v-if="search" class="absolute right-7 top-1/2 flex cursor-pointer items-center justify-center border-0 bg-transparent p-1 text-app-muted -translate-y-1/2" @click="search = ''" aria-label="Clear search"><CircleX :size="16" :stroke-width="2" /></button>
       <span v-if="searchPending" class="pointer-events-none absolute right-[52px] top-1/2 -translate-y-1/2 text-[11px] text-app-muted">Searching…</span>
+    </div>
+
+    <div class="flex shrink-0 items-center justify-between gap-3 px-4 pb-3">
+      <span class="text-xs text-app-muted">Source</span>
+      <select v-model="sourceFilter" class="h-8 max-w-44 cursor-pointer rounded-md border border-app-border bg-app-surface px-2 text-xs text-app-text outline-none focus:border-app-accent">
+        <option value="all">All sources</option>
+        <option v-for="source in sourceOptions" :key="source" :value="source">{{ gw.sourceLabel(source) }}</option>
+      </select>
     </div>
 
     <!-- Pull indicator -->

@@ -6,6 +6,7 @@ import { useAuth } from '../composables/useAuth'
 import { useGateway } from '../composables/useGateway'
 import { usePins } from '../composables/usePins'
 import { useUnreads } from '../composables/useUnreads'
+import { sessionMatchesSearch } from '../utils/sessionSearch'
 
 const router = useRouter()
 const auth = useAuth()
@@ -149,8 +150,7 @@ const filtered = computed(() => {
 
   const results = new Map<string, Session>()
   for (const session of gw.sessions.value) {
-    if ([session.id, session.title || '', session.preview || '', session.model || '', session.source || '']
-      .some(value => value.toLowerCase().includes(q))) {
+    if (sessionMatchesSearch(session, q)) {
       results.set(session.id, session)
     }
   }

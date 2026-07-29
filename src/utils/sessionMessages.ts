@@ -22,6 +22,7 @@ export interface ActivityThought {
 export interface ImageAttachment {
   label: string
   src?: string
+  gatewayPath?: string
 }
 
 export interface SessionMessage {
@@ -135,6 +136,7 @@ const CONTEXT_WARNINGS_MARKER_RE = /(?:^|\n)--- Context Warnings ---[\s\S]*$/
 const CONTEXT_REF_RE = /@(file|folder|url|image|tool|terminal):(?:"[^"\n]+"|'[^'\n]+'|`[^`\n]+`|\S+)/g
 const CONTEXT_COMPACTION_MARKER = '[CONTEXT COMPACTION — REFERENCE ONLY]'
 const IMAGE_ATTACHMENT_HINT_RE = /(?:^|\n)\[Image attached(?: at)?:\s*([^\]\n]+)\]\s*/gi
+const IMAGE_DIRECTIVE_RE = /@image:(?:"([^"\n]+)"|'([^'\n]+)'|`([^`\n]+)`|(\S+))(?:\s*\[screenshot\])?/gi
 
 function isPortableImageSource(value: string): boolean {
   return /^(?:https?:\/\/|data:image\/)/i.test(value.trim())
@@ -163,22 +165,33 @@ function imageAttachmentsFromRaw(content: unknown): ImageAttachment[] {
   visit(content)
 
   const text = textFromUnknown(content)
-  const localHints: string[] = []
+  const gatewayPaths: string[] = []
   for (const match of text.matchAll(IMAGE_ATTACHMENT_HINT_RE)) {
     const source = match[1]?.trim() || ''
     if (isPortableImageSource(source)) sources.push(source)
-    else if (source) localHints.push(source)
+    else if (source) gatewayPaths.push(source)
+  }
+  for (const match of text.matchAll(IMAGE_DIRECTIVE_RE)) {
+    const source = (match[1] || match[2] || match[3] || match[4] || '').trim()
+    if (isPortableImageSource(source)) sources.push(source)
+    else if (source) gatewayPaths.push(source)
   }
 
   const attachments = [...new Set(sources)].map((src, index) => ({ label: `Image ${index + 1}`, src }))
-  const unavailableCount = Math.max(0, localHints.length - attachments.length)
-  return [...attachments, ...Array.from({ length: unavailableCount }, () => ({ label: 'Image attached' }))]
+  const remoteAttachments = [...new Set(gatewayPaths)]
+    .slice(attachments.length)
+    .map((gatewayPath, index) => ({ label: `Image ${attachments.length + index + 1}`, gatewayPath }))
+  return [...attachments, ...remoteAttachments]
 }
 
 function displayContentForRole(role: MessageRole, text: string): string {
   if (role !== 'user') return text
 
-  const withoutWarnings = text.replace(CONTEXT_WARNINGS_MARKER_RE, '').replace(IMAGE_ATTACHMENT_HINT_RE, '\n').trim()
+  const withoutWarnings = text
+    .replace(CONTEXT_WARNINGS_MARKER_RE, '')
+    .replace(IMAGE_ATTACHMENT_HINT_RE, '\n')
+    .replace(IMAGE_DIRECTIVE_RE, '\n')
+    .trim()
   const marker = withoutWarnings.match(ATTACHED_CONTEXT_MARKER_RE)
   if (!marker || marker.index === undefined) return withoutWarnings
 

@@ -452,10 +452,59 @@ function openImagePreview(image: HTMLImageElement) {
   imagePreview.value = { src, alt: image.alt || 'Image preview' }
 }
 
-function openAttachmentPreview(attachment: { src?: string; label: string }) {
-  if (!attachment.src) return
-  imagePreview.value = { src: attachment.src, alt: attachment.label }
+function openAttachmentPreview(src: string, label: string) {
+  if (!src) return
+  imagePreview.value = { src, alt: label }
 }
+
+const resolvedGatewayImages = ref<Record<string, string>>({})
+const resolvingGatewayImages = new Set<string>()
+
+function imageAttachmentKey(
+  message: { id?: string; timestamp: number },
+  attachment: { src?: string; gatewayPath?: string },
+  index: number,
+): string {
+  return `${selectedSessionId.value}:${message.id || message.timestamp}:${attachment.gatewayPath || attachment.src || index}`
+}
+
+function imageAttachmentSrc(
+  message: { id?: string; timestamp: number },
+  attachment: { src?: string; gatewayPath?: string },
+  index: number,
+): string {
+  return attachment.src || resolvedGatewayImages.value[imageAttachmentKey(message, attachment, index)] || ''
+}
+
+async function resolveGatewayImageAttachments() {
+  const requests = gw.messages.value.flatMap(message => {
+    if (message.role !== 'user') return []
+    return (message.imageAttachments || []).flatMap((attachment, attachmentIndex) => {
+      if (!attachment.gatewayPath) return []
+      const key = imageAttachmentKey(message, attachment, attachmentIndex)
+      if (resolvedGatewayImages.value[key] || resolvingGatewayImages.has(key)) return []
+      return [{ key, path: attachment.gatewayPath }]
+    })
+  })
+
+  await Promise.all(requests.map(async request => {
+    resolvingGatewayImages.add(request.key)
+    try {
+      const src = await gw.fetchMediaDataUrl(auth.gatewayUrl.value, request.path)
+      if (src) resolvedGatewayImages.value = { ...resolvedGatewayImages.value, [request.key]: src }
+    } finally {
+      resolvingGatewayImages.delete(request.key)
+    }
+  }))
+}
+
+const imageAttachmentSignature = computed(() => gw.messages.value
+  .flatMap(message => (message.imageAttachments || []).map(attachment => `${message.id || message.timestamp}:${attachment.gatewayPath || attachment.src || ''}`))
+  .join('|'))
+
+watch(imageAttachmentSignature, () => {
+  void resolveGatewayImageAttachments()
+}, { immediate: true })
 
 function closeImagePreview() {
   imagePreview.value = null
@@ -1061,13 +1110,13 @@ function formatTime(ts: number): string {
               <div v-if="msg.role === 'user' && msg.imageAttachments?.length" class="message-image-attachments">
                 <template v-for="(attachment, attachmentIdx) in msg.imageAttachments" :key="`${attachment.label}-${attachmentIdx}`">
                   <button
-                    v-if="attachment.src"
+                    v-if="imageAttachmentSrc(msg, attachment, attachmentIdx)"
                     type="button"
                     class="message-image-thumb"
                     :aria-label="`Preview ${attachment.label}`"
-                    @click.stop="openAttachmentPreview(attachment)"
+                    @click.stop="openAttachmentPreview(imageAttachmentSrc(msg, attachment, attachmentIdx), attachment.label)"
                   >
-                    <img :src="attachment.src" :alt="attachment.label" />
+                    <img :src="imageAttachmentSrc(msg, attachment, attachmentIdx)" :alt="attachment.label" />
                   </button>
                   <span v-else class="message-image-unavailable">▧ {{ attachment.label }}</span>
                 </template>

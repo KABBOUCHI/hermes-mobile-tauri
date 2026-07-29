@@ -336,6 +336,25 @@ async function fetchMessages(url: string, sessionId: string): Promise<Message[]>
   }
 }
 
+/** Fetch a gateway-retained image as a portable data URL. */
+async function fetchMediaDataUrl(url: string, path: string): Promise<string | null> {
+  try {
+    const base = url.replace(/\/$/, '')
+    const headers: Record<string, string> = {}
+    if (cookie) headers['Cookie'] = cookie
+    const resp = await fetchWithTimeout(
+      `${base}/api/media?path=${encodeURIComponent(path)}`,
+      { method: 'GET', headers, credentials: 'same-origin' },
+      FETCH_TIMEOUT,
+    )
+    if (!resp.ok) return null
+    const data = await resp.json()
+    return typeof data?.data_url === 'string' && /^data:image\//i.test(data.data_url) ? data.data_url : null
+  } catch {
+    return null
+  }
+}
+
 // ── Persistent WebSocket ───────────────────────────
 
 async function connectWs(url: string, sessCookie: string, getTicket: () => Promise<string>) {
@@ -990,6 +1009,7 @@ export function useGateway() {
     hasMoreSessions,
     hasMoreArchivedSessions,
     fetchMessages,
+    fetchMediaDataUrl,
     deleteSession,
     archiveSession,
     unarchiveSession,

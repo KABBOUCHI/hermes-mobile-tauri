@@ -124,7 +124,7 @@ describe('normalizeSessionMessages', () => {
     expect(messages).toEqual([expect.objectContaining({ id: 'u1', content: 'Actual user prompt' })])
   })
 
-  it('renders portable image parts and replaces desktop-local image hints with an attachment indicator', () => {
+  it('renders portable image parts and retains gateway image paths for remote retrieval', () => {
     const messages = normalizeSessionMessages([
       {
         id: 'u1',
@@ -138,7 +138,7 @@ describe('normalizeSessionMessages', () => {
       {
         id: 'u2',
         role: 'user',
-        content: 'This is local only.\n\n[Image attached at: /tmp/desktop-only.png]',
+        content: 'This came from the gateway.\n\n@image:/home/hermes/.hermes/images/desktop-only.png [screenshot]',
         timestamp: 2,
       },
       {
@@ -154,12 +154,12 @@ describe('normalizeSessionMessages', () => {
       imageAttachments: [{ label: 'Image 1', src: 'data:image/png;base64,cGl4ZWxz' }],
     })
     expect(messages[1]).toMatchObject({
-      content: 'This is local only.',
-      imageAttachments: [{ label: 'Image attached' }],
+      content: 'This came from the gateway.',
+      imageAttachments: [{ label: 'Image 1', gatewayPath: '/home/hermes/.hermes/images/desktop-only.png' }],
     })
     expect(messages[2]).toMatchObject({
       content: '',
-      imageAttachments: [{ label: 'Image attached' }],
+      imageAttachments: [{ label: 'Image 1', gatewayPath: '/tmp/image-only.png' }],
     })
   })
 

@@ -2,6 +2,7 @@
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { renderMarkdown } from '../utils/markdown'
+import { highlightRenderedHtml } from '../utils/renderedSearchHighlight'
 import { isNearChatBottom } from '../utils/chatScroll'
 import { writeClipboardText } from '../utils/clipboard'
 import { useAuth } from '../composables/useAuth'
@@ -269,11 +270,7 @@ function scrollToMatch(msgIndex: number) {
 }
 
 function highlightText(content: string, query: string): string {
-  if (!query.trim() || !content) return renderMarkdown(content)
-  const rendered = renderMarkdown(content)
-  const escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const regex = new RegExp(`(${escapedQuery})`, 'gi')
-  return rendered.replace(regex, '<mark class="search-highlight">$1</mark>')
+  return highlightRenderedHtml(renderMarkdown(content), query)
 }
 
 function isMatch(idx: number): boolean {

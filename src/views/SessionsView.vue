@@ -95,6 +95,22 @@ interface DateGroup {
   sessions: Session[]
 }
 
+type SessionListRow =
+  | { kind: 'divider'; key: string; label: string }
+  | { kind: 'session'; key: string; session: Session }
+
+// Keep the mobile list responsive once a gateway has accumulated a substantial
+// history. This mirrors desktop's VirtualSessionList: date dividers and cards
+// share one measured scroll space, while only the visible rows are mounted.
+const VIRTUALIZE_THRESHOLD = 25
+const VIRTUAL_OVERSCAN = 8
+const DEFAULT_CARD_HEIGHT = 112
+const DEFAULT_DIVIDER_HEIGHT = 32
+const virtualScrollTop = ref(0)
+const virtualViewportHeight = ref(600)
+const measuredRowHeights = ref<Record<string, number>>({})
+let virtualResizeObserver: ResizeObserver | null = null
+
 function getDateGroups(sessions: Session[]): DateGroup[] {
   const now = new Date()
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate())
@@ -180,6 +196,75 @@ const groupedSessions = computed(() => {
   return groups
 })
 
+const sessionRows = computed<SessionListRow[]>(() =>
+  groupedSessions.value.flatMap(group => [
+    { kind: 'divider' as const, key: `divider:${group.label}`, label: group.label },
+    ...group.sessions.map(session => ({ kind: 'session' as const, key: session.id, session })),
+  ])
+)
+
+const useVirtualSessions = computed(() => sessionRows.value.length >= VIRTUALIZE_THRESHOLD)
+
+function rowHeight(row: SessionListRow): number {
+  return measuredRowHeights.value[row.key] || (row.kind === 'divider' ? DEFAULT_DIVIDER_HEIGHT : DEFAULT_CARD_HEIGHT)
+}
+
+const virtualLayout = computed(() => {
+  const rows = sessionRows.value
+  const offsets: number[] = []
+  let total = 0
+  for (const row of rows) {
+    offsets.push(total)
+    total += rowHeight(row)
+  }
+  return { offsets, total }
+})
+
+const virtualRange = computed(() => {
+  const rows = sessionRows.value
+  const { offsets, total } = virtualLayout.value
+  if (!rows.length) return { start: 0, end: 0, top: 0, bottom: 0 }
+
+  const before = Math.max(0, virtualScrollTop.value - DEFAULT_CARD_HEIGHT * VIRTUAL_OVERSCAN)
+  const after = virtualScrollTop.value + virtualViewportHeight.value + DEFAULT_CARD_HEIGHT * VIRTUAL_OVERSCAN
+  let start = 0
+  while (start < rows.length && offsets[start] + rowHeight(rows[start]) < before) start++
+  let end = start
+  while (end < rows.length && offsets[end] < after) end++
+
+  return {
+    start,
+    end,
+    top: offsets[start] || 0,
+    bottom: Math.max(0, total - (offsets[end] || total)),
+  }
+})
+
+const visibleSessionRows = computed(() =>
+  sessionRows.value.slice(virtualRange.value.start, virtualRange.value.end)
+)
+
+function refreshVirtualViewport() {
+  const el = listEl.value
+  if (!el) return
+  virtualScrollTop.value = el.scrollTop
+  virtualViewportHeight.value = el.clientHeight || 600
+}
+
+function onListScroll() {
+  refreshVirtualViewport()
+}
+
+function observeVirtualRow(key: string, el: Element | { $el: Element } | null) {
+  const target = el instanceof Element ? el : el?.$el
+  if (!target || !virtualResizeObserver) return
+  virtualResizeObserver.observe(target)
+  const height = Math.ceil(target.getBoundingClientRect().height) + (target.classList.contains('SessionCard') ? 8 : 0)
+  if (height > 0 && measuredRowHeights.value[key] !== height) {
+    measuredRowHeights.value = { ...measuredRowHeights.value, [key]: height }
+  }
+}
+
 const hostShort = computed(() => {
   try {
     return new URL(auth.gatewayUrl.value).hostname
@@ -190,6 +275,22 @@ const hostShort = computed(() => {
 
 // Load pinned IDs on mount; also refresh sessions if empty (e.g. direct nav)
 onMounted(async () => {
+  if (typeof ResizeObserver !== 'undefined') {
+    virtualResizeObserver = new ResizeObserver(entries => {
+      let nextHeights: Record<string, number> | null = null
+      for (const entry of entries) {
+        const key = (entry.target as HTMLElement).dataset.virtualKey
+        const height = Math.ceil(entry.contentRect.height) + (entry.target.classList.contains('SessionCard') ? 8 : 0)
+        if (key && height > 0 && measuredRowHeights.value[key] !== height) {
+          nextHeights ??= { ...measuredRowHeights.value }
+          nextHeights[key] = height
+        }
+      }
+      if (nextHeights) measuredRowHeights.value = nextHeights
+    })
+  }
+  await nextTick()
+  refreshVirtualViewport()
   pinnedIds.value = await pins.getPinnedIds()
   if (gw.sessions.value.length === 0 && auth.isConnected.value) {
     await gw.fetchSessions(auth.gatewayUrl.value, false, showingArchived.value ? 'only' : 'exclude')
@@ -225,8 +326,15 @@ watch(search, query => {
   }, 200)
 })
 
+watch(sessionRows, async () => {
+  await nextTick()
+  refreshVirtualViewport()
+})
+
 onUnmounted(() => {
   if (searchTimer) clearTimeout(searchTimer)
+  virtualResizeObserver?.disconnect()
+  virtualResizeObserver = null
 })
 
 function handleRefresh() {
@@ -496,11 +604,58 @@ function formatCount(n: number): string {
       v-else
       ref="listEl"
       class="SessionList"
+      @scroll="onListScroll"
       @touchstart="onTouchStart"
       @touchmove="onTouchMove"
       @touchend="onTouchEnd"
     >
-      <template v-for="group in groupedSessions" :key="group.label">
+      <div v-if="useVirtualSessions" class="VirtualSessionList">
+        <div :style="{ height: virtualRange.top + 'px' }" aria-hidden="true" />
+        <template v-for="row in visibleSessionRows" :key="row.key">
+          <div
+            v-if="row.kind === 'divider'"
+            :ref="el => observeVirtualRow(row.key, el)"
+            class="DateGroupLabel"
+            :data-virtual-key="row.key"
+          >{{ row.label }}</div>
+          <div
+            v-else
+            :ref="el => observeVirtualRow(row.key, el)"
+            class="SessionCard"
+            :class="{ pinned: isPinned(row.session.id) }"
+            :data-virtual-key="row.key"
+            @click="openSession(row.session.id)"
+            @touchstart="handleTouchStart($event, row.session.id)"
+            @touchmove="handleTouchMove"
+            @touchend="handleTouchEnd"
+          >
+            <div class="CardTop">
+              <span v-if="isPinned(row.session.id)" class="PinIcon">📌</span>
+              <span v-if="unreadIds.has(row.session.id)" class="UnreadDot" />
+              <span class="SessionTitle">{{ row.session.title || row.session.preview || 'Untitled' }}</span>
+              <span v-if="row.session.is_active" class="ActiveDot" />
+              <button
+                class="DeleteBtn"
+                :class="{ confirming: deletingId === row.session.id }"
+                @click="confirmDelete($event, row.session.id)"
+                :title="deletingId === row.session.id ? 'Confirm delete' : 'Delete'"
+              >
+                {{ deletingId === row.session.id ? '✓' : '✕' }}
+              </button>
+            </div>
+            <span class="SessionPreview">{{ row.session.preview || 'No messages' }}</span>
+            <div class="CardMeta">
+              <span class="MetaText">{{ formatCount(row.session.message_count) }} msgs</span>
+              <span class="MetaDot">·</span>
+              <span class="MetaText">{{ gw.relativeTime(row.session.last_active) }}</span>
+              <span v-if="row.session.source && row.session.source !== 'desktop'" class="SourceBadge">{{ gw.sourceLabel(row.session.source) }}</span>
+              <span v-if="row.session.model" class="ModelBadge">{{ gw.modelShort(row.session.model) }}</span>
+            </div>
+          </div>
+        </template>
+        <div :style="{ height: virtualRange.bottom + 'px' }" aria-hidden="true" />
+      </div>
+      <template v-else v-for="group in groupedSessions" :key="group.label">
         <div class="DateGroupLabel">{{ group.label }}</div>
         <div
           v-for="s in group.sessions"

@@ -5,6 +5,10 @@ import { normalizeSessionMessages, completionFailure, truncateBeforeUserParams, 
 import { mergeSessionsById } from '../utils/sessionList'
 
 const FETCH_TIMEOUT = 12000
+// A session transcript can contain hundreds of durable tool records. On a
+// mobile connection it must not inherit the short deadline intended for small
+// status and session-list requests.
+export const MESSAGE_FETCH_TIMEOUT = 60000
 const RECONNECT_BASE_MS = 1000
 const RECONNECT_MAX_MS = 15000
 
@@ -284,7 +288,7 @@ async function fetchMessages(url: string, sessionId: string): Promise<Message[]>
     const resp = await fetchWithTimeout(
       `${base}/api/sessions/${sessionId}/messages`,
       { method: 'GET', headers, credentials: 'same-origin' },
-      FETCH_TIMEOUT
+      MESSAGE_FETCH_TIMEOUT
     )
     if (!resp.ok) throw new Error('HTTP ' + resp.status)
     const data = await resp.json()

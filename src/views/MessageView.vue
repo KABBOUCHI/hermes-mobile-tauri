@@ -5,7 +5,7 @@ import { renderMarkdown } from '../utils/markdown'
 import { highlightRenderedHtml } from '../utils/renderedSearchHighlight'
 import { extractUnifiedDiff, summarizeToolActivity, thoughtActivityLabel } from '../utils/activitySummary'
 import PatchDiff from '../components/PatchDiff.vue'
-import { isNearChatBottom } from '../utils/chatScroll'
+import { isNearChatBottom, jumpToBottomOffset } from '../utils/chatScroll'
 import { writeClipboardText } from '../utils/clipboard'
 import { formatElapsedSeconds } from '../utils/elapsedTime'
 import { createSessionExport } from '../utils/sessionExport'
@@ -114,12 +114,15 @@ onMounted(async () => {
     window.visualViewport.addEventListener('resize', onViewportResize)
     onViewportResize()
   }
+  observeComposerHeight()
 })
 
 onUnmounted(() => {
   if (window.visualViewport) {
     window.visualViewport.removeEventListener('resize', onViewportResize)
   }
+  composerResizeObserver?.disconnect()
+  composerResizeObserver = null
   stopElapsedTimer()
 })
 
@@ -131,6 +134,20 @@ function onViewportResize() {
 const input = ref('')
 const scrollEl = ref<HTMLElement | null>(null)
 const inputEl = ref<HTMLTextAreaElement | null>(null)
+const composerEl = ref<HTMLElement | null>(null)
+const composerHeight = ref(56)
+let composerResizeObserver: ResizeObserver | null = null
+
+function observeComposerHeight() {
+  const composer = composerEl.value
+  if (!composer) return
+  composerHeight.value = composer.getBoundingClientRect().height
+  if (typeof ResizeObserver === 'undefined') return
+  composerResizeObserver = new ResizeObserver(([entry]) => {
+    composerHeight.value = entry.borderBoxSize[0]?.blockSize || entry.contentRect.height
+  })
+  composerResizeObserver.observe(composer)
+}
 // ── User message editing ──
 const editingIdx = ref<number | null>(null)
 const editText = ref('')
@@ -1164,13 +1181,13 @@ function formatTime(ts: number): string {
 
     <!-- Jump to bottom button -->
     <Transition name="jump-fade">
-      <button v-if="showJumpToBottom" class="absolute right-4 bottom-[72px] z-10 flex size-9 cursor-pointer items-center justify-center rounded-full border border-app-border bg-app-surface text-app-muted shadow-[0_2px_8px_rgba(0,0,0,0.3)] transition-all hover:border-app-accent hover:bg-app-surface-2 hover:text-app-accent active:scale-90" @click="scrollToBottom">
+      <button v-if="showJumpToBottom" class="absolute right-4 z-10 flex size-9 cursor-pointer items-center justify-center rounded-full border border-app-border bg-app-surface text-app-muted shadow-[0_2px_8px_rgba(0,0,0,0.3)] transition-all hover:border-app-accent hover:bg-app-surface-2 hover:text-app-accent active:scale-90" :style="{ bottom: `${jumpToBottomOffset(composerHeight)}px` }" @click="scrollToBottom" aria-label="Scroll to bottom">
         <ArrowDown :size="16" :stroke-width="2.5" />
       </button>
     </Transition>
 
     <!-- Input -->
-    <div class="relative flex shrink-0 items-end gap-2 border-t border-app-border bg-app-surface px-3 py-2 pb-[max(8px,env(safe-area-inset-bottom))]">
+    <div ref="composerEl" class="relative flex shrink-0 items-end gap-2 border-t border-app-border bg-app-surface px-3 py-2 pb-[max(8px,env(safe-area-inset-bottom))]">
       <div v-if="sending && elapsedDisplay" class="absolute left-3.5 bottom-full mb-1.5 flex items-center gap-1.5 rounded-md border border-app-border bg-app-surface-2 px-2.5 py-1">
         <span class="size-1.5 rounded-full bg-app-accent"></span>
         <span class="text-xs tabular-nums text-app-muted">{{ elapsedDisplay }}</span>

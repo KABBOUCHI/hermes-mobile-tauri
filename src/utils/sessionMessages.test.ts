@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { normalizeSessionMessages, userOrdinalAtMessageIndex } from './sessionMessages'
+import { markLatestAssistantFailure, normalizeSessionMessages, userOrdinalAtMessageIndex } from './sessionMessages'
 
 describe('normalizeSessionMessages', () => {
   it('retains text, tools, and separate reasoning in server order', () => {
@@ -176,6 +176,21 @@ describe('normalizeSessionMessages', () => {
     expect(messages[0]).toMatchObject({
       role: 'user',
       content: '@folder:src/components\n\nPlease review @file:src/App.vue.',
+    })
+  })
+
+  it('marks the optimistic assistant response as retryable while retaining streamed text', () => {
+    const messages = [
+      { role: 'user' as const, content: 'Build it', timestamp: 1 },
+      { role: 'assistant' as const, content: 'I started the implementation.', timestamp: 2 },
+    ]
+
+    markLatestAssistantFailure(messages, 'Provider rate limit exceeded')
+
+    expect(messages[1]).toMatchObject({
+      role: 'assistant',
+      content: 'I started the implementation.',
+      error: true,
     })
   })
 

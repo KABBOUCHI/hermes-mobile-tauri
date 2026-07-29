@@ -67,6 +67,13 @@ export function userOrdinalAtMessageIndex(messages: Pick<SessionMessage, 'role'>
   return ordinal
 }
 
+export function markLatestAssistantFailure(messages: SessionMessage[], fallbackMessage: string): void {
+  const last = messages[messages.length - 1]
+  if (!last || last.role !== 'assistant') return
+  if (!last.content.trim()) last.content = fallbackMessage
+  last.error = true
+}
+
 /**
  * Desktop treats a `message.complete` event with status `error` as terminal,
  * even when the server retained a streamed partial response. Normalise the

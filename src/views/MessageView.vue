@@ -3,6 +3,7 @@ import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { renderMarkdown } from '../utils/markdown'
 import { highlightRenderedHtml } from '../utils/renderedSearchHighlight'
+import { markLatestAssistantFailure } from '../utils/sessionMessages'
 import { extractUnifiedDiff, summarizeToolActivity, thoughtActivityLabel } from '../utils/activitySummary'
 import PatchDiff from '../components/PatchDiff.vue'
 import { isNearChatBottom, jumpToBottomOffset } from '../utils/chatScroll'
@@ -180,7 +181,9 @@ async function saveEdit() {
   try {
     await gw.editMessage(auth.gatewayUrl.value, selectedSessionId.value, idx, text)
   } catch (err: any) {
-    toast.show(err.message || 'Edit failed', 'error')
+    const message = err.message || 'Edit failed'
+    markLatestAssistantFailure(gw.messages.value, message)
+    toast.show(message, 'error')
   } finally {
     editing.value = false
     editingIdx.value = null
@@ -366,8 +369,7 @@ function sendText(text: string, preserveUserMessage = false) {
       // of appending a duplicate error after it.
       const last = gw.messages.value[gw.messages.value.length - 1]
       if (last?.role === 'assistant') {
-        if (!last.content) last.content = message
-        last.error = true
+        markLatestAssistantFailure(gw.messages.value, message)
       } else {
         gw.messages.value.push({
           role: 'assistant',
@@ -911,7 +913,9 @@ async function handleRegenerate() {
   try {
     await gw.regenerateLastMessage(auth.gatewayUrl.value, selectedSessionId.value)
   } catch (err: any) {
-    toast.show(err.message || 'Regenerate failed', 'error')
+    const message = err.message || 'Regenerate failed'
+    markLatestAssistantFailure(gw.messages.value, message)
+    toast.show(message, 'error')
   } finally {
     sending.value = false
   }

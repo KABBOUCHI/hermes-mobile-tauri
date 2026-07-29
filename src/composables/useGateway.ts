@@ -1,7 +1,7 @@
 import { ref, computed } from 'vue'
 import { fetch } from '@tauri-apps/plugin-http'
 import WebSocket from '@tauri-apps/plugin-websocket'
-import { normalizeSessionMessages, completionFailure, type SessionMessage } from '../utils/sessionMessages'
+import { normalizeSessionMessages, completionFailure, truncateBeforeUserParams, type SessionMessage } from '../utils/sessionMessages'
 
 const FETCH_TIMEOUT = 12000
 const RECONNECT_BASE_MS = 1000
@@ -595,7 +595,9 @@ async function regenerateLastMessage(
 
   const runtimeId = await resumeSession(sessionId)
 
-  messages.value = messages.value.slice(0, lastUserEntry.idx)
+  // Mirror desktop's optimistic reload: retain the prompt while replacing only
+  // the response branch. The gateway truncates and re-submits this same turn.
+  messages.value = messages.value.slice(0, lastUserEntry.idx + 1)
 
   await interruptSession(runtimeId)
 
@@ -628,7 +630,7 @@ async function regenerateLastMessage(
       params: {
         session_id: runtimeId,
         text: lastUserText,
-        truncate_before_user_ordinal: userOrdinal,
+        ...truncateBeforeUserParams(userOrdinal),
       },
     })).catch((err: any) => {
       clearTimeout(timer)
@@ -708,7 +710,7 @@ async function editMessage(
       params: {
         session_id: runtimeId,
         text: newText,
-        truncate_before_user_ordinal: userOrdinal,
+        ...truncateBeforeUserParams(userOrdinal),
       },
     })).catch((err: any) => {
       clearTimeout(timer)

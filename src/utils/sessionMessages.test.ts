@@ -95,4 +95,16 @@ describe('normalizeSessionMessages', () => {
     expect(completionFailure({ status: 'error', failure_reason: 'billing' }))
       .toEqual({ message: 'billing', partial: false })
   })
+
+  it('confirms truncation when rewinding the first user turn', async () => {
+    const { truncateBeforeUserParams } = await import('./sessionMessages')
+
+    expect(truncateBeforeUserParams(0)).toEqual({
+      truncate_before_user_ordinal: 0,
+      confirm_empty_truncate: true,
+    })
+    expect(truncateBeforeUserParams(2)).toEqual({
+      truncate_before_user_ordinal: 2,
+    })
+  })
 })

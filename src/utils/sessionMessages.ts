@@ -23,6 +23,17 @@ export interface CompletionFailure {
 }
 
 /**
+ * The gateway refuses a rewind to ordinal zero unless the client explicitly
+ * confirms it. This mirrors desktop's first-turn edit/regenerate contract.
+ */
+export function truncateBeforeUserParams(userOrdinal: number): Record<string, number | boolean> {
+  return {
+    truncate_before_user_ordinal: userOrdinal,
+    ...(userOrdinal === 0 ? { confirm_empty_truncate: true } : {}),
+  }
+}
+
+/**
  * Desktop treats a `message.complete` event with status `error` as terminal,
  * even when the server retained a streamed partial response. Normalise the
  * several gateway error shapes before the websocket layer settles the turn.

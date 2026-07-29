@@ -1,10 +1,9 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+
 import { fetch } from '@tauri-apps/plugin-http'
 import { useAuth } from '../composables/useAuth'
 
-const router = useRouter()
 const auth = useAuth()
 
 interface CronJob {
@@ -75,22 +74,17 @@ function truncate(text: string, max: number): string {
   return text.length > max ? text.slice(0, max) + '…' : text
 }
 
-function goBack() {
-  router.push({ name: 'sessions' })
-}
-
 onMounted(fetchJobs)
 </script>
 
 <template>
   <div class="flex min-h-0 flex-1 flex-col bg-app-bg font-sans text-app-text flex min-h-0 flex-1 flex-col bg-app-bg text-app-text font-sans">
     <!-- Header -->
-    <div class="flex shrink-0 items-center justify-between border-b border-app-border px-4 pt-5 pb-4">
-      <button class="flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-[15px] font-medium text-app-accent" @click="goBack">
-        <span class="text-lg">←</span>
-        <span>Back</span>
-      </button>
-      <span class="text-[17px] font-semibold tracking-[-0.02em]">Cron Jobs</span>
+    <div class="flex h-[68px] shrink-0 items-center justify-between border-b border-app-border px-4">
+      <div>
+        <span class="text-[17px] font-semibold tracking-[-0.03em]">Cron jobs</span>
+        <div class="mt-0.5 text-[11px] text-app-muted">Automations and schedules</div>
+      </div>
       <button class="flex size-9 cursor-pointer items-center justify-center rounded-lg border border-app-border bg-app-surface text-base text-app-muted transition-colors hover:bg-app-surface-2" @click="fetchJobs">↻</button>
     </div>
 

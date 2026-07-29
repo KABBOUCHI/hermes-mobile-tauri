@@ -476,19 +476,6 @@ async function handleMarkAllRead() {
   unreadIds.value = new Set()
 }
 
-function goToCron() {
-  router.push({ name: 'cron' })
-}
-
-function disconnect() {
-  gw.disconnectWs()
-  auth.clearSession()
-  gw.sessions.value = []
-  gw.messages.value = []
-  pinnedIds.value = []
-  router.replace({ name: 'connect' })
-}
-
 // Pull-to-refresh
 function onTouchStart(e: TouchEvent) {
   if (listEl.value && listEl.value.scrollTop === 0) {
@@ -548,11 +535,7 @@ function formatCount(n: number): string {
         <button v-if="unreadIds.size > 0" class="h-8 cursor-pointer whitespace-nowrap rounded-md border-0 bg-transparent px-2 text-[11px] font-medium text-app-muted transition-colors hover:bg-app-surface-3 hover:text-app-text" @click="handleMarkAllRead" title="Mark all read">
           ✓ Read
         </button>
-        <button class="flex size-8 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-app-muted transition-colors hover:bg-app-surface-3 hover:text-app-text" @click="goToCron" title="Cron jobs" aria-label="Cron jobs">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="13" r="8" /><path d="M12 9v4l2.5 1.5M9 2h6M12 2v3M5.5 5.5 4 4M18.5 5.5 20 4" />
-          </svg>
-        </button>
+
         <button class="flex size-8 cursor-pointer items-center justify-center rounded-md border-0 bg-app-accent text-xl font-medium leading-none text-white transition-colors hover:bg-app-accent-hover" @click="createNewSession" title="New session" aria-label="New session">
           +
         </button>
@@ -561,11 +544,7 @@ function formatCount(n: number): string {
             <path d="M20 11a8 8 0 1 0 2 5.5M20 4v7h-7" />
           </svg>
         </button>
-        <button class="flex size-8 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-app-error/80 transition-colors hover:bg-app-error/10 hover:text-app-error" @click="disconnect" title="Disconnect" aria-label="Disconnect">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 2v10M18.36 6.64a9 9 0 1 1-12.73 0" />
-          </svg>
-        </button>
+
       </div>
     </div>
 

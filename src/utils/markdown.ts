@@ -127,11 +127,11 @@ function autoLinkRawUrls(text: string): string {
     const prev = text[index - 1] || ''
     const prevPrev = text[index - 2] || ''
 
-    // Skip if already inside an angle bracket or markdown link
-    if (prev === '<') return url
-    if (prevPrev === ']' && prev === '(') return url
+    // Explicit markdown links and images have already been rendered into HTML.
+    // Leave URLs in their attributes untouched rather than nesting anchors.
+    if (prev === '<' || prev === '"' || prev === "'" || prev === '=' || (prevPrev === ']' && prev === '(')) return url
 
-    return `<${url}>`
+    return `<a class="md-link" href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`
   })
 }
 

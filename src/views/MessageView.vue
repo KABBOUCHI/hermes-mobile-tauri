@@ -6,6 +6,7 @@ import { isNearChatBottom } from '../utils/chatScroll'
 import { useAuth } from '../composables/useAuth'
 import { useGateway, type ModelProvider } from '../composables/useGateway'
 import { useToast } from '../composables/useToast'
+import { openUrl } from '@tauri-apps/plugin-opener'
 
 const router = useRouter()
 const route = useRoute()
@@ -418,6 +419,20 @@ function render(content: string): string {
 }
 
 function handleMessagesClick(e: Event) {
+  const clickedLink = (e.target as HTMLElement).closest('a.md-link') as HTMLAnchorElement | null
+  if (clickedLink) {
+    e.preventDefault()
+    e.stopPropagation()
+    try {
+      const url = new URL(clickedLink.href)
+      if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new Error('Unsupported link')
+      openUrl(url.href).catch(() => toast.show('Unable to open link', 'error'))
+    } catch {
+      toast.show('Invalid link', 'error')
+    }
+    return
+  }
+
   const target = (e.target as HTMLElement).closest('.md-code-copy') as HTMLElement | null
   if (!target) return
   const codeBlock = target.closest('.md-code-wrap')

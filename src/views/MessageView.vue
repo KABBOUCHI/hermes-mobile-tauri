@@ -3,6 +3,7 @@ import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { renderMarkdown } from '../utils/markdown'
 import { isNearChatBottom } from '../utils/chatScroll'
+import { writeClipboardText } from '../utils/clipboard'
 import { useAuth } from '../composables/useAuth'
 import { useGateway, type ModelProvider } from '../composables/useGateway'
 import { useToast } from '../composables/useToast'
@@ -460,9 +461,10 @@ function handleMessagesClick(e: Event) {
   const codeBlock = target.closest('.md-code-wrap')
   const code = codeBlock?.querySelector('code')?.textContent || codeBlock?.querySelector('.md-code')?.textContent || ''
   if (code) {
-    navigator.clipboard.writeText(code)
-    target.textContent = '✓ Copied'
-    setTimeout(() => { target.textContent = 'Copy' }, 1500)
+    void writeClipboardText(code).then(copied => {
+      target.textContent = copied ? '✓ Copied' : 'Copy failed'
+      setTimeout(() => { target.textContent = 'Copy' }, 1500)
+    })
   }
 }
 
@@ -526,8 +528,8 @@ function closeActionSheet() {
 async function actionCopyText() {
   const msg = actionSheetMsg.value
   if (msg?.content) {
-    await navigator.clipboard.writeText(msg.content)
-    toast.show('Copied to clipboard', 'success')
+    const copied = await writeClipboardText(msg.content)
+    toast.show(copied ? 'Copied to clipboard' : 'Unable to access clipboard', copied ? 'success' : 'error')
   }
   closeActionSheet()
 }

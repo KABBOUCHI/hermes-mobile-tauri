@@ -6,16 +6,19 @@ import { useAuth } from '../composables/useAuth'
 import { useGateway } from '../composables/useGateway'
 import { usePins } from '../composables/usePins'
 import { useUnreads } from '../composables/useUnreads'
+import { useToast } from '../composables/useToast'
 import { sessionMatchesSearch } from '../utils/sessionSearch'
 import { flattenSessionsWithBranches, type SessionBranchEntry } from '../utils/sessionList'
 import { filterSessionsBySource } from '../utils/sessionSource'
-import { Archive, ArchiveRestore, Atom, Check, CircleX, Inbox, Pencil, Pin, Plus, RefreshCw, Search, Trash2 } from '@lucide/vue'
+import { writeClipboardText } from '../utils/clipboard'
+import { Archive, ArchiveRestore, Atom, Check, CircleX, Copy, Inbox, Pencil, Pin, Plus, RefreshCw, Search, Trash2 } from '@lucide/vue'
 
 const router = useRouter()
 const auth = useAuth()
 const gw = useGateway()
 const pins = usePins()
 const unreads = useUnreads()
+const toast = useToast()
 
 const search = ref('')
 const sourceFilter = ref('desktop')
@@ -436,6 +439,16 @@ function closeContextMenu() {
   contextMenuSessionId.value = ''
 }
 
+// Mirror desktop's session identity action. IDs are often needed to reference a
+// conversation in another Hermes surface, so copy the durable stored ID rather
+// than a title or transient runtime identifier.
+async function copySessionId() {
+  const id = contextMenuSessionId.value
+  closeContextMenu()
+  const copied = await writeClipboardText(id)
+  toast.show(copied ? 'Session ID copied' : 'Unable to copy session ID', copied ? 'success' : 'error')
+}
+
 async function handlePin() {
   const id = contextMenuSessionId.value
   const isNowPinned = await pins.togglePin(id)
@@ -731,6 +744,9 @@ function formatCount(n: number): string {
         >
           <button class="flex w-full cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-3.5 py-2.5 text-left text-sm text-app-text transition-colors hover:bg-app-surface-2" @click="openRename">
             <Pencil :size="16" :stroke-width="2" /> Rename
+          </button>
+          <button class="flex w-full cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-3.5 py-2.5 text-left text-sm text-app-text transition-colors hover:bg-app-surface-2" @click="copySessionId">
+            <Copy :size="16" :stroke-width="2" /> Copy session ID
           </button>
           <button class="flex w-full cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-3.5 py-2.5 text-left text-sm text-app-text transition-colors hover:bg-app-surface-2" @click="handlePin">
             <Pin :size="16" :stroke-width="2" /> {{ isPinned(contextMenuSessionId) ? 'Unpin' : 'Pin to top' }}

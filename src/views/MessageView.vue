@@ -937,7 +937,7 @@ function formatTime(ts: number): string {
 <template>
   <div class="relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-app-bg font-sans text-app-text">
     <!-- Header -->
-    <div class="flex min-h-14 shrink-0 items-center gap-2 border-b border-app-border bg-app-surface px-4 py-3">
+    <div class="flex min-h-12 shrink-0 items-center gap-2 border-b border-app-border bg-app-surface px-3 py-2.5">
       <button class="cursor-pointer border-0 bg-transparent px-1 text-[22px] leading-none text-app-accent" @click="goBack">‹</button>
       <div class="flex-1 truncate text-[15px] font-semibold tracking-[-0.02em]">{{ selectedSessionTitle }}</div>
       <button class="flex max-w-[120px] shrink-0 cursor-pointer items-center gap-1 rounded-md border border-app-border bg-app-surface-2 px-2 py-1 text-xs font-medium text-app-muted transition-all hover:border-app-accent hover:bg-app-accent/10 hover:text-app-accent" @click="toggleModelPicker" :class="{ active: modelPickerOpen }">
@@ -986,7 +986,7 @@ function formatTime(ts: number): string {
     </div>
 
     <!-- Messages -->
-    <div class="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-x-hidden overflow-y-auto overscroll-contain px-4 py-4" ref="scrollEl" @scroll="onScroll" @click="handleMessagesClick" @touchstart="onChatTouchStart" @touchmove="onChatTouchMove" @touchend="onChatTouchEnd">
+    <div class="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-x-hidden overflow-y-auto overscroll-contain px-3 py-3" ref="scrollEl" @scroll="onScroll" @click="handleMessagesClick" @touchstart="onChatTouchStart" @touchmove="onChatTouchMove" @touchend="onChatTouchEnd">
       <!-- Pull-to-refresh indicator -->
       <div
         v-if="pullDelta > 0"
@@ -1197,7 +1197,7 @@ function formatTime(ts: number): string {
     </Transition>
 
     <!-- Input -->
-    <div class="relative flex shrink-0 items-end gap-2 border-t border-app-border bg-app-surface px-3 pt-2 pb-[max(8px,env(safe-area-inset-bottom))]">
+    <div class="relative flex shrink-0 items-end gap-2 border-t border-app-border bg-app-surface px-3 py-2 pb-[max(8px,env(safe-area-inset-bottom))]">
       <div v-if="sending && elapsedDisplay" class="absolute left-3.5 bottom-full mb-1.5 flex items-center gap-1.5 rounded-md border border-app-border bg-app-surface-2 px-2.5 py-1">
         <span class="size-1.5 rounded-full bg-app-accent"></span>
         <span class="text-xs tabular-nums text-app-muted">{{ elapsedDisplay }}</span>
@@ -1218,6 +1218,7 @@ function formatTime(ts: number): string {
           rows="1"
           @keydown="handleKeydown"
           @input="autoResize"
+          class="min-h-9 max-h-32 min-w-0 flex-1 resize-none rounded-[10px] border border-app-border bg-app-bg px-3 py-2 text-sm leading-5 text-app-text outline-none transition-colors placeholder:text-app-muted focus:border-app-accent"
         ></textarea>
         <button
           class="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-[10px] border-0 bg-app-accent text-white transition-colors hover:not-disabled:bg-app-accent-hover disabled:cursor-default disabled:opacity-40"

@@ -521,7 +521,7 @@ function formatCount(n: number): string {
 <template>
   <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-app-bg font-sans text-app-text">
     <!-- Header -->
-    <div class="flex shrink-0 items-center gap-2 border-b border-app-border px-5 pt-6 pb-5">
+    <div class="flex shrink-0 items-center gap-2 border-b border-app-border px-4 pt-5 pb-4">
       <div class="min-w-0 flex-1 flex flex-col gap-1">
         <span class="truncate text-2xl font-bold tracking-[-0.02em]">☤ Hermes</span>
         <div class="flex items-center gap-1.5">
@@ -562,7 +562,7 @@ function formatCount(n: number): string {
     </div>
 
     <!-- Search -->
-    <div class="relative shrink-0 px-5 py-4">
+    <div class="relative shrink-0 px-4 py-3">
       <svg class="absolute left-7 top-1/2 -translate-y-1/2 text-app-muted" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="11" cy="11" r="8" />
         <line x1="21" y1="21" x2="16.65" y2="16.65" />
@@ -614,7 +614,7 @@ function formatCount(n: number): string {
     <div
       v-else
       ref="listEl"
-      class="flex-1 overflow-y-auto overscroll-contain px-5 py-4"
+      class="flex-1 overflow-y-auto overscroll-contain px-4 py-3"
       @scroll="onListScroll"
       @touchstart="onTouchStart"
       @touchmove="onTouchMove"
@@ -632,7 +632,7 @@ function formatCount(n: number): string {
           <div
             v-else
             :ref="el => observeVirtualRow(row.key, el)"
-            class="mb-3 cursor-pointer rounded-app border border-app-border bg-app-surface px-4 py-4 transition-colors hover:bg-app-surface-2"
+            class="mb-2.5 cursor-pointer rounded-app border border-app-border bg-app-surface px-4 py-3.5 transition-colors hover:bg-app-surface-2"
             :class="{ 'border-app-accent/30': isPinned(row.entry.session.id), 'ml-4': !!row.entry.branchStem }"
             data-session-card="true"
             :data-virtual-key="row.key"
@@ -673,7 +673,7 @@ function formatCount(n: number): string {
         <div
           v-for="entry in group.sessions"
           :key="entry.session.id"
-          class="mb-3 cursor-pointer rounded-app border border-app-border bg-app-surface px-4 py-4 transition-colors hover:bg-app-surface-2"
+          class="mb-2.5 cursor-pointer rounded-app border border-app-border bg-app-surface px-4 py-3.5 transition-colors hover:bg-app-surface-2"
           :class="{ 'border-app-accent/30': isPinned(entry.session.id), 'ml-4': !!entry.branchStem }"
           data-session-card="true"
           @click="openSession(entry.session.id)"

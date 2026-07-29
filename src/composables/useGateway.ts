@@ -1,7 +1,7 @@
 import { ref, computed } from 'vue'
 import { fetch } from '@tauri-apps/plugin-http'
 import WebSocket from '@tauri-apps/plugin-websocket'
-import { normalizeSessionMessages, type SessionMessage } from '../utils/sessionMessages'
+import { normalizeSessionMessages, completionFailure, type SessionMessage } from '../utils/sessionMessages'
 
 const FETCH_TIMEOUT = 12000
 const RECONNECT_BASE_MS = 1000
@@ -391,11 +391,17 @@ function handleGatewayEvent(event: any) {
   if (type === 'message.complete' && activeTurn && sessionId === activeTurn.sessionId) {
     clearTimeout(activeTurn.timer)
     const content = streamingContent || event.payload?.content || ''
+    const failure = completionFailure(event.payload)
     const resolve = activeTurn.resolve
+    const reject = activeTurn.reject
     activeTurn = null
     streamingContent = ''
     turnStartedAt.value = null
-    resolve(content)
+    if (failure) {
+      reject(new Error(failure.message))
+    } else {
+      resolve(content)
+    }
   }
 
   if (type === 'error' && activeTurn && sessionId === activeTurn.sessionId) {

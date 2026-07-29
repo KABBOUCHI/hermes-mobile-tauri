@@ -17,6 +17,35 @@ export interface SessionMessage {
   error?: boolean
 }
 
+export interface CompletionFailure {
+  message: string
+  partial: boolean
+}
+
+/**
+ * Desktop treats a `message.complete` event with status `error` as terminal,
+ * even when the server retained a streamed partial response. Normalise the
+ * several gateway error shapes before the websocket layer settles the turn.
+ */
+export function completionFailure(payload: unknown): CompletionFailure | null {
+  if (!payload || typeof payload !== 'object') return null
+  const record = payload as Record<string, unknown>
+  if (record.status !== 'error') return null
+
+  const structuredError = record.error
+  const errorMessage = typeof structuredError === 'string'
+    ? structuredError
+    : structuredError && typeof structuredError === 'object' && typeof (structuredError as Record<string, unknown>).message === 'string'
+      ? (structuredError as Record<string, unknown>).message as string
+      : ''
+  const message = errorMessage
+    || (typeof record.failure_reason === 'string' ? record.failure_reason : '')
+    || (typeof record.message === 'string' ? record.message : '')
+    || 'Turn failed'
+
+  return { message, partial: record.partial === true }
+}
+
 function textFromUnknown(value: unknown, depth = 0): string {
   if (typeof value === 'string') return value
   if (value === null || value === undefined || depth > 2) return ''

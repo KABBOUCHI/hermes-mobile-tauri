@@ -78,4 +78,21 @@ describe('normalizeSessionMessages', () => {
       content: '@folder:src/components\n\nPlease review @file:src/App.vue.',
     })
   })
+
+  it('marks a completed gateway turn as failed while keeping its partial response', async () => {
+    const { completionFailure } = await import('./sessionMessages')
+
+    expect(completionFailure({
+      status: 'error',
+      error: { message: 'Provider rate limit exceeded' },
+      partial: true,
+    })).toEqual({ message: 'Provider rate limit exceeded', partial: true })
+  })
+
+  it('uses failure_reason when a failed completion has no structured error', async () => {
+    const { completionFailure } = await import('./sessionMessages')
+
+    expect(completionFailure({ status: 'error', failure_reason: 'billing' }))
+      .toEqual({ message: 'billing', partial: false })
+  })
 })

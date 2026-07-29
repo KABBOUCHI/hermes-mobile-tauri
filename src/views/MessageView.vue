@@ -315,11 +315,12 @@ function sendText(text: string, preserveUserMessage = false) {
     })
     .catch((err: any) => {
       const message = err.message || 'Unknown error'
-      // sendMessage adds an empty assistant bubble before submitting. Turn that
-      // placeholder into the failure state instead of adding a second bubble.
+      // sendMessage adds an assistant bubble before submitting. Retain any
+      // streamed partial response and make that same bubble retryable instead
+      // of appending a duplicate error after it.
       const last = gw.messages.value[gw.messages.value.length - 1]
-      if (last?.role === 'assistant' && !last.content && !last.error) {
-        last.content = message
+      if (last?.role === 'assistant') {
+        if (!last.content) last.content = message
         last.error = true
       } else {
         gw.messages.value.push({

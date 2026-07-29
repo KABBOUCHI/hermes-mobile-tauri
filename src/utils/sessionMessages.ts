@@ -10,6 +10,7 @@ export interface ToolResultSummary {
   name: string
   content: string
   timestamp: number
+  diff?: string
 }
 
 export interface ActivityThought {
@@ -126,6 +127,7 @@ function stripTransportMarkup(text: string): string {
 const ATTACHED_CONTEXT_MARKER_RE = /(?:^|\n)--- Attached Context ---\s*\n/
 const CONTEXT_WARNINGS_MARKER_RE = /(?:^|\n)--- Context Warnings ---[\s\S]*$/
 const CONTEXT_REF_RE = /@(file|folder|url|image|tool|terminal):(?:"[^"\n]+"|'[^'\n]+'|`[^`\n]+`|\S+)/g
+const CONTEXT_COMPACTION_MARKER = '[CONTEXT COMPACTION — REFERENCE ONLY]'
 
 function displayContentForRole(role: MessageRole, text: string): string {
   if (role !== 'user') return text
@@ -163,7 +165,12 @@ function toolCallsFromRaw(value: unknown): ToolCallSummary[] | undefined {
 
 function isVisible(message: Record<string, unknown>): boolean {
   const kind = message.display_kind
-  return kind !== 'hidden' && kind !== 'model_switch' && kind !== 'auto_continue' && kind !== 'async_delegation_complete'
+  const content = textFromUnknown(message.content).trimStart()
+  return kind !== 'hidden'
+    && kind !== 'model_switch'
+    && kind !== 'auto_continue'
+    && kind !== 'async_delegation_complete'
+    && !content.startsWith(CONTEXT_COMPACTION_MARKER)
 }
 
 export function normalizeSessionMessages(rawMessages: unknown[]): SessionMessage[] {
@@ -179,6 +186,7 @@ export function normalizeSessionMessages(rawMessages: unknown[]): SessionMessage
       const toolCalls = role === 'assistant' ? toolCallsFromRaw(raw.tool_calls) : undefined
       const toolName = role === 'tool' && typeof raw.tool_name === 'string' ? raw.tool_name : undefined
       const toolCallId = role === 'tool' && typeof raw.tool_call_id === 'string' ? raw.tool_call_id : undefined
+      const inlineDiff = role === 'tool' && typeof raw.inline_diff === 'string' ? raw.inline_diff.trim() : ''
 
       if (!content && !reasoning && !toolCalls?.length && role !== 'tool') return []
 
@@ -194,7 +202,7 @@ export function normalizeSessionMessages(rawMessages: unknown[]): SessionMessage
         ...(toolCallId ? { toolCallId } : {}),
         ...(toolCalls ? { toolCalls } : {}),
         ...(role === 'tool' ? {
-          toolResults: [{ id, name: toolName || 'Tool', content, timestamp }],
+          toolResults: [{ id, name: toolName || 'Tool', content, timestamp, ...(inlineDiff ? { diff: inlineDiff } : {}) }],
         } : {}),
       }
       return [message]

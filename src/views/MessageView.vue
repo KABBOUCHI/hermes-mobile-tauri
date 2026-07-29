@@ -616,7 +616,7 @@ function messageKey(message: { id?: string; role: string; timestamp: number }, i
 }
 
 function toolResults(message: {
-  toolResults?: { id: string; name: string; content: string; timestamp: number }[]
+  toolResults?: { id: string; name: string; content: string; timestamp: number; diff?: string }[]
   id?: string
   toolName?: string
   content: string
@@ -648,8 +648,8 @@ function activityThoughtLabel(seconds: number): string {
   return thoughtActivityLabel(seconds)
 }
 
-function toolDiff(content: string): string | null {
-  return extractUnifiedDiff(content)
+function toolDiff(content: string, diff?: string): string | null {
+  return diff || extractUnifiedDiff(content)
 }
 
 const hasMessages = computed(() => gw.messages.value.length > 0)
@@ -1002,18 +1002,18 @@ function formatTime(ts: number): string {
                 </details>
               </div>
               <template v-if="toolResults(msg).length === 1">
-                <div v-if="toolDiff(toolResults(msg)[0].content)" class="activity-diff" aria-label="Diff view">
+                <div v-if="toolDiff(toolResults(msg)[0].content, toolResults(msg)[0].diff)" class="activity-diff" aria-label="Diff view">
                   <div class="activity-diff-label">Diff</div>
-                  <PatchDiff :patch="toolDiff(toolResults(msg)[0].content)!" />
+                  <PatchDiff :patch="toolDiff(toolResults(msg)[0].content, toolResults(msg)[0].diff)!" />
                 </div>
                 <pre v-else-if="toolResults(msg)[0].content" class="tool-output">{{ toolResults(msg)[0].content }}</pre>
               </template>
               <div v-else class="tool-result-list">
                 <details v-for="tool in toolResults(msg)" :key="tool.id" class="tool-result">
                   <summary>{{ tool.name }}</summary>
-                  <div v-if="toolDiff(tool.content)" class="activity-diff" aria-label="Diff view">
+                  <div v-if="toolDiff(tool.content, tool.diff)" class="activity-diff" aria-label="Diff view">
                     <div class="activity-diff-label">Diff</div>
-                    <PatchDiff :patch="toolDiff(tool.content)!" />
+                    <PatchDiff :patch="toolDiff(tool.content, tool.diff)!" />
                   </div>
                   <pre v-else-if="tool.content" class="tool-output">{{ tool.content }}</pre>
                 </details>

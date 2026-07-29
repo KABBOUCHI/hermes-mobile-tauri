@@ -106,6 +106,24 @@ describe('normalizeSessionMessages', () => {
     expect(messages[1]).toMatchObject({ role: 'assistant', content: 'Done.' })
   })
 
+  it('keeps a persisted inline tool diff for the diff viewer', () => {
+    const diff = '--- a/src/App.ts\n+++ b/src/App.ts\n@@ -1 +1 @@\n-old\n+new'
+    const messages = normalizeSessionMessages([
+      { id: 't1', role: 'tool', tool_name: 'patch', content: 'completed', inline_diff: diff, timestamp: 1 },
+    ])
+
+    expect(messages[0]?.toolResults?.[0]).toMatchObject({ name: 'patch', diff })
+  })
+
+  it('hides transport-only context compaction records', () => {
+    const messages = normalizeSessionMessages([
+      { id: 'c1', role: 'user', content: '[CONTEXT COMPACTION — REFERENCE ONLY]\nHistorical summary', timestamp: 1 },
+      { id: 'u1', role: 'user', content: 'Actual user prompt', timestamp: 2 },
+    ])
+
+    expect(messages).toEqual([expect.objectContaining({ id: 'u1', content: 'Actual user prompt' })])
+  })
+
   it('hides expanded attached context from user messages while preserving missing references', () => {
     const messages = normalizeSessionMessages([
       {

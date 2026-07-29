@@ -67,6 +67,9 @@ let messageFetchGeneration = 0
 // selection revalidates, so another Hermes surface cannot leave us stale.
 const messageCache = new Map<string, Message[]>()
 const MESSAGE_CACHE_LIMIT = 12
+// The history endpoint does not always persist a tool's unified diff. Keep the
+// live `tool.complete` payload long enough to merge it into rehydrated history.
+const liveToolDiffs = new Map<string, Map<string, string>>()
 
 function rememberMessages(sessionId: string, incoming: Message[]) {
   messageCache.delete(sessionId)
@@ -75,6 +78,26 @@ function rememberMessages(sessionId: string, incoming: Message[]) {
     const oldest = messageCache.keys().next().value
     if (oldest) messageCache.delete(oldest)
   }
+}
+
+function recordLiveToolDiff(sessionId: string, toolId: string, diff: string) {
+  if (!sessionId || !toolId || !diff) return
+  const sessionDiffs = liveToolDiffs.get(sessionId) || new Map<string, string>()
+  sessionDiffs.set(toolId, diff)
+  liveToolDiffs.set(sessionId, sessionDiffs)
+}
+
+function attachLiveToolDiffs(sessionId: string, rawMessages: unknown[]): unknown[] {
+  const sessionDiffs = liveToolDiffs.get(sessionId)
+  if (!sessionDiffs?.size) return rawMessages
+
+  return rawMessages.map(raw => {
+    if (!raw || typeof raw !== 'object') return raw
+    const record = raw as Record<string, unknown>
+    const toolId = typeof record.tool_call_id === 'string' ? record.tool_call_id : typeof record.id === 'string' ? record.id : ''
+    const diff = toolId ? sessionDiffs.get(toolId) : undefined
+    return diff && typeof record.inline_diff !== 'string' ? { ...record, inline_diff: diff } : raw
+  })
 }
 
 const loading = computed(() => loadingSessions.value || loadingMessages.value)
@@ -292,7 +315,7 @@ async function fetchMessages(url: string, sessionId: string): Promise<Message[]>
     )
     if (!resp.ok) throw new Error('HTTP ' + resp.status)
     const data = await resp.json()
-    const raw = data.messages || []
+    const raw = attachLiveToolDiffs(sessionId, data.messages || [])
     const incoming = normalizeSessionMessages(raw)
 
     // Navigation may have started a newer fetch while this request was in
@@ -385,6 +408,14 @@ async function openWs() {
 function handleGatewayEvent(event: any) {
   const type = event.type as string
   const sessionId = event.session_id
+
+  if (type === 'tool.complete' && sessionId) {
+    const diff = event.payload?.inline_diff
+    const toolId = event.payload?.tool_id || event.payload?.tool_call_id || event.payload?.id
+    if (typeof diff === 'string' && diff.trim() && typeof toolId === 'string') {
+      recordLiveToolDiff(sessionId, toolId, diff)
+    }
+  }
 
   if (type === 'message.delta' && activeTurn && sessionId === activeTurn.sessionId) {
     const delta = event.payload?.text || event.payload?.content || ''

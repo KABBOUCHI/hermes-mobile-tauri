@@ -2,6 +2,7 @@ import { ref, computed } from 'vue'
 import { fetch } from '@tauri-apps/plugin-http'
 import WebSocket from '@tauri-apps/plugin-websocket'
 import { normalizeSessionMessages, completionFailure, truncateBeforeUserParams, userOrdinalAtMessageIndex, type SessionMessage } from '../utils/sessionMessages'
+import { mergeSessionsById } from '../utils/sessionList'
 
 const FETCH_TIMEOUT = 12000
 const RECONNECT_BASE_MS = 1000
@@ -215,7 +216,9 @@ async function fetchSessions(url: string, append = false, archived: 'exclude' | 
       sessionsOffset += incoming.length
     }
     if (append) {
-      sessions.value = [...sessions.value, ...incoming]
+      // A session can move between pages while the gateway is updating its
+      // recent-activity index. Reconcile overlap rather than rendering it twice.
+      sessions.value = mergeSessionsById(sessions.value, incoming)
     } else {
       sessions.value = incoming
     }

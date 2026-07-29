@@ -54,6 +54,28 @@ function stripTransportMarkup(text: string): string {
     .trim()
 }
 
+// The gateway persists expanded @file/@folder context after the user's prose.
+// Mirror desktop's compact transcript: retain refs not already visible, but do
+// not render the full attached payload as if it were a user message.
+const ATTACHED_CONTEXT_MARKER_RE = /(?:^|\n)--- Attached Context ---\s*\n/
+const CONTEXT_WARNINGS_MARKER_RE = /(?:^|\n)--- Context Warnings ---[\s\S]*$/
+const CONTEXT_REF_RE = /@(file|folder|url|image|tool|terminal):(?:"[^"\n]+"|'[^'\n]+'|`[^`\n]+`|\S+)/g
+
+function displayContentForRole(role: MessageRole, text: string): string {
+  if (role !== 'user') return text
+
+  const withoutWarnings = text.replace(CONTEXT_WARNINGS_MARKER_RE, '').trim()
+  const marker = withoutWarnings.match(ATTACHED_CONTEXT_MARKER_RE)
+  if (!marker || marker.index === undefined) return withoutWarnings
+
+  const visibleText = withoutWarnings.slice(0, marker.index).trim()
+  const attachedContext = withoutWarnings.slice(marker.index + marker[0].length)
+  const refs = [...new Set(Array.from(attachedContext.matchAll(CONTEXT_REF_RE)).map(match => match[0]))]
+  const missingRefs = refs.filter(ref => !visibleText.includes(ref))
+
+  return [missingRefs.join('\n'), visibleText].filter(Boolean).join('\n\n') || visibleText
+}
+
 function reasoningFromRaw(message: Record<string, unknown>): string {
   return textFromUnknown(message.reasoning_content ?? message.reasoning ?? message.reasoning_details).trim()
 }
@@ -86,7 +108,7 @@ export function normalizeSessionMessages(rawMessages: unknown[]): SessionMessage
       const role = raw.role === 'tool' ? 'tool' : raw.role === 'user' ? 'user' : raw.role === 'assistant' ? 'assistant' : null
       if (!role) return []
 
-      const content = stripTransportMarkup(textFromUnknown(raw.content))
+      const content = displayContentForRole(role, stripTransportMarkup(textFromUnknown(raw.content)))
       const reasoning = role === 'assistant' ? reasoningFromRaw(raw) : ''
       const toolCalls = role === 'assistant' ? toolCallsFromRaw(raw.tool_calls) : undefined
       const toolName = role === 'tool' && typeof raw.tool_name === 'string' ? raw.tool_name : undefined

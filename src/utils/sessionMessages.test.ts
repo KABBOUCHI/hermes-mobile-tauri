@@ -62,4 +62,20 @@ describe('normalizeSessionMessages', () => {
       }),
     ])
   })
+
+  it('hides expanded attached context from user messages while preserving missing references', () => {
+    const messages = normalizeSessionMessages([
+      {
+        id: 'u1',
+        role: 'user',
+        content: 'Please review @file:src/App.vue.\n--- Attached Context ---\n@file:src/App.vue\n@folder:src/components\nThe full file contents are attached here.',
+        timestamp: 1,
+      },
+    ])
+
+    expect(messages[0]).toMatchObject({
+      role: 'user',
+      content: '@folder:src/components\n\nPlease review @file:src/App.vue.',
+    })
+  })
 })

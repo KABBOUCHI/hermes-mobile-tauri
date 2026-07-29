@@ -418,7 +418,29 @@ function render(content: string): string {
   return renderMarkdown(content)
 }
 
+// Desktop opens rendered images in a dedicated zoomable viewer. Keep the mobile
+// equivalent local to the message surface so the markdown renderer stays pure.
+const imagePreview = ref<{ src: string; alt: string } | null>(null)
+
+function openImagePreview(image: HTMLImageElement) {
+  const src = image.currentSrc || image.src
+  if (!src) return
+  imagePreview.value = { src, alt: image.alt || 'Image preview' }
+}
+
+function closeImagePreview() {
+  imagePreview.value = null
+}
+
 function handleMessagesClick(e: Event) {
+  const clickedImage = (e.target as HTMLElement).closest('img.md-img') as HTMLImageElement | null
+  if (clickedImage) {
+    e.preventDefault()
+    e.stopPropagation()
+    openImagePreview(clickedImage)
+    return
+  }
+
   const clickedLink = (e.target as HTMLElement).closest('a.md-link') as HTMLAnchorElement | null
   if (clickedLink) {
     e.preventDefault()
@@ -1049,6 +1071,21 @@ function formatTime(ts: number): string {
       </div>
     </Teleport>
 
+    <!-- Image preview -->
+    <Teleport to="body">
+      <Transition name="image-preview-fade">
+        <div v-if="imagePreview" class="ImagePreviewOverlay" @click="closeImagePreview">
+          <button class="ImagePreviewClose" aria-label="Close image preview" @click="closeImagePreview">✕</button>
+          <img
+            class="ImagePreviewImage"
+            :src="imagePreview.src"
+            :alt="imagePreview.alt"
+            @click.stop
+          />
+        </div>
+      </Transition>
+    </Teleport>
+
     <!-- Message Action Sheet -->
     <Teleport to="body">
       <Transition name="sheet-fade">
@@ -1496,6 +1533,9 @@ function formatTime(ts: number): string {
 }
 .message-bubble.user :deep(.md-content) {
   color: #fff;
+}
+.message-bubble :deep(.md-img) {
+  cursor: zoom-in;
 }
 
 /* Search highlight */
@@ -2013,6 +2053,45 @@ function formatTime(ts: number): string {
   .menu-btn { opacity: 0.6; }
   .menu-btn:active { opacity: 1; }
 }
+
+/* ── Image preview ── */
+.ImagePreviewOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2100;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  padding-top: max(24px, env(safe-area-inset-top, 0px));
+  padding-bottom: max(24px, env(safe-area-inset-bottom, 0px));
+  background: rgba(0, 0, 0, 0.82);
+}
+.ImagePreviewImage {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 8px;
+  cursor: zoom-out;
+}
+.ImagePreviewClose {
+  position: absolute;
+  top: max(12px, env(safe-area-inset-top, 0px));
+  right: 12px;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+.image-preview-fade-enter-active,
+.image-preview-fade-leave-active { transition: opacity 0.16s ease; }
+.image-preview-fade-enter-from,
+.image-preview-fade-leave-to { opacity: 0; }
 
 /* ── Action Sheet ── */
 .ActionSheetOverlay {

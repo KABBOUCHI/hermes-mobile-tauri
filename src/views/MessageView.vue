@@ -935,27 +935,27 @@ function formatTime(ts: number): string {
 </script>
 
 <template>
-  <div class="chat-view flex min-h-0 flex-col bg-app-bg text-app-text font-sans">
+  <div class="relative flex h-full min-h-0 flex-col bg-app-bg font-sans text-app-text flex min-h-0 flex-col bg-app-bg text-app-text font-sans">
     <!-- Header -->
-    <div class="chat-header">
-      <button class="back-btn" @click="goBack">‹</button>
-      <div class="chat-title">{{ selectedSessionTitle }}</div>
-      <button class="model-pill" @click="toggleModelPicker" :class="{ active: modelPickerOpen }">
-        <span class="model-pill-text">{{ currentModelShort }}</span>
+    <div class="flex min-h-12 shrink-0 items-center gap-2 border-b border-app-border bg-app-surface px-3 py-2">
+      <button class="cursor-pointer border-0 bg-transparent px-1 text-[22px] leading-none text-app-accent" @click="goBack">‹</button>
+      <div class="flex-1 truncate text-[15px] font-semibold tracking-[-0.02em]">{{ selectedSessionTitle }}</div>
+      <button class="flex max-w-[120px] shrink-0 cursor-pointer items-center gap-1 rounded-md border border-app-border bg-app-surface-2 px-2 py-1 text-xs font-medium text-app-muted transition-all hover:border-app-accent hover:bg-app-accent/10 hover:text-app-accent" @click="toggleModelPicker" :class="{ active: modelPickerOpen }">
+        <span class="truncate">{{ currentModelShort }}</span>
         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
           <polyline points="6 9 12 15 18 9" />
         </svg>
       </button>
-      <div class="header-menu-wrap">
+      <div class="relative shrink-0">
         <button
-          class="icon-btn"
+          class="flex cursor-pointer items-center justify-center rounded-md border-0 bg-transparent p-1.5 text-app-muted transition-colors hover:bg-app-surface-2 hover:text-app-text"
           :class="{ active: headerMenuOpen }"
           aria-label="Chat actions"
           @click="headerMenuOpen = !headerMenuOpen"
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
         </button>
-        <div v-if="headerMenuOpen" class="header-menu">
+        <div v-if="headerMenuOpen" class="absolute top-[calc(100%+6px)] right-0 z-30 min-w-[148px] rounded-lg border border-app-border bg-app-surface-2 p-1 shadow-[0_10px_24px_rgba(0,0,0,0.32)]">
           <button @click="openSearchFromMenu">Search messages</button>
           <button :disabled="!selectedSessionId || gw.loadingMessages.value" @click="refreshMessages">Refresh</button>
           <button :disabled="!hasMessages" @click="exportChatFromMenu">Export chat</button>
@@ -964,8 +964,8 @@ function formatTime(ts: number): string {
     </div>
 
     <!-- Search bar -->
-    <div v-if="searchOpen" class="search-bar">
-      <svg class="search-bar-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <div v-if="searchOpen" class="flex shrink-0 items-center gap-1.5 border-b border-app-border bg-app-surface px-3 py-2">
+      <svg class="shrink-0 text-app-muted" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="11" cy="11" r="8" />
         <line x1="21" y1="21" x2="16.65" y2="16.65" />
       </svg>
@@ -973,87 +973,87 @@ function formatTime(ts: number): string {
         ref="searchInputEl"
         v-model="searchQuery"
         type="text"
-        class="search-bar-input"
+        class="h-8 flex-1 rounded-md border border-app-border bg-app-surface-2 px-2.5 text-[13px] outline-none transition-colors placeholder:text-app-muted focus:border-app-accent"
         placeholder="Search in messages…"
         @input="computeMatches"
         @keydown="handleSearchKeydown"
       />
-      <span v-if="matchIndices.length > 0" class="search-count">{{ currentMatchCount() }}</span>
-      <span v-else-if="searchQuery && matchIndices.length === 0" class="search-count none">0</span>
-      <button class="search-nav-btn" @click="prevMatch" :disabled="matchIndices.length === 0">‹</button>
-      <button class="search-nav-btn" @click="nextMatch" :disabled="matchIndices.length === 0">›</button>
-      <button class="search-close-btn" @click="toggleSearch">✕</button>
+      <span v-if="matchIndices.length > 0" class="min-w-8 shrink-0 text-center text-xs text-app-muted">{{ currentMatchCount() }}</span>
+      <span v-else-if="searchQuery && matchIndices.length === 0" class="min-w-8 shrink-0 text-center text-xs text-app-muted text-app-error">0</span>
+      <button class="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md border border-app-border bg-transparent text-base text-app-muted transition-all hover:border-app-muted hover:text-app-text disabled:cursor-default disabled:opacity-30" @click="prevMatch" :disabled="matchIndices.length === 0">‹</button>
+      <button class="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md border border-app-border bg-transparent text-base text-app-muted transition-all hover:border-app-muted hover:text-app-text disabled:cursor-default disabled:opacity-30" @click="nextMatch" :disabled="matchIndices.length === 0">›</button>
+      <button class="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-xs text-app-muted transition-colors hover:text-app-error" @click="toggleSearch">✕</button>
     </div>
 
     <!-- Messages -->
-    <div class="chat-messages" ref="scrollEl" @scroll="onScroll" @click="handleMessagesClick" @touchstart="onChatTouchStart" @touchmove="onChatTouchMove" @touchend="onChatTouchEnd">
+    <div class="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto overscroll-contain px-3 py-2.5" ref="scrollEl" @scroll="onScroll" @click="handleMessagesClick" @touchstart="onChatTouchStart" @touchmove="onChatTouchMove" @touchend="onChatTouchEnd">
       <!-- Pull-to-refresh indicator -->
       <div
         v-if="pullDelta > 0"
-        class="pull-refresh-indicator"
+        class="flex items-center justify-center overflow-hidden transition-[height] duration-100"
         :style="{ height: pullDelta + 'px', opacity: pullDelta / 80 }"
       >
-        <div class="pull-spinner" :class="{ active: gw.loadingMessages.value }" />
+        <div class="size-5 rounded-full border-2 border-app-border border-t-app-accent" :class="{ active: gw.loadingMessages.value }" />
       </div>
 
       <!-- Loading state (messages fetch in progress) -->
-      <div v-if="!hasMessages && gw.loadingMessages.value && !gw.error.value" class="loading-state">
-        <div class="Loader" />
-        <span class="loading-label">Loading messages…</span>
+      <div v-if="!hasMessages && gw.loadingMessages.value && !gw.error.value" class="flex flex-1 flex-col items-center justify-center gap-3">
+        <div class="size-6 animate-spin rounded-full border-2 border-app-border border-t-app-accent" />
+        <span class="text-[13px] text-app-muted">Loading messages…</span>
       </div>
 
-      <div v-else-if="!hasMessages && !gw.error.value" class="empty-state">
-        <div class="empty-icon">💬</div>
-        <div class="empty-text">Start a conversation</div>
+      <div v-else-if="!hasMessages && !gw.error.value" class="flex flex-1 flex-col items-center justify-center gap-2 opacity-40">
+        <div class="text-[32px]">💬</div>
+        <div class="text-sm">Start a conversation</div>
       </div>
 
-      <div v-if="gw.error.value && !hasMessages" class="error-banner">{{ gw.error.value }}</div>
+      <div v-if="gw.error.value && !hasMessages" class="rounded-lg border border-app-error/30 bg-app-error/10 px-3.5 py-2.5 text-center text-[13px] text-app-error">{{ gw.error.value }}</div>
 
       <template
         v-for="(msg, idx) in gw.messages.value"
         :key="messageKey(msg, idx)"
       >
       <!-- Date separator -->
-      <div v-if="showDateSeparator(idx)" class="date-separator">
-        <span class="date-separator-line" />
-        <span class="date-separator-label">{{ getDateLabel(msg.timestamp) }}</span>
-        <span class="date-separator-line" />
+      <div v-if="showDateSeparator(idx)" class="flex items-center gap-2.5 pt-3 pb-1">
+        <span class="h-px flex-1 bg-app-border" />
+        <span class="shrink-0 whitespace-nowrap text-[11px] font-medium tracking-[0.02em] text-app-muted">{{ getDateLabel(msg.timestamp) }}</span>
+        <span class="h-px flex-1 bg-app-border" />
       </div>
 
       <div
         :data-msg-idx="idx"
-        class="message"
+        class="flex flex-col gap-1"
         :class="[
           msg.role,
           {
             'search-match': isMatch(idx),
             'search-current': matchIndices[currentMatchIdx] === idx,
-            'message-virtualized': shouldVirtualizeMessage(idx),
-            'message-activity': isActivityMessage(msg),
+            '[content-visibility:auto] [contain-intrinsic-size:auto_260px]': shouldVirtualizeMessage(idx),
+            'gap-0 px-0.5': isActivityMessage(msg),
           },
         ]"
       >
         <div
-          class="message-bubble"
+          class="max-w-[88%] break-words rounded-[14px] px-3.5 py-2.5 text-sm leading-[1.55]"
           :class="[msg.role, { error: msg.error, editing: editingIdx === idx }]"
           @touchstart="handleMessageLongPress($event, idx)"
           @touchend="handleMessageTouchEnd"
           @touchmove="handleMessageTouchEnd"
         >
           <!-- Edit mode for user messages -->
-          <div v-if="editingIdx === idx" class="edit-mode">
+          <div v-if="editingIdx === idx" class="flex flex-col gap-2">
             <textarea
               ref="editEl"
               v-model="editText"
-              class="edit-textarea"
+              class="min-h-9 max-h-[120px] w-full resize-none rounded-lg border border-app-border bg-app-bg px-2.5 py-2 text-sm leading-[1.4] outline-none transition-colors placeholder:text-app-muted focus:border-app-accent"
               rows="1"
               @keydown="handleEditKeydown"
               @input="autoResizeEdit"
             ></textarea>
-            <div class="edit-actions">
-              <button class="edit-action-btn cancel" @click="cancelEdit" :disabled="editing">Cancel</button>
-              <button class="edit-action-btn save" @click="saveEdit" :disabled="editing || !editText.trim()">
-                <span v-if="editing" class="spinner-sm"></span>
+            <div class="flex justify-end gap-2">
+              <button class="flex cursor-pointer items-center gap-1 rounded-md border border-app-border bg-transparent px-3 py-1 text-xs font-medium transition-all disabled:cursor-default disabled:opacity-50 text-app-muted hover:border-app-muted hover:text-app-text" @click="cancelEdit" :disabled="editing">Cancel</button>
+              <button class="flex cursor-pointer items-center gap-1 rounded-md border border-app-border bg-transparent px-3 py-1 text-xs font-medium transition-all disabled:cursor-default disabled:opacity-50 border-app-accent bg-app-accent text-white hover:not-disabled:bg-app-accent-hover" @click="saveEdit" :disabled="editing || !editText.trim()">
+                <span v-if="editing" class="inline-block size-3.5 animate-spin rounded-full border-2 border-app-border border-t-app-accent"></span>
                 <span v-else>Send</span>
               </button>
             </div>
@@ -1063,83 +1063,83 @@ function formatTime(ts: number): string {
           <template v-else>
             <!-- Consecutive tool results are grouped by the normaliser so one
                  tool-heavy agent turn occupies one compact timeline row. -->
-            <details v-if="msg.role === 'tool'" class="tool-message">
+            <details v-if="msg.role === 'tool'" class="w-full overflow-hidden rounded-lg border border-app-border bg-[color-mix(in_srgb,var(--surface)_88%,var(--accent))]">
               <summary>
-                <span class="tool-status-dot">✓</span>
+                <span class="text-[11px] text-app-success">✓</span>
                 <span>{{ toolSummaryLabel(msg) }}</span>
-                <span class="tool-result-label">completed</span>
+                <span class="ml-auto text-[11px] text-app-muted opacity-70">completed</span>
               </summary>
-              <div v-if="msg.activityThoughts?.length" class="activity-thought-list">
-                <details v-for="thought in msg.activityThoughts" :key="thought.id" class="tool-result activity-thought">
+              <div v-if="msg.activityThoughts?.length" class="">
+                <details v-for="thought in msg.activityThoughts" :key="thought.id" class=" activity-thought">
                   <summary>{{ activityThoughtLabel(thought.durationSeconds) }}</summary>
-                  <div class="reasoning-content">{{ thought.content }}</div>
+                  <div class="px-2.5 pb-2.5 text-xs leading-[1.5] whitespace-pre-wrap text-app-muted">{{ thought.content }}</div>
                 </details>
               </div>
               <template v-if="toolResults(msg).length === 1">
-                <div v-if="toolDiff(toolResults(msg)[0].content, toolResults(msg)[0].diff)" class="activity-diff" aria-label="Diff view">
-                  <div class="activity-diff-label">Diff</div>
+                <div v-if="toolDiff(toolResults(msg)[0].content, toolResults(msg)[0].diff)" class="" aria-label="Diff view">
+                  <div class="px-2.5 pt-1.5 pb-[3px] text-[11px] font-semibold uppercase tracking-[.04em] text-app-muted">Diff</div>
                   <PatchDiff :patch="toolDiff(toolResults(msg)[0].content, toolResults(msg)[0].diff)!" />
                 </div>
-                <pre v-else-if="toolResults(msg)[0].content" class="tool-output">{{ toolResults(msg)[0].content }}</pre>
+                <pre v-else-if="toolResults(msg)[0].content" class="m-0 max-h-40 overflow-auto border-t border-app-border bg-app-bg p-2.5 font-mono text-[11px] leading-[1.5] whitespace-pre-wrap break-words text-[#b9bbc8]">{{ toolResults(msg)[0].content }}</pre>
               </template>
-              <div v-else class="tool-result-list">
-                <details v-for="tool in toolResults(msg)" :key="tool.id" class="tool-result">
+              <div v-else class="border-t border-app-border">
+                <details v-for="tool in toolResults(msg)" :key="tool.id" class="">
                   <summary>{{ tool.name }}</summary>
-                  <div v-if="toolDiff(tool.content, tool.diff)" class="activity-diff" aria-label="Diff view">
-                    <div class="activity-diff-label">Diff</div>
+                  <div v-if="toolDiff(tool.content, tool.diff)" class="" aria-label="Diff view">
+                    <div class="px-2.5 pt-1.5 pb-[3px] text-[11px] font-semibold uppercase tracking-[.04em] text-app-muted">Diff</div>
                     <PatchDiff :patch="toolDiff(tool.content, tool.diff)!" />
                   </div>
-                  <pre v-else-if="tool.content" class="tool-output">{{ tool.content }}</pre>
+                  <pre v-else-if="tool.content" class="m-0 max-h-40 overflow-auto border-t border-app-border bg-app-bg p-2.5 font-mono text-[11px] leading-[1.5] whitespace-pre-wrap break-words text-[#b9bbc8]">{{ tool.content }}</pre>
                 </details>
               </div>
             </details>
 
             <template v-else>
               <!-- The gateway sends reasoning in dedicated fields, not only <think> tags. -->
-              <details v-if="msg.reasoning" class="reasoning-message">
+              <details v-if="msg.reasoning" class="mb-2 w-full overflow-hidden rounded-lg border border-app-border bg-[color-mix(in_srgb,var(--surface)_88%,var(--accent))]">
                 <summary>{{ thoughtLabel(msg, idx) }}</summary>
-                <div class="reasoning-content">{{ msg.reasoning }}</div>
+                <div class="px-2.5 pb-2.5 text-xs leading-[1.5] whitespace-pre-wrap text-app-muted">{{ msg.reasoning }}</div>
               </details>
 
-              <div v-if="msg.role === 'assistant' && msg.toolCalls?.length && !msg.content && !msg.reasoning" class="tool-call-summary">
+              <div v-if="msg.role === 'assistant' && msg.toolCalls?.length && !msg.content && !msg.reasoning" class="mb-1.5 text-xs text-app-muted">
                 {{ msg.toolCalls.length }} {{ msg.toolCalls.length === 1 ? 'tool used' : 'tools used' }}
               </div>
 
               <!-- Error state -->
-              <div v-if="msg.error" class="error-content">
+              <div v-if="msg.error" class="flex items-center gap-2 text-app-error">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <circle cx="12" cy="12" r="10"/>
                   <line x1="12" y1="8" x2="12" y2="12"/>
                   <line x1="12" y1="16" x2="12.01" y2="16"/>
                 </svg>
-                <span class="error-text">{{ msg.content || 'Failed to send' }}</span>
-                <button class="retry-btn" :disabled="sending" @click.stop="retryFailed(idx)">Retry</button>
-                <button class="dismiss-error-btn" @click.stop="dismissFailed(idx)" aria-label="Dismiss error">Dismiss</button>
+                <span class="text-[13px] leading-[1.4]">{{ msg.content || 'Failed to send' }}</span>
+                <button class="ml-auto cursor-pointer rounded-[5px] border border-app-error/25 bg-transparent px-2 py-1 text-xs font-semibold text-app-error hover:not-disabled:border-app-error/40 hover:not-disabled:bg-app-error/15 hover:not-disabled:text-white disabled:cursor-default disabled:opacity-50" :disabled="sending" @click.stop="retryFailed(idx)">Retry</button>
+                <button class="cursor-pointer border-0 bg-transparent px-0 py-1 text-xs text-app-muted hover:text-app-text" @click.stop="dismissFailed(idx)" aria-label="Dismiss error">Dismiss</button>
               </div>
 
               <!-- Streaming thinking indicator -->
-              <div v-else-if="msg.role === 'assistant' && isThinking(msg.content)" class="thinking-indicator">
-                <span class="thinking-dot"></span>
-                <span class="thinking-dot"></span>
-                <span class="thinking-dot"></span>
-                <span class="thinking-label">Thinking…</span>
+              <div v-else-if="msg.role === 'assistant' && isThinking(msg.content)" class="flex items-center gap-1 py-0.5">
+                <span class="size-[5px] rounded-full bg-app-accent"></span>
+                <span class="size-[5px] rounded-full bg-app-accent"></span>
+                <span class="size-[5px] rounded-full bg-app-accent"></span>
+                <span class="ml-1 text-xs text-app-muted">Thinking…</span>
               </div>
 
               <!-- Desktop-local image paths cannot be fetched by a phone. Show
                    portable image parts as thumbnails and local-only ones as a
                    concise attachment indicator rather than raw path text. -->
-              <div v-if="msg.role === 'user' && msg.imageAttachments?.length" class="message-image-attachments">
+              <div v-if="msg.role === 'user' && msg.imageAttachments?.length" class="mb-2 flex flex-wrap gap-1.5">
                 <template v-for="(attachment, attachmentIdx) in msg.imageAttachments" :key="`${attachment.label}-${attachmentIdx}`">
                   <button
                     v-if="imageAttachmentSrc(msg, attachment, attachmentIdx)"
                     type="button"
-                    class="message-image-thumb"
+                    class="size-[76px] cursor-zoom-in overflow-hidden rounded-lg border border-app-border bg-app-surface-2 p-0"
                     :aria-label="`Preview ${attachment.label}`"
                     @click.stop="openAttachmentPreview(imageAttachmentSrc(msg, attachment, attachmentIdx), attachment.label)"
                   >
                     <img :src="imageAttachmentSrc(msg, attachment, attachmentIdx)" :alt="attachment.label" />
                   </button>
-                  <span v-else class="message-image-unavailable">▧ {{ attachment.label }}</span>
+                  <span v-else class="inline-flex min-h-7 items-center rounded-[7px] border border-app-border px-2.5 text-xs text-app-muted">▧ {{ attachment.label }}</span>
                 </template>
               </div>
 
@@ -1151,17 +1151,17 @@ function formatTime(ts: number): string {
               ></div>
 
               <!-- Empty assistant placeholder (streaming start) -->
-              <div v-if="msg.role === 'assistant' && !msg.content && !msg.reasoning && !msg.toolCalls?.length" class="typing-dots">
+              <div v-if="msg.role === 'assistant' && !msg.content && !msg.reasoning && !msg.toolCalls?.length" class="flex items-center gap-1 py-1">
                 <span></span><span></span><span></span>
               </div>
             </template>
           </template>
         </div>
 
-        <div v-if="!isActivityMessage(msg)" class="message-footer" :class="msg.role">
-          <span v-if="msg.timestamp" class="message-time">{{ formatTime(msg.timestamp) }}</span>
+        <div v-if="!isActivityMessage(msg)" class="flex items-center gap-2 px-1" :class="msg.role">
+          <span v-if="msg.timestamp" class="text-[11px] text-app-muted">{{ formatTime(msg.timestamp) }}</span>
           <button
-            class="menu-btn"
+            class="flex cursor-pointer items-center justify-center rounded border-0 bg-transparent px-1 py-0.5 text-app-muted opacity-60 transition-opacity hover:opacity-100 focus-visible:opacity-100"
             @click.stop="openActionSheet(idx)"
             title="Actions"
           >
@@ -1172,10 +1172,9 @@ function formatTime(ts: number): string {
         </div>
       </div>
       </template>
-
       <!-- Typing indicator -->
-      <div v-if="sending && (gw.messages.value.length === 0 || gw.messages.value[gw.messages.value.length - 1].role !== 'assistant' || gw.messages.value[gw.messages.value.length - 1].content)" class="message assistant">
-        <div class="message-bubble assistant typing-dots">
+      <div v-if="sending && (gw.messages.value.length === 0 || gw.messages.value[gw.messages.value.length - 1].role !== 'assistant' || gw.messages.value[gw.messages.value.length - 1].content)" class="flex flex-col gap-1 assistant">
+        <div class="max-w-[88%] break-words rounded-[14px] px-3.5 py-2.5 text-sm leading-[1.55] assistant flex items-center gap-1 py-1">
           <span></span><span></span><span></span>
         </div>
       </div>
@@ -1183,7 +1182,7 @@ function formatTime(ts: number): string {
 
     <!-- Jump to bottom button -->
     <Transition name="jump-fade">
-      <button v-if="showJumpToBottom" class="jump-to-bottom" @click="scrollToBottom">
+      <button v-if="showJumpToBottom" class="absolute right-4 bottom-[72px] z-10 flex size-9 cursor-pointer items-center justify-center rounded-full border border-app-border bg-app-surface text-app-muted shadow-[0_2px_8px_rgba(0,0,0,0.3)] transition-all hover:border-app-accent hover:bg-app-surface-2 hover:text-app-accent active:scale-90" @click="scrollToBottom">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="6 9 12 15 18 9" />
         </svg>
@@ -1191,13 +1190,13 @@ function formatTime(ts: number): string {
     </Transition>
 
     <!-- Input -->
-    <div class="chat-input-bar">
-      <div v-if="sending && elapsedDisplay" class="elapsed-indicator">
-        <span class="elapsed-dot"></span>
-        <span class="elapsed-text">{{ elapsedDisplay }}</span>
+    <div class="relative flex shrink-0 items-end gap-2 border-t border-app-border bg-app-surface px-3 pt-2 pb-[max(8px,env(safe-area-inset-bottom))]">
+      <div v-if="sending && elapsedDisplay" class="absolute left-3.5 bottom-full mb-1.5 flex items-center gap-1.5 rounded-md border border-app-border bg-app-surface-2 px-2.5 py-1">
+        <span class="size-1.5 rounded-full bg-app-accent"></span>
+        <span class="text-xs tabular-nums text-app-muted">{{ elapsedDisplay }}</span>
       </div>
-      <div v-if="sending" class="stop-bar">
-        <button class="stop-btn" @click="handleStop">
+      <div v-if="sending" class="flex flex-1 items-center justify-center">
+        <button class="flex w-full cursor-pointer items-center justify-center gap-2 rounded-[10px] border border-app-error/30 bg-app-error/[.08] px-5 py-2.5 text-[13px] font-medium text-app-error transition-all hover:border-app-error/50 hover:bg-app-error/15 active:scale-[.98]" @click="handleStop">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
             <rect x="6" y="6" width="12" height="12" rx="2" />
           </svg>
@@ -1214,7 +1213,7 @@ function formatTime(ts: number): string {
           @input="autoResize"
         ></textarea>
         <button
-          class="send-btn"
+          class="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-[10px] border-0 bg-app-accent text-white transition-colors hover:not-disabled:bg-app-accent-hover disabled:cursor-default disabled:opacity-40"
           :disabled="!input.trim()"
           @click="handleSend"
         >
@@ -1227,27 +1226,27 @@ function formatTime(ts: number): string {
 
     <!-- Model Picker Dropdown -->
     <Teleport to="body">
-      <div v-if="modelPickerOpen" class="ModelPickerOverlay" @click="closeModelPicker">
-        <div class="ModelPicker" @click.stop>
-          <div class="ModelPickerHeader">
-            <span class="ModelPickerTitle">Switch model</span>
-            <button class="ModelPickerClose" @click="closeModelPicker">✕</button>
+      <div v-if="modelPickerOpen" class="fixed inset-0 z-[1000] flex items-end justify-center bg-black/50" @click="closeModelPicker">
+        <div class="flex max-h-[70vh] w-full max-w-[400px] flex-col overflow-hidden rounded-t-2xl border border-b-0 border-app-border bg-app-surface animate-[slideUp_.2s_ease]" @click.stop>
+          <div class="flex items-center justify-between border-b border-app-border px-4 py-3.5">
+            <span class="text-[15px] font-semibold tracking-[-0.02em]">Switch model</span>
+            <button class="cursor-pointer rounded-md border-0 bg-transparent px-2 py-1 text-sm text-app-muted transition-colors hover:text-app-error" @click="closeModelPicker">✕</button>
           </div>
-          <div v-if="modelLoading" class="ModelPickerLoading">
-            <span class="spinner-sm" />
+          <div v-if="modelLoading" class="flex items-center justify-center gap-2 px-4 py-8 text-[13px] text-app-muted">
+            <span class="inline-block size-3.5 animate-spin rounded-full border-2 border-app-border border-t-app-accent" />
             <span>Loading models…</span>
           </div>
-          <div v-else-if="modelProviders.length === 0" class="ModelPickerEmpty">
+          <div v-else-if="modelProviders.length === 0" class="flex items-center justify-center gap-2 px-4 py-8 text-[13px] text-app-muted">
             No models available
           </div>
-          <div v-else class="ModelPickerList">
+          <div v-else class="overflow-y-auto overscroll-contain py-2">
             <template v-for="provider in modelProviders" :key="provider.slug">
-              <div class="ModelProviderGroup">
-                <div class="ModelProviderName">{{ provider.name }}</div>
+              <div class="px-2">
+                <div class="px-2 py-1.5 pb-1 text-[11px] font-semibold uppercase tracking-[.05em] text-app-muted">{{ provider.name }}</div>
                 <button
                   v-for="model in provider.models"
                   :key="model"
-                  class="ModelOption"
+                  class="flex w-full cursor-pointer items-center justify-between rounded-lg border-0 bg-transparent px-3 py-2.5 text-left text-[13px] text-app-text transition-colors hover:not-[.disabled]:bg-app-surface-2"
                   :class="{
                     active: model === currentModel && provider.slug === currentProvider,
                     disabled: switchingModel,
@@ -1255,8 +1254,8 @@ function formatTime(ts: number): string {
                   :disabled="switchingModel"
                   @click="selectModel(provider.slug, model)"
                 >
-                  <span class="ModelOptionName">{{ gw.modelShort(model) }}</span>
-                  <span v-if="model === currentModel && provider.slug === currentProvider" class="ModelOptionCheck">✓</span>
+                  <span class="flex-1 truncate">{{ gw.modelShort(model) }}</span>
+                  <span v-if="model === currentModel && provider.slug === currentProvider" class="ml-2 font-semibold text-app-accent">✓</span>
                 </button>
               </div>
             </template>
@@ -1268,10 +1267,10 @@ function formatTime(ts: number): string {
     <!-- Image preview -->
     <Teleport to="body">
       <Transition name="image-preview-fade">
-        <div v-if="imagePreview" class="ImagePreviewOverlay" @click="closeImagePreview">
-          <button class="ImagePreviewClose" aria-label="Close image preview" @click="closeImagePreview">✕</button>
+        <div v-if="imagePreview" class="fixed inset-0 z-[2100] grid place-items-center bg-black/[.82] p-6 pt-[max(24px,env(safe-area-inset-top,0px))] pb-[max(24px,env(safe-area-inset-bottom,0px))]" @click="closeImagePreview">
+          <button class="absolute top-[max(12px,env(safe-area-inset-top,0px))] right-3 flex size-9 cursor-pointer items-center justify-center rounded-full border border-app-border bg-app-surface text-lg leading-none text-app-text" aria-label="Close image preview" @click="closeImagePreview">✕</button>
           <img
-            class="ImagePreviewImage"
+            class="block max-h-full max-w-full cursor-zoom-out rounded-lg object-contain"
             :src="imagePreview.src"
             :alt="imagePreview.alt"
             @click.stop
@@ -1283,21 +1282,21 @@ function formatTime(ts: number): string {
     <!-- Message Action Sheet -->
     <Teleport to="body">
       <Transition name="sheet-fade">
-        <div v-if="actionSheetOpen" class="ActionSheetOverlay" @click="closeActionSheet">
-          <div class="ActionSheet" @click.stop>
-            <div class="ActionSheetHandle" />
-            <div class="ActionSheetPreview" v-if="actionSheetMsg">
-              <span class="ActionSheetRole">{{ actionSheetMsg.role === 'user' ? 'You' : 'Assistant' }}</span>
-              <span class="ActionSheetSnippet">{{ (actionSheetMsg.content || '').slice(0, 120) }}{{ (actionSheetMsg.content || '').length > 120 ? '…' : '' }}</span>
+        <div v-if="actionSheetOpen" class="fixed inset-0 z-[2000] flex items-end justify-center bg-black/55" @click="closeActionSheet">
+          <div class="flex w-full max-w-[400px] flex-col rounded-t-2xl bg-app-surface px-3 pt-2 pb-[calc(env(safe-area-inset-bottom,0px)+12px)] animate-[sheetSlideUp_.22s_ease]" @click.stop>
+            <div class="mx-auto mt-1 mb-2.5 h-1 w-9 shrink-0 rounded-sm bg-app-border" />
+            <div class="mb-1 flex min-w-0 flex-col gap-1 border-b border-app-border px-3 py-2 pb-3" v-if="actionSheetMsg">
+              <span class="text-[11px] font-semibold uppercase tracking-[.04em] text-app-muted">{{ actionSheetMsg.role === 'user' ? 'You' : 'Assistant' }}</span>
+              <span class="line-clamp-3 text-[13px] leading-[1.4] text-app-text">{{ (actionSheetMsg.content || '').slice(0, 120) }}{{ (actionSheetMsg.content || '').length > 120 ? '…' : '' }}</span>
             </div>
-            <div class="ActionSheetActions">
-              <button class="ActionSheetBtn" @click="actionCopyText">
+            <div class="flex flex-col gap-0.5 py-1">
+              <button class="flex w-full cursor-pointer items-center gap-3 rounded-[10px] border-0 bg-transparent px-3.5 py-3 text-left text-[15px] text-app-text transition-colors hover:bg-app-surface-2 active:bg-app-surface-3" @click="actionCopyText">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                 <span>Copy text</span>
               </button>
               <button
                 v-if="actionSheetMsg?.role === 'user' && !sending && editingIdx === null && !actionSheetMsg?.error"
-                class="ActionSheetBtn"
+                class="flex w-full cursor-pointer items-center gap-3 rounded-[10px] border-0 bg-transparent px-3.5 py-3 text-left text-[15px] text-app-text transition-colors hover:bg-app-surface-2 active:bg-app-surface-3"
                 @click="actionEdit"
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
@@ -1305,7 +1304,7 @@ function formatTime(ts: number): string {
               </button>
               <button
                 v-if="actionSheetMsg?.error && !sending"
-                class="ActionSheetBtn"
+                class="flex w-full cursor-pointer items-center gap-3 rounded-[10px] border-0 bg-transparent px-3.5 py-3 text-left text-[15px] text-app-text transition-colors hover:bg-app-surface-2 active:bg-app-surface-3"
                 @click="actionRetry"
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 4v6h6M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg>
@@ -1313,7 +1312,7 @@ function formatTime(ts: number): string {
               </button>
               <button
                 v-if="actionSheetMsg?.error"
-                class="ActionSheetBtn"
+                class="flex w-full cursor-pointer items-center gap-3 rounded-[10px] border-0 bg-transparent px-3.5 py-3 text-left text-[15px] text-app-text transition-colors hover:bg-app-surface-2 active:bg-app-surface-3"
                 @click="actionDismissError"
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
@@ -1321,7 +1320,7 @@ function formatTime(ts: number): string {
               </button>
               <button
                 v-if="actionSheetIsLastAssistant && !sending && actionSheetMsg?.content"
-                class="ActionSheetBtn"
+                class="flex w-full cursor-pointer items-center gap-3 rounded-[10px] border-0 bg-transparent px-3.5 py-3 text-left text-[15px] text-app-text transition-colors hover:bg-app-surface-2 active:bg-app-surface-3"
                 @click="actionRegenerate"
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 4v6h6M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg>
@@ -1329,7 +1328,7 @@ function formatTime(ts: number): string {
               </button>
               <button
                 v-if="actionSheetMsg?.content && hasShareApi"
-                class="ActionSheetBtn"
+                class="flex w-full cursor-pointer items-center gap-3 rounded-[10px] border-0 bg-transparent px-3.5 py-3 text-left text-[15px] text-app-text transition-colors hover:bg-app-surface-2 active:bg-app-surface-3"
                 @click="actionShare"
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
@@ -1337,1191 +1336,17 @@ function formatTime(ts: number): string {
               </button>
               <button
                 v-if="actionSheetMsg?.role === 'user' && !sending && selectedSessionId"
-                class="ActionSheetBtn danger"
+                class="flex w-full cursor-pointer items-center gap-3 rounded-[10px] border-0 bg-transparent px-3.5 py-3 text-left text-[15px] text-app-text transition-colors hover:bg-app-surface-2 active:bg-app-surface-3 danger"
                 @click="actionRestore"
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M3.5 13A9 9 0 1 0 6 6.5L3 10"/></svg>
                 <span>Restore from here</span>
               </button>
             </div>
-            <button class="ActionSheetCancel" @click="closeActionSheet">Cancel</button>
+            <button class="mt-1.5 w-full cursor-pointer rounded-[10px] border-0 bg-app-surface-2 p-3.5 text-[15px] font-semibold text-app-text transition-colors hover:bg-app-surface-3" @click="closeActionSheet">Cancel</button>
           </div>
         </div>
       </Transition>
     </Teleport>
   </div>
 </template>
-
-<style scoped>
-.chat-view {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  min-height: 0;
-  background: var(--bg);
-  position: relative;
-}
-
-/* Header */
-.chat-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
-  min-height: 48px;
-  flex-shrink: 0;
-}
-.back-btn {
-  background: none;
-  border: none;
-  color: var(--accent);
-  font-size: 22px;
-  cursor: pointer;
-  padding: 0 4px;
-  line-height: 1;
-}
-.icon-btn {
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  padding: 6px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 6px;
-  transition: color 0.15s, background 0.15s;
-}
-.icon-btn:hover {
-  color: var(--text);
-  background: var(--surface-2);
-}
-.icon-btn.active {
-  color: var(--accent);
-  background: rgba(94, 106, 210, 0.12);
-}
-.icon-btn:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-.header-menu-wrap { position: relative; flex-shrink: 0; }
-.header-menu {
-  position: absolute;
-  z-index: 30;
-  top: calc(100% + 6px);
-  right: 0;
-  min-width: 148px;
-  padding: 4px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface-2);
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.32);
-}
-.header-menu button {
-  width: 100%;
-  padding: 8px 10px;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--text);
-  font-size: 13px;
-  text-align: left;
-  cursor: pointer;
-}
-.header-menu button:hover:not(:disabled) { background: var(--surface-3); }
-.header-menu button:disabled { color: var(--text-muted); cursor: default; }
-.chat-title {
-  flex: 1;
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* Search bar */
-.search-bar {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 12px;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-}
-.search-bar-icon {
-  color: var(--text-muted);
-  flex-shrink: 0;
-}
-.search-bar-input {
-  flex: 1;
-  height: 32px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 0 10px;
-  color: var(--text);
-  font-size: 13px;
-  outline: none;
-  transition: border-color 0.15s;
-}
-.search-bar-input:focus {
-  border-color: var(--accent);
-}
-.search-bar-input::placeholder {
-  color: var(--text-muted);
-}
-.search-count {
-  font-size: 12px;
-  color: var(--text-muted);
-  min-width: 32px;
-  text-align: center;
-  flex-shrink: 0;
-}
-.search-count.none {
-  color: var(--error);
-}
-.search-nav-btn {
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
-  background: none;
-  border: 1px solid var(--border);
-  color: var(--text-muted);
-  font-size: 16px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  transition: all 0.15s;
-}
-.search-nav-btn:hover:not(:disabled) {
-  color: var(--text);
-  border-color: var(--text-muted);
-}
-.search-nav-btn:disabled {
-  opacity: 0.3;
-  cursor: default;
-}
-.search-close-btn {
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  font-size: 12px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  transition: color 0.15s;
-}
-.search-close-btn:hover {
-  color: var(--error);
-}
-
-/* Date separators */
-.date-separator {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 0 4px;
-}
-.date-separator-line {
-  flex: 1;
-  height: 1px;
-  background: var(--border);
-}
-.date-separator-label {
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--text-muted);
-  letter-spacing: 0.02em;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-/* Messages */
-.chat-messages {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-  padding: 10px 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  overscroll-behavior: contain;
-}
-
-.pull-refresh-indicator {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  transition: height 0.1s ease;
-}
-.pull-spinner {
-  width: 20px;
-  height: 20px;
-  border: 2px solid var(--border);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-}
-.pull-spinner.active {
-  animation: spin 0.8s linear infinite;
-}
-
-.empty-state {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  opacity: 0.4;
-}
-.empty-icon { font-size: 32px; }
-.empty-text { font-size: 14px; }
-
-.loading-state {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-}
-.loading-state .Loader {
-  width: 24px;
-  height: 24px;
-  border: 2px solid var(--border);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-.loading-label {
-  font-size: 13px;
-  color: var(--text-muted);
-}
-
-.error-banner {
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  border-radius: 8px;
-  padding: 10px 14px;
-  color: var(--error);
-  font-size: 13px;
-  text-align: center;
-}
-
-/* Messages */
-.message { display: flex; flex-direction: column; gap: 4px; }
-/* Chromium preserves a settled intrinsic height while skipping off-screen work. */
-.message-virtualized {
-  content-visibility: auto;
-  contain-intrinsic-size: auto 260px;
-}
-.message.user { align-items: flex-end; }
-.message.assistant { align-items: flex-start; }
-.message.tool { align-items: stretch; padding: 0 2px; }
-.message.message-activity {
-  gap: 0;
-  padding: 0 2px;
-}
-
-.message-bubble {
-  max-width: 88%;
-  padding: 10px 14px;
-  border-radius: 14px;
-  font-size: 14px;
-  line-height: 1.55;
-  word-break: break-word;
-}
-.message-bubble.user {
-  background: var(--accent);
-  color: #fff;
-  border-bottom-right-radius: 4px;
-}
-.message-bubble.assistant {
-  background: var(--surface-2);
-  color: var(--text);
-  border-bottom-left-radius: 4px;
-  border: 1px solid var(--border);
-}
-.message-bubble.tool {
-  width: 100%;
-  max-width: 100%;
-  padding: 0;
-  background: transparent;
-  border: 0;
-}
-.message-activity .message-bubble.assistant {
-  width: 100%;
-  max-width: 100%;
-  padding: 0;
-  background: transparent;
-  border: 0;
-  border-radius: 0;
-}
-
-/* Durable reasoning and tool records */
-.reasoning-message,
-.tool-message {
-  width: 100%;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--surface) 88%, var(--accent));
-  overflow: hidden;
-}
-.reasoning-message { margin: 0 0 8px; }
-.reasoning-message summary,
-.tool-message summary {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  min-height: 32px;
-  padding: 7px 10px;
-  color: var(--text-muted);
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  list-style: none;
-}
-.reasoning-message summary::before { content: '◈'; color: var(--accent); }
-.tool-message summary::-webkit-details-marker,
-.reasoning-message summary::-webkit-details-marker { display: none; }
-.reasoning-content {
-  padding: 0 10px 10px;
-  color: var(--text-muted);
-  font-size: 12px;
-  line-height: 1.5;
-  white-space: pre-wrap;
-}
-.tool-status-dot { color: var(--success); font-size: 11px; }
-.tool-result-label { margin-left: auto; color: var(--text-muted); opacity: .7; font-size: 11px; }
-.tool-output {
-  max-height: 160px;
-  overflow: auto;
-  margin: 0;
-  padding: 10px;
-  border-top: 1px solid var(--border);
-  color: #b9bbc8;
-  background: var(--bg);
-  font: 11px/1.5 'SF Mono', 'Fira Code', monospace;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-.tool-result-list { border-top: 1px solid var(--border); }
-.tool-result + .tool-result { border-top: 1px solid var(--border); }
-.tool-result summary { min-height: 28px; padding: 6px 10px; font-size: 11px; }
-.message-activity .reasoning-message,
-.message-activity .tool-message {
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-}
-.message-activity .reasoning-message { margin: 0; }
-.message-activity .reasoning-message summary,
-.message-activity .tool-message summary {
-  min-height: 27px;
-  padding: 4px 4px;
-  font-size: 12px;
-}
-.message-activity .reasoning-message[open],
-.message-activity .tool-message[open] {
-  margin: 2px 0;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  background: var(--surface);
-}
-.activity-diff-label {
-  padding: 7px 10px 3px;
-  color: var(--text-muted);
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: .04em;
-}
-.activity-diff .tool-output { max-height: 220px; }
-.activity-diff .add { display: block; background: color-mix(in srgb, var(--success) 15%, transparent); color: #8fdaa9; }
-.activity-diff .remove { display: block; background: color-mix(in srgb, var(--error) 15%, transparent); color: #f09a9a; }
-.tool-call-summary {
-  margin: 0 0 6px;
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
-/* Error message */
-.message-bubble.error {
-  background: rgba(239, 68, 68, 0.08);
-  border-color: rgba(239, 68, 68, 0.25);
-}
-.error-content {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--error);
-}
-.error-text {
-  font-size: 13px;
-  line-height: 1.4;
-}
-.retry-btn {
-  margin-left: auto;
-  padding: 4px 8px;
-  background: transparent;
-  border: 1px solid rgba(239, 68, 68, 0.25);
-  border-radius: 5px;
-  color: var(--error);
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-}
-.retry-btn:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-.retry-btn:hover:not(:disabled) {
-  color: #fff;
-  background: rgba(239, 68, 68, 0.15);
-  border-color: rgba(239, 68, 68, 0.4);
-}
-
-.dismiss-error-btn {
-  padding: 4px 0;
-  border: 0;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 12px;
-  cursor: pointer;
-}
-.dismiss-error-btn:hover { color: var(--text); }
-
-/* Search match styling */
-.message.search-match .message-bubble {
-  position: relative;
-}
-.message.search-current .message-bubble {
-  box-shadow: 0 0 0 2px var(--accent);
-}
-
-/* Markdown content inside bubbles */
-.message-bubble :deep(.md-content) {
-  font-size: 14px;
-  line-height: 1.55;
-}
-.message-bubble.user :deep(.md-content) {
-  color: #fff;
-}
-.message-bubble :deep(.md-img) {
-  cursor: zoom-in;
-}
-.message-image-attachments {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 8px;
-}
-.message-image-thumb {
-  width: 76px;
-  height: 76px;
-  padding: 0;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface-2);
-  cursor: zoom-in;
-}
-.message-image-thumb img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-.message-image-unavailable {
-  display: inline-flex;
-  align-items: center;
-  min-height: 28px;
-  padding: 0 9px;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  color: var(--text-tertiary);
-  font-size: 12px;
-}
-
-/* Search highlight */
-.message-bubble :deep(.search-highlight) {
-  background: rgba(94, 106, 210, 0.35);
-  color: inherit;
-  border-radius: 2px;
-  padding: 0 1px;
-}
-
-/* Footer */
-.message-footer {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 4px;
-}
-.message-footer.user { justify-content: flex-end; }
-.message-time {
-  font-size: 11px;
-  color: var(--text-muted);
-}
-.action-btn {
-  background: none;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text-muted);
-  font-size: 11px;
-  padding: 2px 6px;
-  cursor: pointer;
-  transition: all 0.15s;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-.action-btn:hover {
-  color: var(--text);
-  border-color: var(--text-muted);
-}
-.action-btn.regenerate-btn:hover {
-  color: var(--accent);
-  border-color: var(--accent);
-  background: rgba(94, 106, 210, 0.08);
-}
-
-/* Typing dots */
-.typing-dots {
-  display: flex;
-  gap: 4px;
-  padding: 4px 0;
-  align-items: center;
-}
-.typing-dots span {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--text-muted);
-  animation: bounce 1.2s infinite;
-}
-.typing-dots span:nth-child(2) { animation-delay: 0.2s; }
-.typing-dots span:nth-child(3) { animation-delay: 0.4s; }
-@keyframes bounce {
-  0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
-  30% { transform: translateY(-4px); opacity: 1; }
-}
-
-.spinner-sm {
-  display: inline-block;
-  width: 14px;
-  height: 14px;
-  border: 2px solid var(--border);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: spin 0.6s linear infinite;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
-
-/* Thinking indicator */
-.thinking-indicator {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 0;
-}
-.thinking-dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--accent);
-  animation: think-pulse 1.5s ease-in-out infinite;
-}
-.thinking-dot:nth-child(2) { animation-delay: 0.3s; }
-.thinking-dot:nth-child(3) { animation-delay: 0.6s; }
-.thinking-label {
-  font-size: 12px;
-  color: var(--text-muted);
-  margin-left: 4px;
-}
-@keyframes think-pulse {
-  0%, 100% { opacity: 0.3; transform: scale(0.8); }
-  50% { opacity: 1; transform: scale(1); }
-}
-
-/* Input bar */
-.chat-input-bar {
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
-  padding: 8px 12px max(8px, env(safe-area-inset-bottom));
-  background: var(--surface);
-  border-top: 1px solid var(--border);
-  flex-shrink: 0;
-  position: relative;
-}
-.chat-input-bar textarea {
-  flex: 1;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 8px 12px;
-  color: var(--text);
-  font-size: 14px;
-  line-height: 1.4;
-  resize: none;
-  outline: none;
-  max-height: 120px;
-  transition: border-color 0.15s;
-}
-.chat-input-bar textarea:focus {
-  border-color: var(--accent);
-}
-.chat-input-bar textarea::placeholder {
-  color: var(--text-muted);
-}
-.chat-input-bar textarea:disabled {
-  opacity: 0.5;
-}
-.send-btn {
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
-  border: none;
-  background: var(--accent);
-  color: #fff;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  transition: background 0.15s;
-}
-.send-btn:hover:not(:disabled) {
-  background: var(--accent-hover);
-}
-.send-btn:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
-/* Stop button */
-.stop-bar {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.stop-btn {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 20px;
-  border-radius: 10px;
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  background: rgba(239, 68, 68, 0.08);
-  color: var(--error);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.15s;
-  width: 100%;
-  justify-content: center;
-}
-
-.stop-btn:hover {
-  background: rgba(239, 68, 68, 0.15);
-  border-color: rgba(239, 68, 68, 0.5);
-}
-
-.stop-btn:active {
-  transform: scale(0.98);
-}
-
-/* Elapsed indicator */
-.elapsed-indicator {
-  position: absolute;
-  left: 14px;
-  bottom: 100%;
-  margin-bottom: 6px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  border-radius: 6px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-}
-
-.elapsed-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--accent);
-  animation: think-pulse 1.5s ease-in-out infinite;
-}
-
-.elapsed-text {
-  font-size: 12px;
-  color: var(--text-muted);
-  font-variant-numeric: tabular-nums;
-}
-
-/* Jump to bottom button */
-.jump-to-bottom {
-  position: absolute;
-  bottom: 72px;
-  right: 16px;
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  border: 1px solid var(--border);
-  background: var(--surface);
-  color: var(--text-muted);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-  z-index: 10;
-  transition: color 0.15s, background 0.15s, border-color 0.15s;
-}
-.jump-to-bottom:hover {
-  color: var(--accent);
-  border-color: var(--accent);
-  background: var(--surface-2);
-}
-.jump-to-bottom:active {
-  transform: scale(0.92);
-}
-
-/* Transition */
-.jump-fade-enter-active,
-.jump-fade-leave-active {
-  transition: opacity 0.2s ease, transform 0.2s ease;
-}
-.jump-fade-enter-from,
-.jump-fade-leave-to {
-  opacity: 0;
-  transform: translateY(8px);
-}
-
-/* Model pill in header */
-.model-pill {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 8px;
-  border-radius: 6px;
-  border: 1px solid var(--border);
-  background: var(--surface-2);
-  color: var(--text-muted);
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.15s;
-  flex-shrink: 0;
-  max-width: 120px;
-}
-.model-pill:hover,
-.model-pill.active {
-  color: var(--accent);
-  border-color: var(--accent);
-  background: rgba(94, 106, 210, 0.1);
-}
-.model-pill-text {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* Model Picker Overlay */
-.ModelPickerOverlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  z-index: 1000;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-}
-.ModelPicker {
-  width: 100%;
-  max-width: 400px;
-  max-height: 70vh;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-bottom: none;
-  border-radius: 16px 16px 0 0;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  animation: slideUp 0.2s ease;
-}
-@keyframes slideUp {
-  from { transform: translateY(20px); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
-}
-.ModelPickerHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 14px 16px;
-  border-bottom: 1px solid var(--border);
-}
-.ModelPickerTitle {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text);
-  letter-spacing: -0.02em;
-}
-.ModelPickerClose {
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  font-size: 14px;
-  cursor: pointer;
-  padding: 4px 8px;
-  border-radius: 6px;
-  transition: color 0.15s;
-}
-.ModelPickerClose:hover {
-  color: var(--error);
-}
-.ModelPickerLoading,
-.ModelPickerEmpty {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 32px 16px;
-  color: var(--text-muted);
-  font-size: 13px;
-}
-.ModelPickerList {
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-  padding: 8px 0;
-}
-.ModelProviderGroup {
-  padding: 0 8px;
-}
-.ModelProviderGroup + .ModelProviderGroup {
-  margin-top: 4px;
-  padding-top: 8px;
-  border-top: 1px solid var(--border);
-}
-.ModelProviderName {
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-muted);
-  padding: 6px 8px 4px;
-}
-.ModelOption {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  padding: 10px 12px;
-  border-radius: 8px;
-  border: none;
-  background: none;
-  color: var(--text);
-  font-size: 13px;
-  cursor: pointer;
-  transition: background 0.12s;
-  text-align: left;
-}
-.ModelOption:hover:not(.disabled) {
-  background: var(--surface-2);
-}
-.ModelOption.active {
-  color: var(--accent);
-  background: rgba(94, 106, 210, 0.1);
-}
-.ModelOption.disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-.ModelOptionName {
-  flex: 1;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.ModelOptionCheck {
-  color: var(--accent);
-  font-weight: 600;
-  margin-left: 8px;
-}
-
-/* ── User message editing ── */
-.edit-btn:hover {
-  color: var(--accent) !important;
-  border-color: var(--accent) !important;
-  background: rgba(94, 106, 210, 0.08) !important;
-}
-.message-bubble.editing {
-  background: var(--surface-2) !important;
-  border-color: var(--accent) !important;
-}
-.edit-mode {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.edit-textarea {
-  width: 100%;
-  min-height: 36px;
-  max-height: 120px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 8px 10px;
-  color: var(--text);
-  font-size: 14px;
-  line-height: 1.4;
-  resize: none;
-  outline: none;
-  font-family: inherit;
-  transition: border-color 0.15s;
-}
-.edit-textarea:focus {
-  border-color: var(--accent);
-}
-.edit-textarea::placeholder {
-  color: var(--text-muted);
-}
-.edit-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-.edit-action-btn {
-  padding: 4px 12px;
-  border-radius: 6px;
-  border: 1px solid var(--border);
-  background: none;
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.15s;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-.edit-action-btn.cancel {
-  color: var(--text-muted);
-}
-.edit-action-btn.cancel:hover {
-  color: var(--text);
-  border-color: var(--text-muted);
-}
-.edit-action-btn.save {
-  color: #fff;
-  background: var(--accent);
-  border-color: var(--accent);
-}
-.edit-action-btn.save:hover:not(:disabled) {
-  background: var(--accent-hover);
-}
-.edit-action-btn:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-/* Message bubble editing override for user messages */
-.message.user .message-bubble.editing {
-  background: var(--surface-2);
-  color: var(--text);
-  border-color: var(--accent);
-  border-bottom-right-radius: 14px;
-}
-
-/* ── Menu button in message footer ── */
-.menu-btn {
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  padding: 2px 4px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 4px;
-  opacity: 0;
-  transition: opacity 0.15s, color 0.15s;
-}
-.message:hover .menu-btn,
-.menu-btn:focus-visible {
-  opacity: 1;
-}
-/* Always visible on touch devices */
-@media (hover: none) {
-  .menu-btn { opacity: 0.6; }
-  .menu-btn:active { opacity: 1; }
-}
-
-/* ── Image preview ── */
-.ImagePreviewOverlay {
-  position: fixed;
-  inset: 0;
-  z-index: 2100;
-  display: grid;
-  place-items: center;
-  padding: 24px;
-  padding-top: max(24px, env(safe-area-inset-top, 0px));
-  padding-bottom: max(24px, env(safe-area-inset-bottom, 0px));
-  background: rgba(0, 0, 0, 0.82);
-}
-.ImagePreviewImage {
-  display: block;
-  max-width: 100%;
-  max-height: 100%;
-  object-fit: contain;
-  border-radius: 8px;
-  cursor: zoom-out;
-}
-.ImagePreviewClose {
-  position: absolute;
-  top: max(12px, env(safe-area-inset-top, 0px));
-  right: 12px;
-  width: 36px;
-  height: 36px;
-  border: 1px solid var(--border);
-  border-radius: 50%;
-  background: var(--surface);
-  color: var(--text);
-  font-size: 18px;
-  line-height: 1;
-  cursor: pointer;
-}
-.image-preview-fade-enter-active,
-.image-preview-fade-leave-active { transition: opacity 0.16s ease; }
-.image-preview-fade-enter-from,
-.image-preview-fade-leave-to { opacity: 0; }
-
-/* ── Action Sheet ── */
-.ActionSheetOverlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.55);
-  z-index: 2000;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-}
-.ActionSheet {
-  width: 100%;
-  max-width: 400px;
-  background: var(--surface);
-  border-radius: 16px 16px 0 0;
-  padding: 8px 12px calc(env(safe-area-inset-bottom, 0px) + 12px);
-  display: flex;
-  flex-direction: column;
-  animation: sheetSlideUp 0.22s ease;
-}
-@keyframes sheetSlideUp {
-  from { transform: translateY(100%); }
-  to { transform: translateY(0); }
-}
-.ActionSheetHandle {
-  width: 36px;
-  height: 4px;
-  border-radius: 2px;
-  background: var(--border);
-  margin: 4px auto 10px;
-  flex-shrink: 0;
-}
-.ActionSheetPreview {
-  padding: 8px 12px 12px;
-  border-bottom: 1px solid var(--border);
-  margin-bottom: 4px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-.ActionSheetRole {
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-muted);
-}
-.ActionSheetSnippet {
-  font-size: 13px;
-  color: var(--text);
-  line-height: 1.4;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-}
-.ActionSheetActions {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 4px 0;
-}
-.ActionSheetBtn {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-  padding: 12px 14px;
-  border: none;
-  border-radius: 10px;
-  background: none;
-  color: var(--text);
-  font-size: 15px;
-  cursor: pointer;
-  transition: background 0.12s;
-  text-align: left;
-}
-.ActionSheetBtn:hover {
-  background: var(--surface-2);
-}
-.ActionSheetBtn:active {
-  background: var(--surface-3, var(--surface-2));
-}
-.ActionSheetBtn.danger {
-  color: var(--error);
-}
-.ActionSheetBtn svg {
-  flex-shrink: 0;
-}
-.ActionSheetCancel {
-  width: 100%;
-  padding: 14px;
-  border: none;
-  border-radius: 10px;
-  background: var(--surface-2);
-  color: var(--text);
-  font-size: 15px;
-  font-weight: 600;
-  cursor: pointer;
-  margin-top: 6px;
-  transition: background 0.12s;
-}
-.ActionSheetCancel:hover {
-  background: var(--surface-3, var(--surface-2));
-}
-
-/* Sheet transition */
-.sheet-fade-enter-active { transition: opacity 0.2s ease; }
-.sheet-fade-leave-active { transition: opacity 0.15s ease; }
-.sheet-fade-enter-from,
-.sheet-fade-leave-to { opacity: 0; }
-</style>

@@ -46,54 +46,52 @@ async function handleConnect() {
 </script>
 
 <template>
-  <div class="ConnectView flex w-full min-h-0 flex-col items-center bg-app-bg text-app-text font-sans">
-    <div class="ConnectCard w-full bg-app-surface">
-      <!-- Header -->
-      <div class="Header">
-        <div class="IconWrap">
-          <span class="Icon">☤</span>
+  <div class="flex min-h-screen w-full max-w-[400px] mx-auto flex-col items-center bg-app-bg px-6 pt-10 text-app-text font-sans">
+    <div class="w-full flex flex-col gap-6 rounded-app border border-app-border bg-app-surface px-6 py-8">
+      <div class="mb-2 flex flex-col items-center gap-1.5">
+        <div class="flex size-12 items-center justify-center rounded-[14px] border border-app-accent/20 bg-app-accent/10">
+          <span class="text-2xl text-app-accent">☤</span>
         </div>
-        <h1 class="Title">Hermes</h1>
-        <span class="Subtitle">Remote Gateway</span>
+        <h1 class="text-[28px] font-bold tracking-[-0.03em]">Hermes</h1>
+        <span class="text-sm uppercase tracking-[0.5px] text-app-muted">Remote Gateway</span>
       </div>
 
-      <!-- Form -->
-      <form class="Form" @submit.prevent="handleConnect">
-        <div class="Field">
-          <label class="Label">Gateway URL</label>
+      <form class="flex flex-col gap-4" @submit.prevent="handleConnect">
+        <div class="flex flex-col gap-1.5">
+          <label class="text-[13px] font-medium tracking-[0.3px] text-app-muted">Gateway URL</label>
           <input
             v-model="url"
             type="url"
-            class="Input"
+            class="h-12 rounded-[10px] border border-app-border bg-app-bg px-3.5 text-[15px] tracking-[-0.1px] outline-none transition-colors placeholder:text-app-muted focus:border-app-accent"
             placeholder="https://hermes.example.com"
             autocomplete="url"
           />
         </div>
 
-        <div class="Field">
-          <label class="Label">Username</label>
+        <div class="flex flex-col gap-1.5">
+          <label class="text-[13px] font-medium tracking-[0.3px] text-app-muted">Username</label>
           <input
             v-model="user"
             type="text"
-            class="Input"
+            class="h-12 rounded-[10px] border border-app-border bg-app-bg px-3.5 text-[15px] tracking-[-0.1px] outline-none transition-colors placeholder:text-app-muted focus:border-app-accent"
             placeholder="Username"
             autocomplete="username"
           />
         </div>
 
-        <div class="Field">
-          <label class="Label">Password</label>
-          <div class="PassWrap">
+        <div class="flex flex-col gap-1.5">
+          <label class="text-[13px] font-medium tracking-[0.3px] text-app-muted">Password</label>
+          <div class="relative">
             <input
               v-model="pass"
               :type="showPass ? 'text' : 'password'"
-              class="Input"
+              class="h-12 w-full rounded-[10px] border border-app-border bg-app-bg px-3.5 pr-12 text-[15px] tracking-[-0.1px] outline-none transition-colors placeholder:text-app-muted focus:border-app-accent"
               placeholder="Password"
               autocomplete="current-password"
             />
             <button
               type="button"
-              class="EyeBtn"
+              class="absolute right-2 top-1/2 p-1 text-base leading-none -translate-y-1/2 cursor-pointer"
               @click="showPass = !showPass"
               tabindex="-1"
             >
@@ -102,192 +100,19 @@ async function handleConnect() {
           </div>
         </div>
 
-        <div v-if="error" class="ErrorBox">
-          <span class="ErrorText">{{ error }}</span>
+        <div v-if="error" class="rounded-[10px] border border-app-error/20 bg-app-error/10 px-3.5 py-2.5">
+          <span class="whitespace-pre-line text-[13px] leading-5 tracking-[-0.1px] text-app-error">{{ error }}</span>
         </div>
 
         <button
           type="submit"
-          class="Button"
-          :class="{ 'Button--disabled': !canConnect }"
+          class="mt-2 flex h-12 items-center justify-center rounded-[10px] bg-app-accent text-[15px] font-semibold tracking-[-0.2px] text-white transition-opacity hover:not-disabled:opacity-90 active:not-disabled:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
           :disabled="!canConnect"
         >
-          <span v-if="loading" class="Spinner" />
+          <span v-if="loading" class="size-[18px] animate-spin rounded-full border-2 border-white/30 border-t-white" />
           <span v-else>Connect</span>
         </button>
       </form>
     </div>
   </div>
 </template>
-
-<style scoped>
-.ConnectView {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  width: 100%;
-  max-width: 400px;
-  padding: 24px;
-  padding-top: 40px;
-  margin: 0 auto;
-  min-height: 100vh;
-}
-
-.ConnectCard {
-  width: 100%;
-  background-color: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 32px 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-}
-
-.Header {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 8px;
-}
-
-.IconWrap {
-  width: 48px;
-  height: 48px;
-  border-radius: 14px;
-  background: rgba(94, 106, 210, 0.1);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid rgba(94, 106, 210, 0.2);
-}
-
-.Icon {
-  font-size: 24px;
-  color: var(--accent);
-}
-
-.Title {
-  font-size: 28px;
-  font-weight: 700;
-  color: var(--text);
-  letter-spacing: -0.03em;
-}
-
-.Subtitle {
-  font-size: 14px;
-  color: var(--text-muted);
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
-}
-
-.Form {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.Field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.Label {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-muted);
-  letter-spacing: 0.3px;
-}
-
-.Input {
-  height: 48px;
-  background-color: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 0 14px;
-  color: var(--text);
-  font-size: 15px;
-  letter-spacing: -0.1px;
-  outline: none;
-  transition: border-color 0.15s;
-}
-
-.Input:focus {
-  border-color: var(--accent);
-}
-
-.Input::placeholder {
-  color: var(--text-muted);
-}
-
-.PassWrap {
-  position: relative;
-}
-
-.PassWrap .Input {
-  width: 100%;
-  padding-right: 48px;
-}
-
-.EyeBtn {
-  position: absolute;
-  right: 8px;
-  top: 50%;
-  transform: translateY(-50%);
-  background: none;
-  border: none;
-  font-size: 16px;
-  cursor: pointer;
-  padding: 4px;
-  line-height: 1;
-}
-
-.ErrorBox {
-  background-color: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.2);
-  border-radius: 10px;
-  padding: 10px 14px;
-}
-
-.ErrorText {
-  font-size: 13px;
-  color: var(--error);
-  letter-spacing: -0.1px;
-  white-space: pre-line;
-  line-height: 1.5;
-}
-
-.Button {
-  height: 48px;
-  background-color: var(--accent);
-  border: none;
-  border-radius: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-top: 8px;
-  cursor: pointer;
-  transition: opacity 0.15s;
-  font-size: 15px;
-  font-weight: 600;
-  color: #ffffff;
-  letter-spacing: -0.2px;
-}
-
-.Button:hover:not(:disabled) { opacity: 0.9; }
-.Button:active:not(:disabled) { transform: scale(0.98); }
-.Button--disabled { opacity: 0.5; cursor: not-allowed; }
-
-.Spinner {
-  width: 18px;
-  height: 18px;
-  border: 2px solid rgba(255,255,255,0.3);
-  border-top-color: #fff;
-  border-radius: 50%;
-  animation: spin 0.6s linear infinite;
-}
-
-@keyframes spin { to { transform: rotate(360deg); } }
-</style>

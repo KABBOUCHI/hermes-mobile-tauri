@@ -83,253 +83,53 @@ onMounted(fetchJobs)
 </script>
 
 <template>
-  <div class="CronView flex min-h-0 flex-1 flex-col bg-app-bg text-app-text font-sans">
+  <div class="flex min-h-0 flex-1 flex-col bg-app-bg font-sans text-app-text flex min-h-0 flex-1 flex-col bg-app-bg text-app-text font-sans">
     <!-- Header -->
-    <div class="Header">
-      <button class="BackBtn" @click="goBack">
-        <span class="BackArrow">←</span>
-        <span class="BackText">Back</span>
+    <div class="flex shrink-0 items-center justify-between border-b border-app-border px-4 pt-5 pb-4">
+      <button class="flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-[15px] font-medium text-app-accent" @click="goBack">
+        <span class="text-lg">←</span>
+        <span>Back</span>
       </button>
-      <span class="HeaderTitle">Cron Jobs</span>
-      <button class="RefreshBtn" @click="fetchJobs">↻</button>
+      <span class="text-[17px] font-semibold tracking-[-0.02em]">Cron Jobs</span>
+      <button class="flex size-9 cursor-pointer items-center justify-center rounded-lg border border-app-border bg-app-surface text-base text-app-muted transition-colors hover:bg-app-surface-2" @click="fetchJobs">↻</button>
     </div>
 
     <!-- Loading -->
-    <div v-if="loading && jobs.length === 0" class="StateView">
-      <div class="Loader" />
+    <div v-if="loading && jobs.length === 0" class="flex flex-1 flex-col items-center justify-center gap-3 p-10">
+      <div class="size-7 animate-spin rounded-full border-2 border-app-border border-t-app-accent" />
     </div>
 
     <!-- Error -->
-    <div v-else-if="error" class="StateView">
-      <span class="ErrorText">{{ error }}</span>
-      <button class="RetryBtn" @click="fetchJobs">Retry</button>
+    <div v-else-if="error" class="flex flex-1 flex-col items-center justify-center gap-3 p-10">
+      <span class="text-sm text-app-error">{{ error }}</span>
+      <button class="h-10 cursor-pointer rounded-lg border-0 bg-app-accent px-6 text-[15px] font-semibold text-white transition-opacity hover:opacity-90" @click="fetchJobs">Retry</button>
     </div>
 
     <!-- Empty -->
-    <div v-else-if="jobs.length === 0" class="StateView">
-      <span class="EmptyIcon">⏰</span>
-      <span class="StateText">No cron jobs</span>
+    <div v-else-if="jobs.length === 0" class="flex flex-1 flex-col items-center justify-center gap-3 p-10">
+      <span class="text-[40px]">⏰</span>
+      <span class="text-[15px] text-app-muted">No cron jobs</span>
     </div>
 
     <!-- Jobs list -->
-    <div v-else class="JobList">
-      <div v-for="job in jobs" :key="job.id" class="JobCard">
-        <div class="JobTop">
-          <span class="JobName">{{ job.name || job.id }}</span>
-          <span v-if="job.is_running" class="RunningBadge">running</span>
-          <span v-else-if="job.enabled" class="StatusDot enabled" />
-          <span v-else class="StatusDot disabled" />
+    <div v-else class="flex flex-1 flex-col gap-2 overflow-y-auto overscroll-contain px-4 py-3">
+      <div v-for="job in jobs" :key="job.id" class="flex flex-col gap-1.5 rounded-app border border-app-border bg-app-surface px-4 py-3.5">
+        <div class="flex items-center gap-2">
+          <span class="flex-1 text-[15px] font-semibold tracking-[-0.02em]">{{ job.name || job.id }}</span>
+          <span v-if="job.is_running" class="rounded px-1.5 py-px text-[11px] font-semibold uppercase tracking-[0.04em] text-app-accent bg-app-accent/10">running</span>
+          <span v-else-if="job.enabled" class="size-2 shrink-0 rounded-full bg-app-success shadow-[0_0_6px_rgba(34,197,94,0.4)]" />
+          <span v-else class="size-2 shrink-0 rounded-full bg-app-muted opacity-50" />
         </div>
-        <span class="JobSchedule">{{ job.schedule?.display || job.schedule }}</span>
-        <span v-if="job.prompt" class="JobPrompt">{{ truncate(job.prompt, 120) }}</span>
-        <div class="JobMeta">
-          <span class="MetaLabel">Last:</span>
-          <span class="MetaValue">{{ job.last_run_at ? relativeTime(new Date(job.last_run_at).getTime() / 1000) : 'never' }}</span>
-          <span class="MetaDot">·</span>
-          <span class="MetaLabel">Next:</span>
-          <span class="MetaValue">{{ job.next_run_at ? relativeTime(new Date(job.next_run_at).getTime() / 1000) : '—' }}</span>
+        <span class="font-mono text-[13px] tracking-[0.02em] text-app-accent">{{ job.schedule?.display || job.schedule }}</span>
+        <span v-if="job.prompt" class="text-[13px] leading-[1.4] text-app-muted">{{ truncate(job.prompt, 120) }}</span>
+        <div class="mt-0.5 flex items-center gap-1.5">
+          <span class="text-xs text-app-muted opacity-70">Last:</span>
+          <span class="text-xs text-app-muted">{{ job.last_run_at ? relativeTime(new Date(job.last_run_at).getTime() / 1000) : 'never' }}</span>
+          <span class="text-xs text-app-muted opacity-50">·</span>
+          <span class="text-xs text-app-muted opacity-70">Next:</span>
+          <span class="text-xs text-app-muted">{{ job.next_run_at ? relativeTime(new Date(job.next_run_at).getTime() / 1000) : '—' }}</span>
         </div>
       </div>
     </div>
   </div>
 </template>
-
-<style scoped>
-.CronView {
-  background-color: var(--bg);
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-}
-
-/* ── Header ── */
-.Header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 20px 16px 16px;
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-}
-
-.BackBtn {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  background: none;
-  border: none;
-  color: var(--accent);
-  font-size: 15px;
-  font-weight: 500;
-  cursor: pointer;
-  padding: 0;
-}
-
-.BackArrow { font-size: 18px; }
-
-.HeaderTitle {
-  font-size: 17px;
-  font-weight: 600;
-  color: var(--text);
-  letter-spacing: -0.02em;
-}
-
-.RefreshBtn {
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
-  background-color: var(--surface);
-  border: 1px solid var(--border);
-  color: var(--text-muted);
-  font-size: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-
-.RefreshBtn:hover { background-color: var(--surface-2); }
-
-/* ── States ── */
-.StateView {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 40px;
-  gap: 12px;
-}
-
-.Loader {
-  width: 28px;
-  height: 28px;
-  border: 2px solid var(--border);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
-.StateText { font-size: 15px; color: var(--text-muted); }
-.EmptyIcon { font-size: 40px; }
-.ErrorText { font-size: 14px; color: var(--error); }
-
-.RetryBtn {
-  height: 40px;
-  padding: 0 24px;
-  background-color: var(--accent);
-  border: none;
-  border-radius: 8px;
-  color: #ffffff;
-  font-size: 15px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: opacity 0.15s;
-}
-
-.RetryBtn:hover { opacity: 0.9; }
-
-@keyframes spin { to { transform: rotate(360deg); } }
-
-/* ── Job list ── */
-.JobList {
-  flex: 1;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-  padding: 12px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.JobCard {
-  background-color: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 14px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.JobTop {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.JobName {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text);
-  flex: 1;
-  letter-spacing: -0.02em;
-}
-
-.RunningBadge {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--accent);
-  background-color: rgba(94, 106, 210, 0.12);
-  border-radius: 4px;
-  padding: 1px 6px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.StatusDot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.StatusDot.enabled {
-  background-color: var(--success);
-  box-shadow: 0 0 6px rgba(34, 197, 94, 0.4);
-}
-
-.StatusDot.disabled {
-  background-color: var(--text-muted);
-  opacity: 0.5;
-}
-
-.JobSchedule {
-  font-size: 13px;
-  color: var(--accent);
-  font-family: 'SF Mono', 'Fira Code', monospace;
-  letter-spacing: 0.02em;
-}
-
-.JobPrompt {
-  font-size: 13px;
-  color: var(--text-muted);
-  line-height: 1.4;
-}
-
-.JobMeta {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 2px;
-}
-
-.MetaLabel {
-  font-size: 12px;
-  color: var(--text-muted);
-  opacity: 0.7;
-}
-
-.MetaValue {
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
-.MetaDot {
-  font-size: 12px;
-  color: var(--text-muted);
-  opacity: 0.5;
-}
-</style>

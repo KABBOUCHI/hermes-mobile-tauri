@@ -37,13 +37,5 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div ref="host" class="patch-diff" aria-label="Diff view" />
+  <div ref="host" class="max-h-[300px] overflow-auto overscroll-contain" aria-label="Diff view" />
 </template>
-
-<style scoped>
-.patch-diff {
-  max-height: 300px;
-  overflow: auto;
-  overscroll-behavior: contain;
-}
-</style>

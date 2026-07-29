@@ -269,7 +269,7 @@ function observeVirtualRow(key: string, el: Element | { $el: Element } | null) {
   const target = el instanceof Element ? el : el?.$el
   if (!target || !virtualResizeObserver) return
   virtualResizeObserver.observe(target)
-  const height = Math.ceil(target.getBoundingClientRect().height) + (target.classList.contains('SessionCard') ? 8 : 0)
+  const height = Math.ceil(target.getBoundingClientRect().height) + (target instanceof HTMLElement && target.dataset.sessionCard ? 8 : 0)
   if (height > 0 && measuredRowHeights.value[key] !== height) {
     measuredRowHeights.value = { ...measuredRowHeights.value, [key]: height }
   }
@@ -290,7 +290,7 @@ onMounted(async () => {
       let nextHeights: Record<string, number> | null = null
       for (const entry of entries) {
         const key = (entry.target as HTMLElement).dataset.virtualKey
-        const height = Math.ceil(entry.contentRect.height) + (entry.target.classList.contains('SessionCard') ? 8 : 0)
+        const height = Math.ceil(entry.contentRect.height) + ((entry.target as HTMLElement).dataset.sessionCard ? 8 : 0)
         if (key && height > 0 && measuredRowHeights.value[key] !== height) {
           nextHeights ??= { ...measuredRowHeights.value }
           nextHeights[key] = height
@@ -519,20 +519,20 @@ function formatCount(n: number): string {
 </script>
 
 <template>
-  <div class="SessionsView flex min-h-0 flex-1 flex-col bg-app-bg text-app-text font-sans">
+  <div class="flex min-h-0 flex-1 flex-col bg-app-bg font-sans text-app-text">
     <!-- Header -->
-    <div class="Header">
-      <div class="HeaderLeft">
-        <span class="Title">☤ Hermes</span>
-        <div class="ConnStatus" :class="{ online: auth.isConnected.value, offline: !auth.isConnected.value }">
-          <span class="ConnDot" />
-          <span class="ConnLabel">{{ hostShort }}</span>
+    <div class="flex shrink-0 items-center justify-between border-b border-app-border px-4 pt-5 pb-4">
+      <div class="flex flex-col gap-1">
+        <span class="text-2xl font-bold tracking-[-0.02em]">☤ Hermes</span>
+        <div class="flex items-center gap-1.5">
+          <span class="size-1.5 shrink-0 rounded-full" :class="auth.isConnected.value ? 'bg-app-success shadow-[0_0_6px_rgba(34,197,94,0.5)]' : 'bg-app-error shadow-[0_0_6px_rgba(239,68,68,0.4)]'" />
+          <span class="text-xs text-app-muted">{{ hostShort }}</span>
         </div>
       </div>
-      <div class="HeaderActions">
+      <div class="flex items-center gap-2">
         <button
-          class="ArchiveToggleBtn"
-          :class="{ active: showingArchived }"
+          class="flex size-9 cursor-pointer items-center justify-center rounded-lg border border-app-border bg-app-surface text-app-muted transition-all hover:bg-app-surface-2 hover:text-app-text"
+          :class="showingArchived && 'border-app-accent/30 bg-app-accent/10 text-app-accent'"
           @click="toggleArchived"
           title="Archived sessions"
         >
@@ -542,176 +542,177 @@ function formatCount(n: number): string {
             <line x1="10" y1="12" x2="14" y2="12" />
           </svg>
         </button>
-        <button v-if="unreadIds.size > 0" class="MarkReadBtn" @click="handleMarkAllRead" title="Mark all read">
+        <button v-if="unreadIds.size > 0" class="h-[30px] cursor-pointer whitespace-nowrap rounded-md border border-app-border bg-transparent px-2.5 text-xs font-medium text-app-muted transition-all hover:border-app-muted hover:text-app-text" @click="handleMarkAllRead" title="Mark all read">
           ✓ Read
         </button>
-        <button class="CronBtn" @click="goToCron" title="Cron jobs">
+        <button class="flex size-9 cursor-pointer items-center justify-center rounded-lg border border-app-border bg-app-surface text-base text-app-muted transition-colors hover:bg-app-surface-2" @click="goToCron" title="Cron jobs">
           ⏰
         </button>
-        <button class="NewSessionBtn" @click="createNewSession" title="New session">
+        <button class="flex size-9 cursor-pointer items-center justify-center rounded-lg border-0 bg-app-accent text-xl font-medium leading-none text-white transition-opacity hover:opacity-90" @click="createNewSession" title="New session">
           +
         </button>
-        <button class="RefreshBtn" :class="{ spinning: refreshing }" @click="handleRefresh">
+        <button class="flex size-9 cursor-pointer items-center justify-center rounded-lg border border-app-border bg-app-surface text-base text-app-muted transition-colors hover:bg-app-surface-2" :class="refreshing && 'animate-spin'" @click="handleRefresh">
           ↻
         </button>
-        <button class="DisconnectBtn" @click="disconnect">
+        <button class="flex h-9 cursor-pointer items-center justify-center rounded-lg border border-app-error/20 bg-transparent px-3.5 text-[13px] font-medium text-app-error transition-colors hover:border-app-error/40" @click="disconnect">
           Disconnect
         </button>
       </div>
     </div>
 
     <!-- Search -->
-    <div class="SearchWrap">
-      <svg class="SearchIcon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <div class="relative shrink-0 px-4 py-3">
+      <svg class="absolute left-7 top-1/2 -translate-y-1/2 text-app-muted" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="11" cy="11" r="8" />
         <line x1="21" y1="21" x2="16.65" y2="16.65" />
       </svg>
       <input
         v-model="search"
         type="text"
-        class="SearchInput"
+        class="h-10 w-full rounded-[10px] border border-app-border bg-app-surface py-0 pr-[86px] pl-10 text-sm outline-none transition-colors placeholder:text-app-muted focus:border-app-accent"
         placeholder="Search sessions…"
       />
-      <span v-if="search" class="SearchClear" @click="search = ''">✕</span>
-      <span v-if="searchPending" class="SearchStatus">Searching…</span>
+      <span v-if="search" class="absolute right-7 top-1/2 cursor-pointer p-1 text-sm text-app-muted -translate-y-1/2" @click="search = ''">✕</span>
+      <span v-if="searchPending" class="pointer-events-none absolute right-[52px] top-1/2 -translate-y-1/2 text-[11px] text-app-muted">Searching…</span>
     </div>
 
     <!-- Pull indicator -->
     <div
       v-if="pullDelta > 0"
-      class="PullIndicator"
+      class="flex shrink-0 items-center justify-center overflow-hidden"
       :style="{ height: pullDelta + 'px', opacity: pullDelta / 80 }"
     >
-      <div class="PullSpinner" :class="{ active: refreshing }" />
+      <div class="size-6 rounded-full border-2 border-app-border border-t-app-accent" :class="refreshing && 'animate-spin'" />
     </div>
 
     <!-- Loading skeleton -->
-    <div v-if="gw.loading.value && gw.sessions.value.length === 0" class="StateView">
-      <div class="SkeletonList">
-        <div v-for="i in 5" :key="i" class="SkeletonCard">
-          <div class="SkeletonLine w60" />
-          <div class="SkeletonLine w90" />
-          <div class="SkeletonLine w40" />
+    <div v-if="gw.loading.value && gw.sessions.value.length === 0" class="flex flex-1 flex-col items-center justify-center gap-3 p-10">
+      <div class="flex w-full flex-col gap-3">
+        <div v-for="i in 5" :key="i" class="flex flex-col gap-2 rounded-app border border-app-border bg-app-surface p-4">
+          <div class="h-3.5 animate-pulse rounded bg-app-surface-2 w-[60%]" />
+          <div class="h-3.5 animate-pulse rounded bg-app-surface-2 w-[90%]" />
+          <div class="h-3.5 animate-pulse rounded bg-app-surface-2 w-[40%]" />
         </div>
       </div>
     </div>
 
     <!-- Error -->
-    <div v-else-if="gw.error.value" class="StateView">
-      <span class="ErrorText">{{ gw.error.value }}</span>
-      <button class="RetryBtn" @click="handleRefresh">Retry</button>
+    <div v-else-if="gw.error.value" class="flex flex-1 flex-col items-center justify-center gap-3 p-10">
+      <span class="text-sm text-app-error">{{ gw.error.value }}</span>
+      <button class="h-10 cursor-pointer rounded-lg border-0 bg-app-accent px-6 text-[15px] font-semibold text-white transition-opacity hover:opacity-90" @click="handleRefresh">Retry</button>
     </div>
 
     <!-- Empty -->
-    <div v-else-if="filtered.length === 0" class="StateView">
-      <span class="EmptyIcon">📭</span>
-      <span class="StateText">{{ search ? 'No matching sessions' : showingArchived ? 'No archived sessions' : 'No sessions found' }}</span>
-      <button class="NewBtn" @click="createNewSession">Start a conversation</button>
+    <div v-else-if="filtered.length === 0" class="flex flex-1 flex-col items-center justify-center gap-3 p-10">
+      <span class="text-[40px]">📭</span>
+      <span class="text-[15px] text-app-muted">{{ search ? 'No matching sessions' : showingArchived ? 'No archived sessions' : 'No sessions found' }}</span>
+      <button class="h-10 cursor-pointer rounded-lg border-0 bg-app-accent px-6 text-[15px] font-semibold text-white transition-opacity hover:opacity-90" @click="createNewSession">Start a conversation</button>
     </div>
 
     <!-- Sessions List -->
     <div
       v-else
       ref="listEl"
-      class="SessionList"
+      class="flex-1 overflow-y-auto overscroll-contain px-4 py-3"
       @scroll="onListScroll"
       @touchstart="onTouchStart"
       @touchmove="onTouchMove"
       @touchend="onTouchEnd"
     >
-      <div v-if="useVirtualSessions" class="VirtualSessionList">
+      <div v-if="useVirtualSessions" class="">
         <div :style="{ height: virtualRange.top + 'px' }" aria-hidden="true" />
         <template v-for="row in visibleSessionRows" :key="row.key">
           <div
             v-if="row.kind === 'divider'"
             :ref="el => observeVirtualRow(row.key, el)"
-            class="DateGroupLabel"
+            class="px-1 py-2 pb-1.5 text-xs font-semibold uppercase tracking-[0.05em] text-app-muted"
             :data-virtual-key="row.key"
           >{{ row.label }}</div>
           <div
             v-else
             :ref="el => observeVirtualRow(row.key, el)"
-            class="SessionCard"
-            :class="{ pinned: isPinned(row.entry.session.id), branch: !!row.entry.branchStem }"
+            class="mb-2 cursor-pointer rounded-app border border-app-border bg-app-surface px-4 py-3.5 transition-colors hover:bg-app-surface-2"
+            :class="{ 'border-app-accent/30': isPinned(row.entry.session.id), 'ml-4': !!row.entry.branchStem }"
+            data-session-card="true"
             :data-virtual-key="row.key"
             @click="openSession(row.entry.session.id)"
             @touchstart="handleTouchStart($event, row.entry.session.id)"
             @touchmove="handleTouchMove"
             @touchend="handleTouchEnd"
           >
-            <div class="CardTop">
-              <span v-if="row.entry.branchStem" class="BranchStem" aria-hidden="true">{{ row.entry.branchStem }}</span>
-              <span v-if="isPinned(row.entry.session.id)" class="PinIcon">📌</span>
-              <span v-if="unreadIds.has(row.entry.session.id)" class="UnreadDot" />
-              <span class="SessionTitle">{{ row.entry.session.title || row.entry.session.preview || 'Untitled' }}</span>
-              <span v-if="row.entry.session.is_active" class="ActiveDot" />
+            <div class="mb-1 flex items-center gap-1.5">
+              <span v-if="row.entry.branchStem" class="font-mono text-xs tracking-[-2px] text-app-muted" aria-hidden="true">{{ row.entry.branchStem }}</span>
+              <span v-if="isPinned(row.entry.session.id)" class="text-xs">📌</span>
+              <span v-if="unreadIds.has(row.entry.session.id)" class="size-2 shrink-0 rounded-full bg-app-accent shadow-[0_0_6px_rgba(94,106,210,0.5)]" />
+              <span class="flex-1 truncate text-[15px] font-semibold tracking-[-0.02em]">{{ row.entry.session.title || row.entry.session.preview || 'Untitled' }}</span>
+              <span v-if="row.entry.session.is_active" class="size-2 shrink-0 rounded-full bg-app-success shadow-[0_0_6px_rgba(34,197,94,0.4)]" />
               <button
-                class="DeleteBtn"
-                :class="{ confirming: deletingId === row.entry.session.id }"
+                class="flex size-7 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-sm text-app-muted transition-colors hover:bg-app-error/10 hover:text-app-error"
+                :class="deletingId === row.entry.session.id && 'bg-app-error/15 text-app-error'"
                 @click="confirmDelete($event, row.entry.session.id)"
                 :title="deletingId === row.entry.session.id ? 'Confirm delete' : 'Delete'"
               >
                 {{ deletingId === row.entry.session.id ? '✓' : '✕' }}
               </button>
             </div>
-            <span class="SessionPreview">{{ row.entry.session.preview || 'No messages' }}</span>
-            <div class="CardMeta">
-              <span class="MetaText">{{ formatCount(row.entry.session.message_count) }} msgs</span>
-              <span class="MetaDot">·</span>
-              <span class="MetaText">{{ gw.relativeTime(row.entry.session.last_active) }}</span>
-              <span v-if="row.entry.session.source && row.entry.session.source !== 'desktop'" class="SourceBadge">{{ gw.sourceLabel(row.entry.session.source) }}</span>
-              <span v-if="row.entry.session.model" class="ModelBadge">{{ gw.modelShort(row.entry.session.model) }}</span>
+            <span class="mb-1.5 line-clamp-2 text-[13px] leading-[1.4] text-app-muted">{{ row.entry.session.preview || 'No messages' }}</span>
+            <div class="flex items-center gap-1.5">
+              <span class="text-xs text-app-muted">{{ formatCount(row.entry.session.message_count) }} msgs</span>
+              <span class="text-xs text-app-muted opacity-50">·</span>
+              <span class="text-xs text-app-muted">{{ gw.relativeTime(row.entry.session.last_active) }}</span>
+              <span v-if="row.entry.session.source && row.entry.session.source !== 'desktop'" class="rounded px-1.5 py-px text-[11px] text-app-success bg-app-success/10">{{ gw.sourceLabel(row.entry.session.source) }}</span>
+              <span v-if="row.entry.session.model" class="ml-auto rounded px-1.5 py-px text-[11px] text-app-accent bg-app-accent/10">{{ gw.modelShort(row.entry.session.model) }}</span>
             </div>
           </div>
         </template>
         <div :style="{ height: virtualRange.bottom + 'px' }" aria-hidden="true" />
       </div>
       <template v-else v-for="group in groupedSessions" :key="group.label">
-        <div class="DateGroupLabel">{{ group.label }}</div>
+        <div class="px-1 py-2 pb-1.5 text-xs font-semibold uppercase tracking-[0.05em] text-app-muted">{{ group.label }}</div>
         <div
           v-for="entry in group.sessions"
           :key="entry.session.id"
-          class="SessionCard"
-          :class="{ pinned: isPinned(entry.session.id), branch: !!entry.branchStem }"
+          class="mb-2 cursor-pointer rounded-app border border-app-border bg-app-surface px-4 py-3.5 transition-colors hover:bg-app-surface-2"
+          :class="{ 'border-app-accent/30': isPinned(entry.session.id), 'ml-4': !!entry.branchStem }"
+          data-session-card="true"
           @click="openSession(entry.session.id)"
           @touchstart="handleTouchStart($event, entry.session.id)"
           @touchmove="handleTouchMove"
           @touchend="handleTouchEnd"
         >
-        <div class="CardTop">
-          <span v-if="entry.branchStem" class="BranchStem" aria-hidden="true">{{ entry.branchStem }}</span>
-          <span v-if="isPinned(entry.session.id)" class="PinIcon">📌</span>
-          <span v-if="unreadIds.has(entry.session.id)" class="UnreadDot" />
-          <span class="SessionTitle">{{ entry.session.title || entry.session.preview || 'Untitled' }}</span>
-          <span v-if="entry.session.is_active" class="ActiveDot" />
+        <div class="mb-1 flex items-center gap-1.5">
+          <span v-if="entry.branchStem" class="font-mono text-xs tracking-[-2px] text-app-muted" aria-hidden="true">{{ entry.branchStem }}</span>
+          <span v-if="isPinned(entry.session.id)" class="text-xs">📌</span>
+          <span v-if="unreadIds.has(entry.session.id)" class="size-2 shrink-0 rounded-full bg-app-accent shadow-[0_0_6px_rgba(94,106,210,0.5)]" />
+          <span class="flex-1 truncate text-[15px] font-semibold tracking-[-0.02em]">{{ entry.session.title || entry.session.preview || 'Untitled' }}</span>
+          <span v-if="entry.session.is_active" class="size-2 shrink-0 rounded-full bg-app-success shadow-[0_0_6px_rgba(34,197,94,0.4)]" />
           <button
-            class="DeleteBtn"
-            :class="{ confirming: deletingId === entry.session.id }"
+            class="flex size-7 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-sm text-app-muted transition-colors hover:bg-app-error/10 hover:text-app-error"
+            :class="deletingId === entry.session.id && 'bg-app-error/15 text-app-error'"
             @click="confirmDelete($event, entry.session.id)"
             :title="deletingId === entry.session.id ? 'Confirm delete' : 'Delete'"
           >
             {{ deletingId === entry.session.id ? '✓' : '✕' }}
           </button>
         </div>
-        <span class="SessionPreview">{{ entry.session.preview || 'No messages' }}</span>
-        <div class="CardMeta">
-          <span class="MetaText">{{ formatCount(entry.session.message_count) }} msgs</span>
-          <span class="MetaDot">·</span>
-          <span class="MetaText">{{ gw.relativeTime(entry.session.last_active) }}</span>
-          <span v-if="entry.session.source && entry.session.source !== 'desktop'" class="SourceBadge">{{ gw.sourceLabel(entry.session.source) }}</span>
-          <span v-if="entry.session.model" class="ModelBadge">{{ gw.modelShort(entry.session.model) }}</span>
+        <span class="mb-1.5 line-clamp-2 text-[13px] leading-[1.4] text-app-muted">{{ entry.session.preview || 'No messages' }}</span>
+        <div class="flex items-center gap-1.5">
+          <span class="text-xs text-app-muted">{{ formatCount(entry.session.message_count) }} msgs</span>
+          <span class="text-xs text-app-muted opacity-50">·</span>
+          <span class="text-xs text-app-muted">{{ gw.relativeTime(entry.session.last_active) }}</span>
+          <span v-if="entry.session.source && entry.session.source !== 'desktop'" class="rounded px-1.5 py-px text-[11px] text-app-success bg-app-success/10">{{ gw.sourceLabel(entry.session.source) }}</span>
+          <span v-if="entry.session.model" class="ml-auto rounded px-1.5 py-px text-[11px] text-app-accent bg-app-accent/10">{{ gw.modelShort(entry.session.model) }}</span>
           </div>
         </div>
       </template>
-
       <!-- Load more -->
-      <div v-if="showingArchived ? gw.hasMoreArchivedSessions() : gw.hasMoreSessions()" class="LoadMoreWrap">
+      <div v-if="showingArchived ? gw.hasMoreArchivedSessions() : gw.hasMoreSessions()" class="flex justify-center pt-4 pb-2">
         <button
-          class="LoadMoreBtn"
+          class="flex min-w-[140px] cursor-pointer items-center justify-center rounded-lg border border-app-border bg-transparent px-5 py-2 text-[13px] text-app-muted transition-all hover:border-app-muted hover:bg-app-surface-2 hover:text-app-text disabled:cursor-default disabled:opacity-50"
           :disabled="gw.loadingMore.value"
           @click="loadMore"
         >
-          <span v-if="gw.loadingMore.value" class="LoadMoreSpinner" />
+          <span v-if="gw.loadingMore.value" class="size-3.5 animate-spin rounded-full border-2 border-app-border border-t-app-accent" />
           <span v-else>Load more sessions</span>
         </button>
       </div>
@@ -719,25 +720,25 @@ function formatCount(n: number): string {
 
     <!-- Context Menu -->
     <Teleport to="body">
-      <div v-if="contextMenuVisible" class="ContextMenuOverlay" @click="closeContextMenu">
+      <div v-if="contextMenuVisible" class="fixed inset-0 z-[1000]" @click="closeContextMenu">
         <div
-          class="ContextMenu"
+          class="fixed z-[1001] min-w-40 rounded-[10px] border border-app-border bg-app-surface p-1 shadow-[0_8px_24px_rgba(0,0,0,0.4)]"
           :style="menuStyle"
           @click.stop
         >
-          <button class="ContextMenuBtn" @click="openRename">
+          <button class="w-full cursor-pointer rounded-md border-0 bg-transparent px-3.5 py-2.5 text-left text-sm text-app-text transition-colors hover:bg-app-surface-2" @click="openRename">
             ✏️ Rename
           </button>
-          <button class="ContextMenuBtn" @click="handlePin">
+          <button class="w-full cursor-pointer rounded-md border-0 bg-transparent px-3.5 py-2.5 text-left text-sm text-app-text transition-colors hover:bg-app-surface-2" @click="handlePin">
             {{ isPinned(contextMenuSessionId) ? '📌 Unpin' : '📌 Pin to top' }}
           </button>
-          <button v-if="!showingArchived" class="ContextMenuBtn" @click="handleArchive">
+          <button v-if="!showingArchived" class="w-full cursor-pointer rounded-md border-0 bg-transparent px-3.5 py-2.5 text-left text-sm text-app-text transition-colors hover:bg-app-surface-2" @click="handleArchive">
             📦 Archive
           </button>
-          <button v-else class="ContextMenuBtn" @click="handleUnarchive">
+          <button v-else class="w-full cursor-pointer rounded-md border-0 bg-transparent px-3.5 py-2.5 text-left text-sm text-app-text transition-colors hover:bg-app-surface-2" @click="handleUnarchive">
             📤 Unarchive
           </button>
-          <button class="ContextMenuBtn danger" @click="handleDelete">
+          <button class="w-full cursor-pointer rounded-md border-0 bg-transparent px-3.5 py-2.5 text-left text-sm text-app-text transition-colors hover:bg-app-surface-2 text-app-error hover:bg-app-error/10" @click="handleDelete">
             ✕ Delete
           </button>
         </div>
@@ -746,21 +747,21 @@ function formatCount(n: number): string {
 
     <!-- Rename Dialog -->
     <Teleport to="body">
-      <div v-if="renameVisible" class="RenameOverlay" @click="cancelRename">
-        <div class="RenameDialog" @click.stop>
-          <div class="RenameLabel">Rename session</div>
+      <div v-if="renameVisible" class="fixed inset-0 z-[1002] flex items-center justify-center bg-black/50 p-6" @click="cancelRename">
+        <div class="w-full max-w-80 rounded-app border border-app-border bg-app-surface p-5 shadow-[0_16px_48px_rgba(0,0,0,0.5)]" @click.stop>
+          <div class="mb-3.5 text-[15px] font-semibold tracking-[-0.02em]">Rename session</div>
           <input
             ref="renameInputEl"
             v-model="renameTitle"
             type="text"
-            class="RenameInput"
+            class="box-border h-10 w-full rounded-lg border border-app-border bg-app-surface-2 px-3 text-sm outline-none transition-colors placeholder:text-app-muted focus:border-app-accent"
             placeholder="Session title…"
             maxlength="120"
             @keydown="handleRenameKeydown"
           />
-          <div class="RenameActions">
-            <button class="RenameCancel" @click="cancelRename">Cancel</button>
-            <button class="RenameConfirm" :disabled="!renameTitle.trim() || renaming" @click="confirmRename">
+          <div class="mt-4 flex justify-end gap-2">
+            <button class="h-9 cursor-pointer rounded-lg border border-app-border bg-transparent px-4 text-[13px] font-medium text-app-muted transition-all hover:border-app-muted hover:text-app-text" @click="cancelRename">Cancel</button>
+            <button class="h-9 cursor-pointer rounded-lg border-0 bg-app-accent px-4 text-[13px] font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-default disabled:opacity-40" :disabled="!renameTitle.trim() || renaming" @click="confirmRename">
               {{ renaming ? 'Saving…' : 'Rename' }}
             </button>
           </div>
@@ -769,617 +770,3 @@ function formatCount(n: number): string {
     </Teleport>
   </div>
 </template>
-
-<style scoped>
-.SessionsView {
-  background-color: var(--bg);
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-}
-
-/* ── Header ── */
-.Header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 20px 16px 16px;
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-}
-
-.HeaderLeft {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.Title {
-  font-size: 24px;
-  font-weight: 700;
-  color: var(--text);
-  letter-spacing: -0.02em;
-}
-
-.ConnStatus {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.ConnDot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.online .ConnDot {
-  background: var(--success);
-  box-shadow: 0 0 6px rgba(34, 197, 94, 0.5);
-}
-
-.offline .ConnDot {
-  background: var(--error);
-  box-shadow: 0 0 6px rgba(239, 68, 68, 0.4);
-}
-
-.ConnLabel {
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
-.HeaderActions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.NewSessionBtn {
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
-  background-color: var(--accent);
-  border: none;
-  color: #ffffff;
-  font-size: 20px;
-  font-weight: 500;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: opacity 0.15s;
-  line-height: 1;
-}
-
-.NewSessionBtn:hover { opacity: 0.9; }
-
-.ArchiveToggleBtn {
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
-  background-color: var(--surface);
-  border: 1px solid var(--border);
-  color: var(--text-muted);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.ArchiveToggleBtn:hover { background-color: var(--surface-2); color: var(--text); }
-.ArchiveToggleBtn.active { color: var(--accent); border-color: rgba(94, 106, 210, 0.3); background-color: rgba(94, 106, 210, 0.1); }
-
-.CronBtn {
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
-  background-color: var(--surface);
-  border: 1px solid var(--border);
-  color: var(--text-muted);
-  font-size: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-
-.CronBtn:hover { background-color: var(--surface-2); }
-
-.RefreshBtn {
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
-  background-color: var(--surface);
-  border: 1px solid var(--border);
-  color: var(--text-muted);
-  font-size: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-
-.RefreshBtn:hover { background-color: var(--surface-2); }
-.RefreshBtn.spinning { animation: spin 0.8s linear infinite; }
-
-.DisconnectBtn {
-  height: 36px;
-  padding: 0 14px;
-  border-radius: 8px;
-  background-color: transparent;
-  border: 1px solid rgba(239, 68, 68, 0.2);
-  color: var(--error);
-  font-size: 13px;
-  font-weight: 500;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: border-color 0.15s;
-}
-
-.DisconnectBtn:hover { border-color: rgba(239, 76, 94, 0.4); }
-
-/* ── Search ── */
-.SearchWrap {
-  position: relative;
-  padding: 12px 16px;
-  flex-shrink: 0;
-}
-
-.SearchIcon {
-  position: absolute;
-  left: 28px;
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--text-muted);
-}
-
-.SearchInput {
-  width: 100%;
-  height: 40px;
-  background-color: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 0 86px 0 40px;
-  color: var(--text);
-  font-size: 14px;
-  outline: none;
-  transition: border-color 0.15s;
-}
-
-.SearchInput:focus { border-color: var(--accent); }
-.SearchInput::placeholder { color: var(--text-muted); }
-
-.SearchClear {
-  position: absolute;
-  right: 28px;
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 14px;
-  padding: 4px;
-}
-
-.SearchStatus {
-  position: absolute;
-  right: 52px;
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--text-muted);
-  font-size: 11px;
-  pointer-events: none;
-}
-
-/* ── Pull indicator ── */
-.PullIndicator {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  flex-shrink: 0;
-}
-
-.PullSpinner {
-  width: 24px;
-  height: 24px;
-  border: 2px solid var(--border);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-}
-
-.PullSpinner.active { animation: spin 0.8s linear infinite; }
-
-/* ── States ── */
-.StateView {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 40px;
-  gap: 12px;
-}
-
-.SkeletonList {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.SkeletonCard {
-  background-color: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.SkeletonLine {
-  height: 14px;
-  background: var(--surface-2);
-  border-radius: 4px;
-  animation: pulse 1.5s ease-in-out infinite;
-}
-
-.SkeletonLine.w60 { width: 60%; }
-.SkeletonLine.w90 { width: 90%; }
-.SkeletonLine.w40 { width: 40%; }
-
-@keyframes pulse {
-  0%, 100% { opacity: 0.5; }
-  50% { opacity: 0.8; }
-}
-
-.StateText { font-size: 15px; color: var(--text-muted); }
-.EmptyIcon { font-size: 40px; }
-.ErrorText { font-size: 14px; color: var(--error); }
-
-.RetryBtn, .NewBtn {
-  height: 40px;
-  padding: 0 24px;
-  background-color: var(--accent);
-  border: none;
-  border-radius: 8px;
-  color: #ffffff;
-  font-size: 15px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: opacity 0.15s;
-}
-
-.RetryBtn:hover, .NewBtn:hover { opacity: 0.9; }
-
-@keyframes spin { to { transform: rotate(360deg); } }
-
-/* ── Session list ── */
-.SessionList {
-  flex: 1;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-  padding: 12px 16px;
-}
-
-.LoadMoreWrap {
-  display: flex;
-  justify-content: center;
-  padding: 16px 0 8px;
-}
-
-.LoadMoreBtn {
-  background: none;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  color: var(--text-muted);
-  font-size: 13px;
-  padding: 8px 20px;
-  cursor: pointer;
-  transition: all 0.15s;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 140px;
-}
-
-.LoadMoreBtn:hover:not(:disabled) {
-  color: var(--text);
-  border-color: var(--text-muted);
-  background: var(--surface-2);
-}
-
-.LoadMoreBtn:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-.LoadMoreSpinner {
-  width: 14px;
-  height: 14px;
-  border: 2px solid var(--border);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: spin 0.6s linear infinite;
-}
-
-.DateGroupLabel {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  padding: 8px 4px 6px;
-}
-
-.SessionCard {
-  background-color: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 14px 16px;
-  margin-bottom: 8px;
-  cursor: pointer;
-  transition: background-color 0.15s, border-color 0.15s;
-}
-
-.SessionCard:hover { background-color: var(--surface-2); }
-.SessionCard.pinned { border-color: rgba(94, 106, 210, 0.3); }
-.SessionCard.branch { margin-left: 16px; }
-
-.CardTop {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 4px;
-}
-
-.PinIcon { font-size: 12px; }
-.BranchStem { color: var(--text-muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; letter-spacing: -2px; }
-
-.SessionTitle {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text);
-  flex: 1;
-  letter-spacing: -0.02em;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.ActiveDot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background-color: var(--success);
-  box-shadow: 0 0 6px rgba(34, 197, 94, 0.4);
-  flex-shrink: 0;
-}
-
-.DeleteBtn {
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  font-size: 14px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: color 0.15s, background 0.15s;
-}
-
-.DeleteBtn:hover { color: var(--error); background: rgba(239, 68, 68, 0.1); }
-.DeleteBtn.confirming { color: var(--error); background: rgba(239, 68, 68, 0.15); }
-
-.SessionPreview {
-  font-size: 13px;
-  color: var(--text-muted);
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  line-height: 1.4;
-  margin-bottom: 6px;
-}
-
-.CardMeta {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.MetaText {
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
-.MetaDot {
-  font-size: 12px;
-  color: var(--text-muted);
-  opacity: 0.5;
-}
-
-.ModelBadge {
-  font-size: 11px;
-  color: var(--accent);
-  background-color: rgba(94, 106, 210, 0.12);
-  border-radius: 4px;
-  padding: 1px 6px;
-  margin-left: auto;
-}
-
-.SourceBadge {
-  font-size: 11px;
-  color: var(--success);
-  background-color: rgba(34, 197, 94, 0.1);
-  border-radius: 4px;
-  padding: 1px 6px;
-}
-
-/* ── Context Menu ── */
-.ContextMenuOverlay {
-  position: fixed;
-  inset: 0;
-  z-index: 1000;
-}
-
-.ContextMenu {
-  position: fixed;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 4px;
-  min-width: 160px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-  z-index: 1001;
-}
-
-.ContextMenuBtn {
-  width: 100%;
-  padding: 10px 14px;
-  background: none;
-  border: none;
-  color: var(--text);
-  font-size: 14px;
-  text-align: left;
-  cursor: pointer;
-  border-radius: 6px;
-  transition: background 0.1s;
-}
-
-.ContextMenuBtn:hover { background: var(--surface-2); }
-.ContextMenuBtn.danger { color: var(--error); }
-.ContextMenuBtn.danger:hover { background: rgba(239, 68, 68, 0.1); }
-
-/* ── Rename Dialog ── */
-.RenameOverlay {
-  position: fixed;
-  inset: 0;
-  z-index: 1002;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-}
-
-.RenameDialog {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 20px;
-  width: 100%;
-  max-width: 320px;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
-}
-
-.RenameLabel {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text);
-  margin-bottom: 14px;
-  letter-spacing: -0.02em;
-}
-
-.RenameInput {
-  width: 100%;
-  height: 40px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 0 12px;
-  color: var(--text);
-  font-size: 14px;
-  outline: none;
-  transition: border-color 0.15s;
-  box-sizing: border-box;
-}
-
-.RenameInput:focus {
-  border-color: var(--accent);
-}
-
-.RenameInput::placeholder {
-  color: var(--text-muted);
-}
-
-.RenameActions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 16px;
-}
-
-.RenameCancel {
-  height: 36px;
-  padding: 0 16px;
-  border-radius: 8px;
-  background: none;
-  border: 1px solid var(--border);
-  color: var(--text-muted);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.RenameCancel:hover {
-  color: var(--text);
-  border-color: var(--text-muted);
-}
-
-.RenameConfirm {
-  height: 36px;
-  padding: 0 16px;
-  border-radius: 8px;
-  background: var(--accent);
-  border: none;
-  color: #fff;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: opacity 0.15s;
-}
-
-.RenameConfirm:hover { opacity: 0.9; }
-.RenameConfirm:disabled { opacity: 0.4; cursor: default; }
-
-/* ── Unread indicator ── */
-.UnreadDot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background-color: var(--accent);
-  box-shadow: 0 0 6px rgba(94, 106, 210, 0.5);
-  flex-shrink: 0;
-}
-
-.MarkReadBtn {
-  height: 30px;
-  padding: 0 10px;
-  border-radius: 6px;
-  background: none;
-  border: 1px solid var(--border);
-  color: var(--text-muted);
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.15s;
-  white-space: nowrap;
-}
-
-.MarkReadBtn:hover {
-  color: var(--text);
-  border-color: var(--text-muted);
-}
-</style>

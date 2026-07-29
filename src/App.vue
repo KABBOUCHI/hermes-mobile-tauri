@@ -118,116 +118,35 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="Root flex min-h-0 flex-col bg-app-bg text-app-text font-sans">
-    <div v-if="!bootReady" class="BootScreen flex-1" role="status" aria-label="Connecting to Hermes">
-      <div class="BootMark">☤</div>
-      <div class="BootTitle">Hermes</div>
-      <div class="BootProgress"><span /></div>
-      <div class="BootLabel">Restoring your workspace…</div>
+  <div class="flex h-[var(--app-height,100dvh)] min-h-0 flex-col box-border bg-app-bg pt-[env(safe-area-inset-top,48px)] font-sans text-app-text">
+    <div v-if="!bootReady" class="grid flex-1 place-content-center justify-items-center gap-2.5 bg-app-bg p-8" role="status" aria-label="Connecting to Hermes">
+      <div class="text-[31px] leading-none text-app-accent">☤</div>
+      <div class="text-[17px] font-semibold tracking-[-0.04em]">Hermes</div>
+      <div class="h-0.5 w-28 overflow-hidden bg-app-surface-3"><span class="block h-full w-[46%] animate-[boot-progress_1.15s_ease-in-out_infinite] bg-app-accent" /></div>
+      <div class="text-xs text-app-muted">Restoring your workspace…</div>
     </div>
     <router-view v-else class="AppRoute min-h-0 flex-1" />
 
     <!-- Toast notifications -->
     <Teleport to="body">
-      <div class="ToastContainer">
+      <div class="fixed top-14 left-1/2 z-[9999] flex -translate-x-1/2 flex-col items-center gap-2 pointer-events-none">
         <TransitionGroup name="toast">
           <div
             v-for="t in toast.toasts.value"
             :key="t.id"
-            class="Toast"
-            :class="t.type"
+            :class="[
+              'pointer-events-auto flex max-w-80 cursor-pointer items-center gap-2 rounded-[10px] px-4 py-2.5 text-center text-[13px] font-medium shadow-[0_4px_16px_rgba(0,0,0,0.4)] backdrop-blur-md',
+              t.type === 'info' && 'border border-app-accent/30 bg-app-accent/15 text-app-accent',
+              t.type === 'success' && 'border border-app-success/30 bg-app-success/15 text-app-success',
+              t.type === 'error' && 'border border-app-error/30 bg-app-error/15 text-app-error',
+            ]"
             @click="toast.dismiss(t.id)"
           >
-            <span class="ToastIcon">{{ t.type === 'success' ? '✓' : t.type === 'error' ? '✕' : 'ℹ' }}</span>
-            <span class="ToastMsg">{{ t.message }}</span>
+            <span class="text-sm leading-none">{{ t.type === 'success' ? '✓' : t.type === 'error' ? '✕' : 'ℹ' }}</span>
+            <span class="leading-[1.3]">{{ t.message }}</span>
           </div>
         </TransitionGroup>
       </div>
     </Teleport>
   </div>
 </template>
-
-<style>
-@import './assets/main.css';
-
-.Root {
-  background-color: var(--bg);
-  height: 100%;
-  height: var(--app-height, 100dvh);
-  display: flex;
-  flex-direction: column;
-  box-sizing: border-box;
-  padding-top: env(safe-area-inset-top, 48px);
-}
-.AppRoute {
-  flex: 1;
-  min-height: 0;
-}
-
-.BootScreen {
-  flex: 1;
-  display: grid;
-  place-content: center;
-  justify-items: center;
-  gap: 10px;
-  padding: 32px;
-  background: var(--bg);
-}
-.BootMark { color: var(--accent); font-size: 31px; line-height: 1; }
-.BootTitle { font-size: 17px; font-weight: 650; letter-spacing: -0.04em; }
-.BootLabel { color: var(--text-muted); font-size: 12px; }
-.BootProgress { width: 112px; height: 2px; overflow: hidden; background: var(--surface-3); }
-.BootProgress span { display: block; width: 46%; height: 100%; background: var(--accent); animation: boot-progress 1.15s ease-in-out infinite; }
-@keyframes boot-progress { from { transform: translateX(-110%); } to { transform: translateX(250%); } }
-
-/* ── Toast notifications ── */
-.ToastContainer {
-  position: fixed;
-  top: 56px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 9999;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  pointer-events: none;
-}
-.Toast {
-  pointer-events: auto;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 16px;
-  border-radius: 10px;
-  font-size: 13px;
-  font-weight: 500;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-  cursor: pointer;
-  max-width: 320px;
-  text-align: center;
-}
-.Toast.info {
-  background: rgba(94, 106, 210, 0.15);
-  border: 1px solid rgba(94, 106, 210, 0.3);
-  color: var(--accent);
-}
-.Toast.success {
-  background: rgba(34, 197, 94, 0.15);
-  border: 1px solid rgba(34, 197, 94, 0.3);
-  color: var(--success);
-}
-.Toast.error {
-  background: rgba(239, 68, 68, 0.15);
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  color: var(--error);
-}
-.ToastIcon { font-size: 14px; line-height: 1; }
-.ToastMsg { line-height: 1.3; }
-.toast-enter-active { animation: toast-in 0.25s ease-out; }
-.toast-leave-active { animation: toast-out 0.2s ease-in; }
-@keyframes toast-in { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
-@keyframes toast-out { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(-10px); } }
-</style>

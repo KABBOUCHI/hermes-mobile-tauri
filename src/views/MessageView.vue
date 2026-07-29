@@ -937,7 +937,7 @@ function formatTime(ts: number): string {
 <template>
   <div class="relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-app-bg font-sans text-app-text">
     <!-- Header -->
-    <div class="flex min-h-12 shrink-0 items-center gap-2 border-b border-app-border bg-app-surface px-3 py-2">
+    <div class="flex min-h-14 shrink-0 items-center gap-2 border-b border-app-border bg-app-surface px-4 py-3">
       <button class="cursor-pointer border-0 bg-transparent px-1 text-[22px] leading-none text-app-accent" @click="goBack">‹</button>
       <div class="flex-1 truncate text-[15px] font-semibold tracking-[-0.02em]">{{ selectedSessionTitle }}</div>
       <button class="flex max-w-[120px] shrink-0 cursor-pointer items-center gap-1 rounded-md border border-app-border bg-app-surface-2 px-2 py-1 text-xs font-medium text-app-muted transition-all hover:border-app-accent hover:bg-app-accent/10 hover:text-app-accent" @click="toggleModelPicker" :class="{ active: modelPickerOpen }">
@@ -986,7 +986,7 @@ function formatTime(ts: number): string {
     </div>
 
     <!-- Messages -->
-    <div class="flex min-h-0 min-w-0 flex-1 flex-col gap-2.5 overflow-x-hidden overflow-y-auto overscroll-contain px-3 py-2.5" ref="scrollEl" @scroll="onScroll" @click="handleMessagesClick" @touchstart="onChatTouchStart" @touchmove="onChatTouchMove" @touchend="onChatTouchEnd">
+    <div class="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-x-hidden overflow-y-auto overscroll-contain px-4 py-4" ref="scrollEl" @scroll="onScroll" @click="handleMessagesClick" @touchstart="onChatTouchStart" @touchmove="onChatTouchMove" @touchend="onChatTouchEnd">
       <!-- Pull-to-refresh indicator -->
       <div
         v-if="pullDelta > 0"
@@ -1034,7 +1034,7 @@ function formatTime(ts: number): string {
         ]"
       >
         <div
-          class="max-w-[88%] break-words rounded-[14px] px-3.5 py-2.5 text-sm leading-[1.55]"
+          class="max-w-[88%] break-words rounded-[14px] px-4 py-3 text-sm leading-[1.55]"
           :class="[
             msg.role === 'user'
               ? 'self-end rounded-br-[4px] bg-app-accent text-white'
@@ -1070,7 +1070,7 @@ function formatTime(ts: number): string {
           <template v-else>
             <!-- Consecutive tool results are grouped by the normaliser so one
                  tool-heavy agent turn occupies one compact timeline row. -->
-            <details v-if="msg.role === 'tool'" class="w-full overflow-hidden rounded-lg border border-app-border bg-[color-mix(in_srgb,var(--surface)_88%,var(--accent))] [&>summary]:flex [&>summary]:cursor-pointer [&>summary]:items-center [&>summary]:gap-1.5 [&>summary]:bg-app-surface-2 [&>summary]:px-2.5 [&>summary]:py-2 [&>summary]:text-xs [&>summary]:font-medium [&>summary]:text-app-muted">
+            <details v-if="msg.role === 'tool'" class="my-1 w-full overflow-hidden rounded-lg border border-app-border bg-[color-mix(in_srgb,var(--surface)_88%,var(--accent))] [&>summary]:flex [&>summary]:cursor-pointer [&>summary]:items-center [&>summary]:gap-1.5 [&>summary]:bg-app-surface-2 [&>summary]:px-3 [&>summary]:py-2.5 [&>summary]:text-xs [&>summary]:font-medium [&>summary]:text-app-muted">
               <summary>
                 <span class="text-[11px] text-app-success">✓</span>
                 <span>{{ toolSummaryLabel(msg) }}</span>
@@ -1103,7 +1103,7 @@ function formatTime(ts: number): string {
 
             <template v-else>
               <!-- The gateway sends reasoning in dedicated fields, not only <think> tags. -->
-              <details v-if="msg.reasoning" class="mb-2 w-full overflow-hidden rounded-lg border border-app-border bg-[color-mix(in_srgb,var(--surface)_88%,var(--accent))] [&>summary]:cursor-pointer [&>summary]:bg-app-surface-2 [&>summary]:px-2.5 [&>summary]:py-2 [&>summary]:text-xs [&>summary]:font-medium [&>summary]:text-app-muted">
+              <details v-if="msg.reasoning" class="mb-3 w-full overflow-hidden rounded-lg border border-app-border bg-[color-mix(in_srgb,var(--surface)_88%,var(--accent))] [&>summary]:cursor-pointer [&>summary]:bg-app-surface-2 [&>summary]:px-3 [&>summary]:py-2.5 [&>summary]:text-xs [&>summary]:font-medium [&>summary]:text-app-muted">
                 <summary>{{ thoughtLabel(msg, idx) }}</summary>
                 <div class="px-2.5 pb-2.5 text-xs leading-[1.5] whitespace-pre-wrap text-app-muted">{{ msg.reasoning }}</div>
               </details>
@@ -1181,7 +1181,7 @@ function formatTime(ts: number): string {
       </template>
       <!-- Typing indicator -->
       <div v-if="sending && (gw.messages.value.length === 0 || gw.messages.value[gw.messages.value.length - 1].role !== 'assistant' || gw.messages.value[gw.messages.value.length - 1].content)" class="flex flex-col items-start gap-1">
-        <div class="flex max-w-[88%] items-center gap-1 rounded-[14px] rounded-bl-[4px] border border-app-border bg-app-surface px-3.5 py-1 text-sm leading-[1.55]">
+        <div class="flex max-w-[88%] items-center gap-1 rounded-[14px] rounded-bl-[4px] border border-app-border bg-app-surface px-4 py-2 text-sm leading-[1.55]">
           <span></span><span></span><span></span>
         </div>
       </div>

@@ -50,6 +50,9 @@ jobs:
       - name: Init Tauri Android
         run: npx tauri android init --ci
 
+      - name: Generate Tauri app icons
+        run: npm run tauri icon ./src-tauri/icons/icon.png
+
       - name: Setup Android signing
         run: |
           cd src-tauri/gen/android

@@ -7,6 +7,7 @@ import { extractUnifiedDiff, summarizeToolActivity, thoughtActivityLabel } from 
 import PatchDiff from '../components/PatchDiff.vue'
 import { isNearChatBottom } from '../utils/chatScroll'
 import { writeClipboardText } from '../utils/clipboard'
+import { formatElapsedSeconds } from '../utils/elapsedTime'
 import { createSessionExport } from '../utils/sessionExport'
 import { useAuth } from '../composables/useAuth'
 import { useGateway, type ModelProvider } from '../composables/useGateway'
@@ -119,6 +120,7 @@ onUnmounted(() => {
   if (window.visualViewport) {
     window.visualViewport.removeEventListener('resize', onViewportResize)
   }
+  stopElapsedTimer()
 })
 
 function onViewportResize() {
@@ -773,23 +775,15 @@ function showDateSeparator(idx: number): boolean {
 const elapsedDisplay = ref('')
 let elapsedTimer: ReturnType<typeof setInterval> | null = null
 
-function formatElapsed(ms: number): string {
-  const totalSeconds = Math.floor(ms / 1000)
-  const seconds = totalSeconds % 60
-  const minutes = Math.floor(totalSeconds / 60)
-  if (minutes > 0) return `${minutes}m ${seconds}s`
-  return `${seconds}s`
-}
-
 function startElapsedTimer() {
   if (elapsedTimer) return
   elapsedTimer = setInterval(() => {
     if (gw.turnStartedAt.value) {
-      elapsedDisplay.value = formatElapsed(Date.now() - gw.turnStartedAt.value)
+      elapsedDisplay.value = formatElapsedSeconds((Date.now() - gw.turnStartedAt.value) / 1000)
     }
   }, 1000)
   if (gw.turnStartedAt.value) {
-    elapsedDisplay.value = formatElapsed(Date.now() - gw.turnStartedAt.value)
+    elapsedDisplay.value = formatElapsedSeconds((Date.now() - gw.turnStartedAt.value) / 1000)
   }
 }
 
@@ -1112,7 +1106,7 @@ function formatTime(ts: number): string {
                 <span class="size-[5px] rounded-full bg-app-accent"></span>
                 <span class="size-[5px] rounded-full bg-app-accent"></span>
                 <span class="size-[5px] rounded-full bg-app-accent"></span>
-                <span class="ml-1 text-xs text-app-muted">Thinking…</span>
+                <span class="ml-1 text-xs tabular-nums text-app-muted">Thinking<span v-if="elapsedDisplay"> · {{ elapsedDisplay }}</span><span v-else>…</span></span>
               </div>
 
               <!-- Desktop-local image paths cannot be fetched by a phone. Show

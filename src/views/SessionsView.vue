@@ -8,6 +8,7 @@ import { usePins } from '../composables/usePins'
 import { useUnreads } from '../composables/useUnreads'
 import { sessionMatchesSearch } from '../utils/sessionSearch'
 import { flattenSessionsWithBranches, type SessionBranchEntry } from '../utils/sessionList'
+import { Archive, ArchiveRestore, Atom, Check, CircleX, Inbox, Pencil, Pin, Plus, RefreshCw, Search, Trash2 } from '@lucide/vue'
 
 const router = useRouter()
 const auth = useAuth()
@@ -201,7 +202,7 @@ const groupedSessions = computed(() => {
   }
   const groups = getDateGroups(flattenSessionsWithBranches(unpinnedSessions.value))
   if (pinnedSessions.value.length > 0) {
-    groups.unshift({ label: '📌 Pinned', sessions: flattenSessionsWithBranches(pinnedSessions.value) })
+    groups.unshift({ label: 'Pinned', sessions: flattenSessionsWithBranches(pinnedSessions.value) })
   }
   return groups
 })
@@ -510,7 +511,7 @@ function formatCount(n: number): string {
     <!-- Header -->
     <div class="flex h-[68px] shrink-0 items-center gap-3 border-b border-app-border bg-app-bg px-4">
       <div class="flex min-w-0 flex-1 items-center gap-2.5">
-        <span class="flex size-9 shrink-0 items-center justify-center rounded-xl border border-app-accent/25 bg-app-accent/10 text-lg text-app-accent">☤</span>
+        <span class="flex size-9 shrink-0 items-center justify-center rounded-xl border border-app-accent/25 bg-app-accent/10 text-app-accent"><Atom :size="20" :stroke-width="1.8" /></span>
         <div class="min-w-0">
           <div class="truncate text-[17px] font-semibold tracking-[-0.03em]">Hermes</div>
           <div class="flex min-w-0 items-center gap-1.5">
@@ -526,23 +527,17 @@ function formatCount(n: number): string {
           @click="toggleArchived"
           title="Archived sessions"
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="21 8 21 21 3 21 3 8" />
-            <rect x="1" y="3" width="22" height="5" />
-            <line x1="10" y1="12" x2="14" y2="12" />
-          </svg>
+          <Archive :size="16" :stroke-width="2" />
         </button>
         <button v-if="unreadIds.size > 0" class="h-8 cursor-pointer whitespace-nowrap rounded-md border-0 bg-transparent px-2 text-[11px] font-medium text-app-muted transition-colors hover:bg-app-surface-3 hover:text-app-text" @click="handleMarkAllRead" title="Mark all read">
           ✓ Read
         </button>
 
         <button class="flex size-8 cursor-pointer items-center justify-center rounded-md border-0 bg-app-accent text-xl font-medium leading-none text-white transition-colors hover:bg-app-accent-hover" @click="createNewSession" title="New session" aria-label="New session">
-          +
+          <Plus :size="20" :stroke-width="2.5" />
         </button>
         <button class="flex size-8 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-app-muted transition-colors hover:bg-app-surface-3 hover:text-app-text" :class="refreshing && 'animate-spin'" @click="handleRefresh" title="Refresh" aria-label="Refresh">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M20 11a8 8 0 1 0 2 5.5M20 4v7h-7" />
-          </svg>
+          <RefreshCw :size="16" :stroke-width="1.8" />
         </button>
 
       </div>
@@ -550,17 +545,14 @@ function formatCount(n: number): string {
 
     <!-- Search -->
     <div class="relative shrink-0 px-4 py-3">
-      <svg class="absolute left-7 top-1/2 -translate-y-1/2 text-app-muted" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="11" cy="11" r="8" />
-        <line x1="21" y1="21" x2="16.65" y2="16.65" />
-      </svg>
+      <Search class="absolute left-7 top-1/2 -translate-y-1/2 text-app-muted" :size="16" :stroke-width="2" />
       <input
         v-model="search"
         type="text"
         class="h-10 w-full rounded-[10px] border border-app-border bg-app-surface py-0 pr-[86px] pl-10 text-sm outline-none transition-colors placeholder:text-app-muted focus:border-app-accent"
         placeholder="Search sessions…"
       />
-      <span v-if="search" class="absolute right-7 top-1/2 cursor-pointer p-1 text-sm text-app-muted -translate-y-1/2" @click="search = ''">✕</span>
+      <button v-if="search" class="absolute right-7 top-1/2 flex cursor-pointer items-center justify-center border-0 bg-transparent p-1 text-app-muted -translate-y-1/2" @click="search = ''" aria-label="Clear search"><CircleX :size="16" :stroke-width="2" /></button>
       <span v-if="searchPending" class="pointer-events-none absolute right-[52px] top-1/2 -translate-y-1/2 text-[11px] text-app-muted">Searching…</span>
     </div>
 
@@ -592,7 +584,7 @@ function formatCount(n: number): string {
 
     <!-- Empty -->
     <div v-else-if="filtered.length === 0" class="flex flex-1 flex-col items-center justify-center gap-3 p-10">
-      <span class="text-[40px]">📭</span>
+      <Inbox :size="40" :stroke-width="1.6" class="text-app-muted" />
       <span class="text-[15px] text-app-muted">{{ search ? 'No matching sessions' : showingArchived ? 'No archived sessions' : 'No sessions found' }}</span>
       <button class="h-10 cursor-pointer rounded-lg border-0 bg-app-accent px-6 text-[15px] font-semibold text-white transition-opacity hover:opacity-90" @click="createNewSession">Start a conversation</button>
     </div>
@@ -630,7 +622,7 @@ function formatCount(n: number): string {
           >
             <div class="mb-1 flex items-center gap-1.5">
               <span v-if="row.entry.branchStem" class="font-mono text-xs tracking-[-2px] text-app-muted" aria-hidden="true">{{ row.entry.branchStem }}</span>
-              <span v-if="isPinned(row.entry.session.id)" class="text-xs">📌</span>
+              <Pin v-if="isPinned(row.entry.session.id)" :size="14" :stroke-width="2" class="text-app-accent" />
               <span v-if="unreadIds.has(row.entry.session.id)" class="size-2 shrink-0 rounded-full bg-app-accent shadow-[0_0_6px_rgba(94,106,210,0.5)]" />
               <span class="flex-1 truncate text-[15px] font-semibold tracking-[-0.02em]">{{ row.entry.session.title || row.entry.session.preview || 'Untitled' }}</span>
               <span v-if="row.entry.session.is_active" class="size-2 shrink-0 rounded-full bg-app-success shadow-[0_0_6px_rgba(34,197,94,0.4)]" />
@@ -640,7 +632,8 @@ function formatCount(n: number): string {
                 @click="confirmDelete($event, row.entry.session.id)"
                 :title="deletingId === row.entry.session.id ? 'Confirm delete' : 'Delete'"
               >
-                {{ deletingId === row.entry.session.id ? '✓' : '✕' }}
+                <Check v-if="deletingId === row.entry.session.id" :size="16" :stroke-width="2.5" />
+                <Trash2 v-else :size="15" :stroke-width="2" />
               </button>
             </div>
             <span class="mb-1.5 line-clamp-2 text-[13px] leading-[1.4] text-app-muted">{{ row.entry.session.preview || 'No messages' }}</span>
@@ -670,7 +663,7 @@ function formatCount(n: number): string {
         >
         <div class="mb-1 flex items-center gap-1.5">
           <span v-if="entry.branchStem" class="font-mono text-xs tracking-[-2px] text-app-muted" aria-hidden="true">{{ entry.branchStem }}</span>
-          <span v-if="isPinned(entry.session.id)" class="text-xs">📌</span>
+          <Pin v-if="isPinned(entry.session.id)" :size="14" :stroke-width="2" class="text-app-accent" />
           <span v-if="unreadIds.has(entry.session.id)" class="size-2 shrink-0 rounded-full bg-app-accent shadow-[0_0_6px_rgba(94,106,210,0.5)]" />
           <span class="flex-1 truncate text-[15px] font-semibold tracking-[-0.02em]">{{ entry.session.title || entry.session.preview || 'Untitled' }}</span>
           <span v-if="entry.session.is_active" class="size-2 shrink-0 rounded-full bg-app-success shadow-[0_0_6px_rgba(34,197,94,0.4)]" />
@@ -680,7 +673,8 @@ function formatCount(n: number): string {
             @click="confirmDelete($event, entry.session.id)"
             :title="deletingId === entry.session.id ? 'Confirm delete' : 'Delete'"
           >
-            {{ deletingId === entry.session.id ? '✓' : '✕' }}
+            <Check v-if="deletingId === entry.session.id" :size="16" :stroke-width="2.5" />
+            <Trash2 v-else :size="15" :stroke-width="2" />
           </button>
         </div>
         <span class="mb-1.5 line-clamp-2 text-[13px] leading-[1.4] text-app-muted">{{ entry.session.preview || 'No messages' }}</span>
@@ -714,20 +708,20 @@ function formatCount(n: number): string {
           :style="menuStyle"
           @click.stop
         >
-          <button class="w-full cursor-pointer rounded-md border-0 bg-transparent px-3.5 py-2.5 text-left text-sm text-app-text transition-colors hover:bg-app-surface-2" @click="openRename">
-            ✏️ Rename
+          <button class="flex w-full cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-3.5 py-2.5 text-left text-sm text-app-text transition-colors hover:bg-app-surface-2" @click="openRename">
+            <Pencil :size="16" :stroke-width="2" /> Rename
           </button>
-          <button class="w-full cursor-pointer rounded-md border-0 bg-transparent px-3.5 py-2.5 text-left text-sm text-app-text transition-colors hover:bg-app-surface-2" @click="handlePin">
-            {{ isPinned(contextMenuSessionId) ? '📌 Unpin' : '📌 Pin to top' }}
+          <button class="flex w-full cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-3.5 py-2.5 text-left text-sm text-app-text transition-colors hover:bg-app-surface-2" @click="handlePin">
+            <Pin :size="16" :stroke-width="2" /> {{ isPinned(contextMenuSessionId) ? 'Unpin' : 'Pin to top' }}
           </button>
-          <button v-if="!showingArchived" class="w-full cursor-pointer rounded-md border-0 bg-transparent px-3.5 py-2.5 text-left text-sm text-app-text transition-colors hover:bg-app-surface-2" @click="handleArchive">
-            📦 Archive
+          <button v-if="!showingArchived" class="flex w-full cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-3.5 py-2.5 text-left text-sm text-app-text transition-colors hover:bg-app-surface-2" @click="handleArchive">
+            <Archive :size="16" :stroke-width="2" /> Archive
           </button>
-          <button v-else class="w-full cursor-pointer rounded-md border-0 bg-transparent px-3.5 py-2.5 text-left text-sm text-app-text transition-colors hover:bg-app-surface-2" @click="handleUnarchive">
-            📤 Unarchive
+          <button v-else class="flex w-full cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-3.5 py-2.5 text-left text-sm text-app-text transition-colors hover:bg-app-surface-2" @click="handleUnarchive">
+            <ArchiveRestore :size="16" :stroke-width="2" /> Unarchive
           </button>
-          <button class="w-full cursor-pointer rounded-md border-0 bg-transparent px-3.5 py-2.5 text-left text-sm text-app-text transition-colors hover:bg-app-surface-2 text-app-error hover:bg-app-error/10" @click="handleDelete">
-            ✕ Delete
+          <button class="flex w-full cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-3.5 py-2.5 text-left text-sm text-app-text transition-colors hover:bg-app-surface-2 text-app-error hover:bg-app-error/10" @click="handleDelete">
+            <Trash2 :size="16" :stroke-width="2" /> Delete
           </button>
         </div>
       </div>

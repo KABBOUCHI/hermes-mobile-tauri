@@ -11,6 +11,7 @@ import { useAuth } from '../composables/useAuth'
 import { useGateway, type ModelProvider } from '../composables/useGateway'
 import { useToast } from '../composables/useToast'
 import { openUrl } from '@tauri-apps/plugin-opener'
+import { ArrowDown, ArrowLeft, Check, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Copy, EllipsisVertical, FileImage, History, MessageCircle, MoreHorizontal, Pencil, RotateCcw, Search, Send, Share, Square, X } from '@lucide/vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -938,13 +939,11 @@ function formatTime(ts: number): string {
   <div class="relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-app-bg font-sans text-app-text">
     <!-- Header -->
     <div class="flex min-h-12 shrink-0 items-center gap-2 border-b border-app-border bg-app-surface px-3 py-2.5">
-      <button class="cursor-pointer border-0 bg-transparent px-1 text-[22px] leading-none text-app-accent" @click="goBack">‹</button>
+      <button class="flex cursor-pointer items-center justify-center border-0 bg-transparent px-1 text-app-accent" @click="goBack" aria-label="Back to sessions"><ArrowLeft :size="22" :stroke-width="2" /></button>
       <div class="flex-1 truncate text-[15px] font-semibold tracking-[-0.02em]">{{ selectedSessionTitle }}</div>
       <button class="flex max-w-[120px] shrink-0 cursor-pointer items-center gap-1 rounded-md border border-app-border bg-app-surface-2 px-2 py-1 text-xs font-medium text-app-muted transition-all hover:border-app-accent hover:bg-app-accent/10 hover:text-app-accent" @click="toggleModelPicker" :class="{ active: modelPickerOpen }">
         <span class="truncate">{{ currentModelShort }}</span>
-        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-          <polyline points="6 9 12 15 18 9" />
-        </svg>
+        <ChevronDown :size="10" :stroke-width="2.5" />
       </button>
       <div class="relative shrink-0">
         <button
@@ -953,7 +952,7 @@ function formatTime(ts: number): string {
           aria-label="Chat actions"
           @click="headerMenuOpen = !headerMenuOpen"
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
+          <MoreHorizontal :size="18" :stroke-width="2" />
         </button>
         <div v-if="headerMenuOpen" class="absolute top-[calc(100%+6px)] right-0 z-30 min-w-[148px] rounded-lg border border-app-border bg-app-surface-2 p-1 shadow-[0_10px_24px_rgba(0,0,0,0.32)]">
           <button class="block w-full cursor-pointer rounded-md border-0 bg-transparent px-3 py-2 text-left text-[13px] text-app-text transition-colors hover:bg-app-surface-3 disabled:cursor-default disabled:opacity-40" @click="openSearchFromMenu">Search messages</button>
@@ -965,10 +964,7 @@ function formatTime(ts: number): string {
 
     <!-- Search bar -->
     <div v-if="searchOpen" class="flex shrink-0 items-center gap-1.5 border-b border-app-border bg-app-surface px-3 py-2">
-      <svg class="shrink-0 text-app-muted" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="11" cy="11" r="8" />
-        <line x1="21" y1="21" x2="16.65" y2="16.65" />
-      </svg>
+      <Search class="shrink-0 text-app-muted" :size="14" :stroke-width="2" />
       <input
         ref="searchInputEl"
         v-model="searchQuery"
@@ -980,9 +976,9 @@ function formatTime(ts: number): string {
       />
       <span v-if="matchIndices.length > 0" class="min-w-8 shrink-0 text-center text-xs text-app-muted">{{ currentMatchCount() }}</span>
       <span v-else-if="searchQuery && matchIndices.length === 0" class="min-w-8 shrink-0 text-center text-xs text-app-muted text-app-error">0</span>
-      <button class="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md border border-app-border bg-transparent text-base text-app-muted transition-all hover:border-app-muted hover:text-app-text disabled:cursor-default disabled:opacity-30" @click="prevMatch" :disabled="matchIndices.length === 0">‹</button>
-      <button class="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md border border-app-border bg-transparent text-base text-app-muted transition-all hover:border-app-muted hover:text-app-text disabled:cursor-default disabled:opacity-30" @click="nextMatch" :disabled="matchIndices.length === 0">›</button>
-      <button class="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-xs text-app-muted transition-colors hover:text-app-error" @click="toggleSearch">✕</button>
+      <button class="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md border border-app-border bg-transparent text-app-muted transition-all hover:border-app-muted hover:text-app-text disabled:cursor-default disabled:opacity-30" @click="prevMatch" :disabled="matchIndices.length === 0" aria-label="Previous match"><ChevronLeft :size="16" :stroke-width="2" /></button>
+      <button class="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md border border-app-border bg-transparent text-app-muted transition-all hover:border-app-muted hover:text-app-text disabled:cursor-default disabled:opacity-30" @click="nextMatch" :disabled="matchIndices.length === 0" aria-label="Next match"><ChevronRight :size="16" :stroke-width="2" /></button>
+      <button class="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-app-muted transition-colors hover:text-app-error" @click="toggleSearch" aria-label="Close search"><X :size="16" :stroke-width="2" /></button>
     </div>
 
     <!-- Messages -->
@@ -1003,7 +999,7 @@ function formatTime(ts: number): string {
       </div>
 
       <div v-else-if="!hasMessages && !gw.error.value" class="flex flex-1 flex-col items-center justify-center gap-2 opacity-40">
-        <div class="text-[32px]">💬</div>
+        <MessageCircle :size="32" :stroke-width="1.6" />
         <div class="text-sm">Start a conversation</div>
       </div>
 
@@ -1114,11 +1110,7 @@ function formatTime(ts: number): string {
 
               <!-- Error state -->
               <div v-if="msg.error" class="flex items-center gap-2 text-app-error">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <circle cx="12" cy="12" r="10"/>
-                  <line x1="12" y1="8" x2="12" y2="12"/>
-                  <line x1="12" y1="16" x2="12.01" y2="16"/>
-                </svg>
+                <CircleAlert :size="14" :stroke-width="2" />
                 <span class="text-[13px] leading-[1.4]">{{ msg.content || 'Failed to send' }}</span>
                 <button class="ml-auto cursor-pointer rounded-[5px] border border-app-error/25 bg-transparent px-2 py-1 text-xs font-semibold text-app-error hover:not-disabled:border-app-error/40 hover:not-disabled:bg-app-error/15 hover:not-disabled:text-white disabled:cursor-default disabled:opacity-50" :disabled="sending" @click.stop="retryFailed(idx)">Retry</button>
                 <button class="cursor-pointer border-0 bg-transparent px-0 py-1 text-xs text-app-muted hover:text-app-text" @click.stop="dismissFailed(idx)" aria-label="Dismiss error">Dismiss</button>
@@ -1146,7 +1138,7 @@ function formatTime(ts: number): string {
                   >
                     <img class="size-full object-cover" :src="imageAttachmentSrc(msg, attachment, attachmentIdx)" :alt="attachment.label" />
                   </button>
-                  <span v-else class="inline-flex min-h-7 items-center rounded-[7px] border border-app-border px-2.5 text-xs text-app-muted">▧ {{ attachment.label }}</span>
+                  <span v-else class="inline-flex min-h-7 items-center gap-1 rounded-[7px] border border-app-border px-2.5 text-xs text-app-muted"><FileImage :size="14" :stroke-width="2" /> {{ attachment.label }}</span>
                 </template>
               </div>
 
@@ -1172,9 +1164,7 @@ function formatTime(ts: number): string {
             @click.stop="openActionSheet(idx)"
             title="Actions"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="12" cy="5" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="12" cy="19" r="1" />
-            </svg>
+            <EllipsisVertical :size="14" :stroke-width="2" />
           </button>
         </div>
       </div>
@@ -1190,9 +1180,7 @@ function formatTime(ts: number): string {
     <!-- Jump to bottom button -->
     <Transition name="jump-fade">
       <button v-if="showJumpToBottom" class="absolute right-4 bottom-[72px] z-10 flex size-9 cursor-pointer items-center justify-center rounded-full border border-app-border bg-app-surface text-app-muted shadow-[0_2px_8px_rgba(0,0,0,0.3)] transition-all hover:border-app-accent hover:bg-app-surface-2 hover:text-app-accent active:scale-90" @click="scrollToBottom">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="6 9 12 15 18 9" />
-        </svg>
+        <ArrowDown :size="16" :stroke-width="2.5" />
       </button>
     </Transition>
 
@@ -1204,9 +1192,7 @@ function formatTime(ts: number): string {
       </div>
       <div v-if="sending" class="flex flex-1 items-center justify-center">
         <button class="flex w-full cursor-pointer items-center justify-center gap-2 rounded-[10px] border border-app-error/30 bg-app-error/[.08] px-5 py-2.5 text-[13px] font-medium text-app-error transition-all hover:border-app-error/50 hover:bg-app-error/15 active:scale-[.98]" @click="handleStop">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-            <rect x="6" y="6" width="12" height="12" rx="2" />
-          </svg>
+          <Square :size="16" fill="currentColor" :stroke-width="2" />
           <span>Stop generating</span>
         </button>
       </div>
@@ -1225,9 +1211,7 @@ function formatTime(ts: number): string {
           :disabled="!input.trim()"
           @click="handleSend"
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
-          </svg>
+          <Send :size="18" :stroke-width="2" />
         </button>
       </template>
     </div>
@@ -1238,7 +1222,7 @@ function formatTime(ts: number): string {
         <div class="flex max-h-[70vh] w-full max-w-[400px] flex-col overflow-hidden rounded-t-2xl border border-b-0 border-app-border bg-app-surface animate-[slideUp_.2s_ease]" @click.stop>
           <div class="flex items-center justify-between border-b border-app-border px-4 py-3.5">
             <span class="text-[15px] font-semibold tracking-[-0.02em]">Switch model</span>
-            <button class="cursor-pointer rounded-md border-0 bg-transparent px-2 py-1 text-sm text-app-muted transition-colors hover:text-app-error" @click="closeModelPicker">✕</button>
+            <button class="flex cursor-pointer items-center justify-center rounded-md border-0 bg-transparent px-2 py-1 text-app-muted transition-colors hover:text-app-error" @click="closeModelPicker" aria-label="Close model picker"><X :size="16" :stroke-width="2" /></button>
           </div>
           <div v-if="modelLoading" class="flex items-center justify-center gap-2 px-4 py-8 text-[13px] text-app-muted">
             <span class="inline-block size-3.5 animate-spin rounded-full border-2 border-app-border border-t-app-accent" />
@@ -1263,7 +1247,7 @@ function formatTime(ts: number): string {
                   @click="selectModel(provider.slug, model)"
                 >
                   <span class="flex-1 truncate">{{ gw.modelShort(model) }}</span>
-                  <span v-if="model === currentModel && provider.slug === currentProvider" class="ml-2 font-semibold text-app-accent">✓</span>
+                  <Check v-if="model === currentModel && provider.slug === currentProvider" :size="16" :stroke-width="2.5" class="ml-2 text-app-accent" />
                 </button>
               </div>
             </template>
@@ -1276,7 +1260,7 @@ function formatTime(ts: number): string {
     <Teleport to="body">
       <Transition name="image-preview-fade">
         <div v-if="imagePreview" class="fixed inset-0 z-[2100] grid place-items-center bg-black/[.82] p-6 pt-[max(24px,env(safe-area-inset-top,0px))] pb-[max(24px,env(safe-area-inset-bottom,0px))]" @click="closeImagePreview">
-          <button class="absolute top-[max(12px,env(safe-area-inset-top,0px))] right-3 flex size-9 cursor-pointer items-center justify-center rounded-full border border-app-border bg-app-surface text-lg leading-none text-app-text" aria-label="Close image preview" @click="closeImagePreview">✕</button>
+          <button class="absolute top-[max(12px,env(safe-area-inset-top,0px))] right-3 flex size-9 cursor-pointer items-center justify-center rounded-full border border-app-border bg-app-surface text-app-text" aria-label="Close image preview" @click="closeImagePreview"><X :size="18" :stroke-width="2" /></button>
           <img
             class="block max-h-full max-w-full cursor-zoom-out rounded-lg object-contain"
             :src="imagePreview.src"
@@ -1299,7 +1283,7 @@ function formatTime(ts: number): string {
             </div>
             <div class="flex flex-col gap-0.5 py-1">
               <button class="flex w-full cursor-pointer items-center gap-3 rounded-[10px] border-0 bg-transparent px-3.5 py-3 text-left text-[15px] text-app-text transition-colors hover:bg-app-surface-2 active:bg-app-surface-3" @click="actionCopyText">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <Copy :size="18" :stroke-width="2" />
                 <span>Copy text</span>
               </button>
               <button
@@ -1307,7 +1291,7 @@ function formatTime(ts: number): string {
                 class="flex w-full cursor-pointer items-center gap-3 rounded-[10px] border-0 bg-transparent px-3.5 py-3 text-left text-[15px] text-app-text transition-colors hover:bg-app-surface-2 active:bg-app-surface-3"
                 @click="actionEdit"
               >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                <Pencil :size="18" :stroke-width="2" />
                 <span>Edit message</span>
               </button>
               <button
@@ -1315,7 +1299,7 @@ function formatTime(ts: number): string {
                 class="flex w-full cursor-pointer items-center gap-3 rounded-[10px] border-0 bg-transparent px-3.5 py-3 text-left text-[15px] text-app-text transition-colors hover:bg-app-surface-2 active:bg-app-surface-3"
                 @click="actionRetry"
               >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 4v6h6M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg>
+                <RotateCcw :size="18" :stroke-width="2" />
                 <span>Retry</span>
               </button>
               <button
@@ -1323,7 +1307,7 @@ function formatTime(ts: number): string {
                 class="flex w-full cursor-pointer items-center gap-3 rounded-[10px] border-0 bg-transparent px-3.5 py-3 text-left text-[15px] text-app-text transition-colors hover:bg-app-surface-2 active:bg-app-surface-3"
                 @click="actionDismissError"
               >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                <X :size="18" :stroke-width="2" />
                 <span>Dismiss error</span>
               </button>
               <button
@@ -1331,7 +1315,7 @@ function formatTime(ts: number): string {
                 class="flex w-full cursor-pointer items-center gap-3 rounded-[10px] border-0 bg-transparent px-3.5 py-3 text-left text-[15px] text-app-text transition-colors hover:bg-app-surface-2 active:bg-app-surface-3"
                 @click="actionRegenerate"
               >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 4v6h6M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg>
+                <RotateCcw :size="18" :stroke-width="2" />
                 <span>Regenerate</span>
               </button>
               <button
@@ -1339,7 +1323,7 @@ function formatTime(ts: number): string {
                 class="flex w-full cursor-pointer items-center gap-3 rounded-[10px] border-0 bg-transparent px-3.5 py-3 text-left text-[15px] text-app-text transition-colors hover:bg-app-surface-2 active:bg-app-surface-3"
                 @click="actionShare"
               >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+                <Share :size="18" :stroke-width="2" />
                 <span>Share</span>
               </button>
               <button
@@ -1347,7 +1331,7 @@ function formatTime(ts: number): string {
                 class="flex w-full cursor-pointer items-center gap-3 rounded-[10px] border-0 bg-transparent px-3.5 py-3 text-left text-[15px] text-app-text transition-colors hover:bg-app-surface-2 active:bg-app-surface-3 danger"
                 @click="actionRestore"
               >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M3.5 13A9 9 0 1 0 6 6.5L3 10"/></svg>
+                <History :size="18" :stroke-width="2" />
                 <span>Restore from here</span>
               </button>
             </div>

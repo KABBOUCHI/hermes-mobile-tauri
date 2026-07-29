@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuth } from '../composables/useAuth'
 import { useGateway } from '../composables/useGateway'
+import { Power } from '@lucide/vue'
 
 const router = useRouter()
 const auth = useAuth()
@@ -41,7 +42,7 @@ async function disconnect() {
       </div>
       <div class="border-t border-app-border px-4 py-3">
         <button class="flex h-9 w-full cursor-pointer items-center justify-center gap-2 rounded-md border border-app-error/30 bg-transparent text-[13px] font-medium text-app-error transition-colors hover:bg-app-error/10" @click="disconnect">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 2v10M18.36 6.64a9 9 0 1 1-12.73 0" /></svg>
+          <Power :size="15" :stroke-width="1.8" />
           Disconnect gateway
         </button>
       </div>

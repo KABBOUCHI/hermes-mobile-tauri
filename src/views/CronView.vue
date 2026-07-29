@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue'
 
 import { fetch } from '@tauri-apps/plugin-http'
+import { AlarmClock, RefreshCw } from '@lucide/vue'
 import { useAuth } from '../composables/useAuth'
 
 const auth = useAuth()
@@ -85,7 +86,7 @@ onMounted(fetchJobs)
         <span class="text-[17px] font-semibold tracking-[-0.03em]">Cron jobs</span>
         <div class="mt-0.5 text-[11px] text-app-muted">Automations and schedules</div>
       </div>
-      <button class="flex size-9 cursor-pointer items-center justify-center rounded-lg border border-app-border bg-app-surface text-base text-app-muted transition-colors hover:bg-app-surface-2" @click="fetchJobs">↻</button>
+      <button class="flex size-9 cursor-pointer items-center justify-center rounded-lg border border-app-border bg-app-surface text-app-muted transition-colors hover:bg-app-surface-2" @click="fetchJobs" aria-label="Refresh cron jobs"><RefreshCw :size="16" :stroke-width="2" /></button>
     </div>
 
     <!-- Loading -->
@@ -101,7 +102,7 @@ onMounted(fetchJobs)
 
     <!-- Empty -->
     <div v-else-if="jobs.length === 0" class="flex flex-1 flex-col items-center justify-center gap-3 p-10">
-      <span class="text-[40px]">⏰</span>
+      <AlarmClock :size="40" :stroke-width="1.6" class="text-app-muted" />
       <span class="text-[15px] text-app-muted">No cron jobs</span>
     </div>
 

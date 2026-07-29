@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { useAuth } from '../composables/useAuth'
 import { useGateway } from '../composables/useGateway'
 import { usePins } from '../composables/usePins'
+import { Atom, Eye, EyeOff } from '@lucide/vue'
 
 const router = useRouter()
 const auth = useAuth()
@@ -50,7 +51,7 @@ async function handleConnect() {
     <div class="w-full flex flex-col gap-6 rounded-app border border-app-border bg-app-surface px-6 py-8">
       <div class="mb-2 flex flex-col items-center gap-1.5">
         <div class="flex size-12 items-center justify-center rounded-[14px] border border-app-accent/20 bg-app-accent/10">
-          <span class="text-2xl text-app-accent">☤</span>
+          <Atom :size="24" :stroke-width="1.8" class="text-app-accent" />
         </div>
         <h1 class="text-[28px] font-bold tracking-[-0.03em]">Hermes</h1>
         <span class="text-sm uppercase tracking-[0.5px] text-app-muted">Remote Gateway</span>
@@ -95,7 +96,8 @@ async function handleConnect() {
               @click="showPass = !showPass"
               tabindex="-1"
             >
-              {{ showPass ? '🙈' : '👁' }}
+              <EyeOff v-if="showPass" :size="18" :stroke-width="2" />
+              <Eye v-else :size="18" :stroke-width="2" />
             </button>
           </div>
         </div>

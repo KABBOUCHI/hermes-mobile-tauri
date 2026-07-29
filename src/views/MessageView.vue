@@ -935,7 +935,7 @@ function formatTime(ts: number): string {
 </script>
 
 <template>
-  <div class="relative flex h-full min-h-0 flex-col bg-app-bg font-sans text-app-text flex min-h-0 flex-col bg-app-bg text-app-text font-sans">
+  <div class="relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-app-bg font-sans text-app-text">
     <!-- Header -->
     <div class="flex min-h-12 shrink-0 items-center gap-2 border-b border-app-border bg-app-surface px-3 py-2">
       <button class="cursor-pointer border-0 bg-transparent px-1 text-[22px] leading-none text-app-accent" @click="goBack">‹</button>
@@ -956,9 +956,9 @@ function formatTime(ts: number): string {
           <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
         </button>
         <div v-if="headerMenuOpen" class="absolute top-[calc(100%+6px)] right-0 z-30 min-w-[148px] rounded-lg border border-app-border bg-app-surface-2 p-1 shadow-[0_10px_24px_rgba(0,0,0,0.32)]">
-          <button @click="openSearchFromMenu">Search messages</button>
-          <button :disabled="!selectedSessionId || gw.loadingMessages.value" @click="refreshMessages">Refresh</button>
-          <button :disabled="!hasMessages" @click="exportChatFromMenu">Export chat</button>
+          <button class="block w-full cursor-pointer rounded-md border-0 bg-transparent px-3 py-2 text-left text-[13px] text-app-text transition-colors hover:bg-app-surface-3 disabled:cursor-default disabled:opacity-40" @click="openSearchFromMenu">Search messages</button>
+          <button class="block w-full cursor-pointer rounded-md border-0 bg-transparent px-3 py-2 text-left text-[13px] text-app-text transition-colors hover:bg-app-surface-3 disabled:cursor-default disabled:opacity-40" :disabled="!selectedSessionId || gw.loadingMessages.value" @click="refreshMessages">Refresh</button>
+          <button class="block w-full cursor-pointer rounded-md border-0 bg-transparent px-3 py-2 text-left text-[13px] text-app-text transition-colors hover:bg-app-surface-3 disabled:cursor-default disabled:opacity-40" :disabled="!hasMessages" @click="exportChatFromMenu">Export chat</button>
         </div>
       </div>
     </div>
@@ -986,7 +986,7 @@ function formatTime(ts: number): string {
     </div>
 
     <!-- Messages -->
-    <div class="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto overscroll-contain px-3 py-2.5" ref="scrollEl" @scroll="onScroll" @click="handleMessagesClick" @touchstart="onChatTouchStart" @touchmove="onChatTouchMove" @touchend="onChatTouchEnd">
+    <div class="flex min-h-0 min-w-0 flex-1 flex-col gap-2.5 overflow-x-hidden overflow-y-auto overscroll-contain px-3 py-2.5" ref="scrollEl" @scroll="onScroll" @click="handleMessagesClick" @touchstart="onChatTouchStart" @touchmove="onChatTouchMove" @touchend="onChatTouchEnd">
       <!-- Pull-to-refresh indicator -->
       <div
         v-if="pullDelta > 0"
@@ -1024,7 +1024,7 @@ function formatTime(ts: number): string {
         :data-msg-idx="idx"
         class="flex flex-col gap-1"
         :class="[
-          msg.role,
+          msg.role === 'user' ? 'items-end' : 'items-start',
           {
             'search-match': isMatch(idx),
             'search-current': matchIndices[currentMatchIdx] === idx,
@@ -1035,7 +1035,14 @@ function formatTime(ts: number): string {
       >
         <div
           class="max-w-[88%] break-words rounded-[14px] px-3.5 py-2.5 text-sm leading-[1.55]"
-          :class="[msg.role, { error: msg.error, editing: editingIdx === idx }]"
+          :class="[
+            msg.role === 'user'
+              ? 'self-end rounded-br-[4px] bg-app-accent text-white'
+              : msg.role === 'tool'
+                ? 'w-full max-w-full self-stretch bg-transparent p-0'
+                : 'self-start rounded-bl-[4px] border border-app-border bg-app-surface text-app-text',
+            { 'border-app-error/40 bg-app-error/10 text-app-error': msg.error, editing: editingIdx === idx },
+          ]"
           @touchstart="handleMessageLongPress($event, idx)"
           @touchend="handleMessageTouchEnd"
           @touchmove="handleMessageTouchEnd"
@@ -1063,14 +1070,14 @@ function formatTime(ts: number): string {
           <template v-else>
             <!-- Consecutive tool results are grouped by the normaliser so one
                  tool-heavy agent turn occupies one compact timeline row. -->
-            <details v-if="msg.role === 'tool'" class="w-full overflow-hidden rounded-lg border border-app-border bg-[color-mix(in_srgb,var(--surface)_88%,var(--accent))]">
+            <details v-if="msg.role === 'tool'" class="w-full overflow-hidden rounded-lg border border-app-border bg-[color-mix(in_srgb,var(--surface)_88%,var(--accent))] [&>summary]:flex [&>summary]:cursor-pointer [&>summary]:items-center [&>summary]:gap-1.5 [&>summary]:bg-app-surface-2 [&>summary]:px-2.5 [&>summary]:py-2 [&>summary]:text-xs [&>summary]:font-medium [&>summary]:text-app-muted">
               <summary>
                 <span class="text-[11px] text-app-success">✓</span>
                 <span>{{ toolSummaryLabel(msg) }}</span>
                 <span class="ml-auto text-[11px] text-app-muted opacity-70">completed</span>
               </summary>
               <div v-if="msg.activityThoughts?.length" class="">
-                <details v-for="thought in msg.activityThoughts" :key="thought.id" class=" activity-thought">
+                <details v-for="thought in msg.activityThoughts" :key="thought.id" class="border-t border-app-border [&>summary]:cursor-pointer [&>summary]:bg-app-surface/60 [&>summary]:px-2.5 [&>summary]:py-1.5 [&>summary]:text-xs [&>summary]:text-app-muted">
                   <summary>{{ activityThoughtLabel(thought.durationSeconds) }}</summary>
                   <div class="px-2.5 pb-2.5 text-xs leading-[1.5] whitespace-pre-wrap text-app-muted">{{ thought.content }}</div>
                 </details>
@@ -1083,7 +1090,7 @@ function formatTime(ts: number): string {
                 <pre v-else-if="toolResults(msg)[0].content" class="m-0 max-h-40 overflow-auto border-t border-app-border bg-app-bg p-2.5 font-mono text-[11px] leading-[1.5] whitespace-pre-wrap break-words text-[#b9bbc8]">{{ toolResults(msg)[0].content }}</pre>
               </template>
               <div v-else class="border-t border-app-border">
-                <details v-for="tool in toolResults(msg)" :key="tool.id" class="">
+                <details v-for="tool in toolResults(msg)" :key="tool.id" class="border-b border-app-border last:border-b-0 [&>summary]:cursor-pointer [&>summary]:bg-app-surface/60 [&>summary]:px-2.5 [&>summary]:py-1.5 [&>summary]:text-xs [&>summary]:text-app-muted">
                   <summary>{{ tool.name }}</summary>
                   <div v-if="toolDiff(tool.content, tool.diff)" class="" aria-label="Diff view">
                     <div class="px-2.5 pt-1.5 pb-[3px] text-[11px] font-semibold uppercase tracking-[.04em] text-app-muted">Diff</div>
@@ -1096,7 +1103,7 @@ function formatTime(ts: number): string {
 
             <template v-else>
               <!-- The gateway sends reasoning in dedicated fields, not only <think> tags. -->
-              <details v-if="msg.reasoning" class="mb-2 w-full overflow-hidden rounded-lg border border-app-border bg-[color-mix(in_srgb,var(--surface)_88%,var(--accent))]">
+              <details v-if="msg.reasoning" class="mb-2 w-full overflow-hidden rounded-lg border border-app-border bg-[color-mix(in_srgb,var(--surface)_88%,var(--accent))] [&>summary]:cursor-pointer [&>summary]:bg-app-surface-2 [&>summary]:px-2.5 [&>summary]:py-2 [&>summary]:text-xs [&>summary]:font-medium [&>summary]:text-app-muted">
                 <summary>{{ thoughtLabel(msg, idx) }}</summary>
                 <div class="px-2.5 pb-2.5 text-xs leading-[1.5] whitespace-pre-wrap text-app-muted">{{ msg.reasoning }}</div>
               </details>
@@ -1137,7 +1144,7 @@ function formatTime(ts: number): string {
                     :aria-label="`Preview ${attachment.label}`"
                     @click.stop="openAttachmentPreview(imageAttachmentSrc(msg, attachment, attachmentIdx), attachment.label)"
                   >
-                    <img :src="imageAttachmentSrc(msg, attachment, attachmentIdx)" :alt="attachment.label" />
+                    <img class="size-full object-cover" :src="imageAttachmentSrc(msg, attachment, attachmentIdx)" :alt="attachment.label" />
                   </button>
                   <span v-else class="inline-flex min-h-7 items-center rounded-[7px] border border-app-border px-2.5 text-xs text-app-muted">▧ {{ attachment.label }}</span>
                 </template>
@@ -1158,7 +1165,7 @@ function formatTime(ts: number): string {
           </template>
         </div>
 
-        <div v-if="!isActivityMessage(msg)" class="flex items-center gap-2 px-1" :class="msg.role">
+        <div v-if="!isActivityMessage(msg)" class="flex items-center gap-2 px-1" :class="msg.role === 'user' ? 'self-end' : 'self-start'">
           <span v-if="msg.timestamp" class="text-[11px] text-app-muted">{{ formatTime(msg.timestamp) }}</span>
           <button
             class="flex cursor-pointer items-center justify-center rounded border-0 bg-transparent px-1 py-0.5 text-app-muted opacity-60 transition-opacity hover:opacity-100 focus-visible:opacity-100"
@@ -1173,8 +1180,8 @@ function formatTime(ts: number): string {
       </div>
       </template>
       <!-- Typing indicator -->
-      <div v-if="sending && (gw.messages.value.length === 0 || gw.messages.value[gw.messages.value.length - 1].role !== 'assistant' || gw.messages.value[gw.messages.value.length - 1].content)" class="flex flex-col gap-1 assistant">
-        <div class="max-w-[88%] break-words rounded-[14px] px-3.5 py-2.5 text-sm leading-[1.55] assistant flex items-center gap-1 py-1">
+      <div v-if="sending && (gw.messages.value.length === 0 || gw.messages.value[gw.messages.value.length - 1].role !== 'assistant' || gw.messages.value[gw.messages.value.length - 1].content)" class="flex flex-col items-start gap-1">
+        <div class="flex max-w-[88%] items-center gap-1 rounded-[14px] rounded-bl-[4px] border border-app-border bg-app-surface px-3.5 py-1 text-sm leading-[1.55]">
           <span></span><span></span><span></span>
         </div>
       </div>

@@ -519,17 +519,17 @@ function formatCount(n: number): string {
 </script>
 
 <template>
-  <div class="flex min-h-0 flex-1 flex-col bg-app-bg font-sans text-app-text">
+  <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-app-bg font-sans text-app-text">
     <!-- Header -->
-    <div class="flex shrink-0 items-center justify-between border-b border-app-border px-4 pt-5 pb-4">
-      <div class="flex flex-col gap-1">
-        <span class="text-2xl font-bold tracking-[-0.02em]">☤ Hermes</span>
+    <div class="flex shrink-0 items-center gap-2 border-b border-app-border px-4 pt-5 pb-4">
+      <div class="min-w-0 flex-1 flex flex-col gap-1">
+        <span class="truncate text-2xl font-bold tracking-[-0.02em]">☤ Hermes</span>
         <div class="flex items-center gap-1.5">
           <span class="size-1.5 shrink-0 rounded-full" :class="auth.isConnected.value ? 'bg-app-success shadow-[0_0_6px_rgba(34,197,94,0.5)]' : 'bg-app-error shadow-[0_0_6px_rgba(239,68,68,0.4)]'" />
           <span class="text-xs text-app-muted">{{ hostShort }}</span>
         </div>
       </div>
-      <div class="flex items-center gap-2">
+      <div class="flex shrink-0 items-center gap-1.5">
         <button
           class="flex size-9 cursor-pointer items-center justify-center rounded-lg border border-app-border bg-app-surface text-app-muted transition-all hover:bg-app-surface-2 hover:text-app-text"
           :class="showingArchived && 'border-app-accent/30 bg-app-accent/10 text-app-accent'"
@@ -554,8 +554,9 @@ function formatCount(n: number): string {
         <button class="flex size-9 cursor-pointer items-center justify-center rounded-lg border border-app-border bg-app-surface text-base text-app-muted transition-colors hover:bg-app-surface-2" :class="refreshing && 'animate-spin'" @click="handleRefresh">
           ↻
         </button>
-        <button class="flex h-9 cursor-pointer items-center justify-center rounded-lg border border-app-error/20 bg-transparent px-3.5 text-[13px] font-medium text-app-error transition-colors hover:border-app-error/40" @click="disconnect">
-          Disconnect
+        <button class="flex h-9 cursor-pointer items-center justify-center rounded-lg border border-app-error/20 bg-transparent px-3.5 text-[13px] font-medium text-app-error transition-colors hover:border-app-error/40 max-[520px]:size-9 max-[520px]:px-0" @click="disconnect">
+          <span class="max-[520px]:hidden">Disconnect</span>
+          <span class="hidden max-[520px]:inline" aria-label="Disconnect">⏻</span>
         </button>
       </div>
     </div>

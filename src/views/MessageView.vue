@@ -7,6 +7,7 @@ import { extractUnifiedDiff, summarizeToolActivity, thoughtActivityLabel } from 
 import PatchDiff from '../components/PatchDiff.vue'
 import { isNearChatBottom } from '../utils/chatScroll'
 import { writeClipboardText } from '../utils/clipboard'
+import { createSessionExport } from '../utils/sessionExport'
 import { useAuth } from '../composables/useAuth'
 import { useGateway, type ModelProvider } from '../composables/useGateway'
 import { useToast } from '../composables/useToast'
@@ -833,18 +834,9 @@ watch(() => {
 })
 
 // ── Export Chat ─────────────────────────────────────
-// Keep the portable export aligned with desktop: structured data remains useful
-// after it leaves the app, unlike a rendered transcript that loses message roles
-// and timestamps.
-function sanitizeFilenamePart(value: string): string {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 48)
-}
-
+// Desktop exports the durable transcript shape instead of rendered HTML. Build
+// that same portable payload before selecting the best delivery path for Tauri
+// mobile, where a browser-style download is not consistently available.
 async function exportChat() {
   const msgs = gw.messages.value
   if (!msgs.length) {
@@ -854,20 +846,18 @@ async function exportChat() {
 
   const title = selectedSessionTitle.value || 'Hermes Chat'
   const session = gw.sessions.value.find(item => item.id === selectedSessionId.value) || null
-  const fileName = `${sanitizeFilenamePart(title) || 'session'}-${sanitizeFilenamePart(selectedSessionId.value).slice(0, 8) || 'chat'}.json`
-  const serialized = JSON.stringify({
-    exported_at: new Date().toISOString(),
-    session_id: selectedSessionId.value || null,
+  const { fileName, serialized } = createSessionExport({
+    sessionId: selectedSessionId.value,
     title,
     session,
-    message_count: msgs.length,
     messages: msgs,
-  }, null, 2)
+  })
 
   try {
     const file = new File([serialized], fileName, { type: 'application/json' })
     if (navigator.share && navigator.canShare?.({ files: [file] })) {
       await navigator.share({ title, files: [file] })
+      toast.show('Chat export ready to share', 'success')
       return
     }
 
@@ -875,6 +865,7 @@ async function exportChat() {
     // target app. Preserve the complete JSON instead of silently degrading it.
     if (navigator.share) {
       await navigator.share({ title, text: serialized })
+      toast.show('Chat JSON ready to share', 'success')
       return
     }
 

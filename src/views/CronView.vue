@@ -2,8 +2,9 @@
 import { ref, onMounted } from 'vue'
 
 import { fetch } from '@tauri-apps/plugin-http'
-import { AlarmClock, RefreshCw } from '@lucide/vue'
+import { AlarmClock, Pause, Play, RefreshCw, Zap } from '@lucide/vue'
 import { useAuth } from '../composables/useAuth'
+import { cronActionUrl, type CronAction } from '../utils/cronActions'
 
 const auth = useAuth()
 
@@ -24,6 +25,8 @@ interface CronJob {
 const jobs = ref<CronJob[]>([])
 const loading = ref(true)
 const error = ref('')
+const pendingActions = ref<Record<string, CronAction | undefined>>({})
+const actionErrors = ref<Record<string, string | undefined>>({})
 
 function fetchWithTimeout(url: string, init: RequestInit, ms: number): Promise<Response> {
   const controller = new AbortController()
@@ -50,6 +53,32 @@ async function fetchJobs() {
     error.value = err.message || 'Failed to load cron jobs'
   } finally {
     loading.value = false
+  }
+}
+
+function actionPending(jobId: string, action: CronAction): boolean {
+  return pendingActions.value[jobId] === action
+}
+
+async function runJobAction(job: CronJob, action: CronAction) {
+  if (pendingActions.value[job.id]) return
+
+  pendingActions.value = { ...pendingActions.value, [job.id]: action }
+  actionErrors.value = { ...actionErrors.value, [job.id]: undefined }
+  try {
+    const headers: Record<string, string> = {}
+    if (auth.sessionCookie.value) headers['Cookie'] = auth.sessionCookie.value
+    const resp = await fetchWithTimeout(
+      cronActionUrl(auth.gatewayUrl.value, job.id, action),
+      { method: 'POST', headers, credentials: 'same-origin' },
+      10000,
+    )
+    if (!resp.ok) throw new Error('HTTP ' + resp.status)
+    await fetchJobs()
+  } catch (err: any) {
+    actionErrors.value = { ...actionErrors.value, [job.id]: err.message || `Failed to ${action} job` }
+  } finally {
+    pendingActions.value = { ...pendingActions.value, [job.id]: undefined }
   }
 }
 
@@ -123,6 +152,28 @@ onMounted(fetchJobs)
           <span class="text-xs text-app-muted opacity-50">·</span>
           <span class="text-xs text-app-muted opacity-70">Next:</span>
           <span class="text-xs text-app-muted">{{ job.next_run_at ? relativeTime(new Date(job.next_run_at).getTime() / 1000) : '—' }}</span>
+        </div>
+        <div class="mt-2 flex items-center gap-2 border-t border-app-border pt-2.5">
+          <button
+            class="flex h-8 cursor-pointer items-center gap-1.5 rounded-md border border-app-border bg-transparent px-2.5 text-xs font-medium text-app-muted transition-colors hover:border-app-accent hover:bg-app-accent/10 hover:text-app-accent disabled:cursor-default disabled:opacity-50"
+            :disabled="!!pendingActions[job.id]"
+            @click="runJobAction(job, job.enabled ? 'pause' : 'resume')"
+          >
+            <span v-if="actionPending(job.id, job.enabled ? 'pause' : 'resume')" class="size-3 animate-spin rounded-full border-2 border-app-border border-t-app-accent" />
+            <Pause v-else-if="job.enabled" :size="14" :stroke-width="2" />
+            <Play v-else :size="14" :stroke-width="2" />
+            {{ job.enabled ? 'Pause' : 'Resume' }}
+          </button>
+          <button
+            class="flex h-8 cursor-pointer items-center gap-1.5 rounded-md border border-app-border bg-transparent px-2.5 text-xs font-medium text-app-muted transition-colors hover:border-app-accent hover:bg-app-accent/10 hover:text-app-accent disabled:cursor-default disabled:opacity-50"
+            :disabled="!!pendingActions[job.id] || job.is_running"
+            @click="runJobAction(job, 'trigger')"
+          >
+            <span v-if="actionPending(job.id, 'trigger')" class="size-3 animate-spin rounded-full border-2 border-app-border border-t-app-accent" />
+            <Zap v-else :size="14" :stroke-width="2" />
+            Trigger now
+          </button>
+          <span v-if="actionErrors[job.id]" class="min-w-0 truncate text-xs text-app-error">{{ actionErrors[job.id] }}</span>
         </div>
       </div>
     </div>

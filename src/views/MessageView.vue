@@ -661,44 +661,64 @@ watch(() => {
 })
 
 // ── Export Chat ─────────────────────────────────────
+// Keep the portable export aligned with desktop: structured data remains useful
+// after it leaves the app, unlike a rendered transcript that loses message roles
+// and timestamps.
+function sanitizeFilenamePart(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48)
+}
+
 async function exportChat() {
   const msgs = gw.messages.value
-  if (!msgs || msgs.length === 0) {
+  if (!msgs.length) {
     toast.show('No messages to export', 'info')
     return
   }
 
   const title = selectedSessionTitle.value || 'Hermes Chat'
-  const now = new Date()
-  const dateStr = now.toISOString().slice(0, 10)
-
-  let md = `# ${title}\n`
-  md += `*Exported ${dateStr}*\n\n---\n\n`
-
-  for (const msg of msgs) {
-    const role = msg.role === 'user' ? '**You**' : '**Assistant**'
-    const time = msg.timestamp
-      ? new Date(msg.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      : ''
-    md += `### ${role}${time ? '  ·  ' + time : ''}\n\n`
-    md += `${msg.content}\n\n---\n\n`
-  }
+  const session = gw.sessions.value.find(item => item.id === selectedSessionId.value) || null
+  const fileName = `${sanitizeFilenamePart(title) || 'session'}-${sanitizeFilenamePart(selectedSessionId.value).slice(0, 8) || 'chat'}.json`
+  const serialized = JSON.stringify({
+    exported_at: new Date().toISOString(),
+    session_id: selectedSessionId.value || null,
+    title,
+    session,
+    message_count: msgs.length,
+    messages: msgs,
+  }, null, 2)
 
   try {
-    if (navigator.share) {
-      await navigator.share({ title, text: md })
-    } else if (navigator.clipboard) {
-      await navigator.clipboard.writeText(md)
-      toast.show('Chat copied to clipboard', 'success')
-    } else {
-      toast.show('Export not available on this device', 'error')
+    const file = new File([serialized], fileName, { type: 'application/json' })
+    if (navigator.share && navigator.canShare?.({ files: [file] })) {
+      await navigator.share({ title, files: [file] })
+      return
     }
+
+    // Some Android WebViews cannot share files but can still send text to a
+    // target app. Preserve the complete JSON instead of silently degrading it.
+    if (navigator.share) {
+      await navigator.share({ title, text: serialized })
+      return
+    }
+
+    if (navigator.clipboard) {
+      await navigator.clipboard.writeText(serialized)
+      toast.show('Chat JSON copied to clipboard', 'success')
+      return
+    }
+
+    toast.show('Export not available on this device', 'error')
   } catch (err: any) {
     if (err?.name === 'AbortError') return
     try {
       if (navigator.clipboard) {
-        await navigator.clipboard.writeText(md)
-        toast.show('Chat copied to clipboard', 'success')
+        await navigator.clipboard.writeText(serialized)
+        toast.show('Chat JSON copied to clipboard', 'success')
       } else {
         toast.show(err?.message || 'Export failed', 'error')
       }

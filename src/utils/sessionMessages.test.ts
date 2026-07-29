@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { normalizeSessionMessages } from './sessionMessages'
+import { normalizeSessionMessages, userOrdinalAtMessageIndex } from './sessionMessages'
 
 describe('normalizeSessionMessages', () => {
   it('retains text, tools, and separate reasoning in server order', () => {
@@ -94,6 +94,20 @@ describe('normalizeSessionMessages', () => {
 
     expect(completionFailure({ status: 'error', failure_reason: 'billing' }))
       .toEqual({ message: 'billing', partial: false })
+  })
+
+  it('uses the visible user ordinal when restoring an earlier checkpoint', () => {
+    const messages = [
+      { role: 'user' as const },
+      { role: 'assistant' as const },
+      { role: 'tool' as const },
+      { role: 'user' as const },
+      { role: 'assistant' as const },
+    ]
+
+    expect(userOrdinalAtMessageIndex(messages, 0)).toBe(0)
+    expect(userOrdinalAtMessageIndex(messages, 3)).toBe(1)
+    expect(userOrdinalAtMessageIndex(messages, 1)).toBeNull()
   })
 
   it('confirms truncation when rewinding the first user turn', async () => {

@@ -537,12 +537,27 @@ async function actionShare() {
   closeActionSheet()
 }
 
-function actionDeleteMessage() {
+async function actionRestore() {
   const idx = actionSheetMsgIdx.value
-  if (idx >= 0 && idx < gw.messages.value.length) {
-    gw.messages.value.splice(idx, 1)
-  }
+  const msg = actionSheetMsg.value
   closeActionSheet()
+
+  if (sending.value || !selectedSessionId.value || !msg || msg.role !== 'user') return
+  if (!window.confirm('Restore from this message? Messages after it will be replaced.')) return
+
+  const originalMessages = [...gw.messages.value]
+  sending.value = true
+  shouldFollowMessages.value = true
+  try {
+    await gw.restoreMessage(auth.gatewayUrl.value, selectedSessionId.value, idx)
+  } catch (err: any) {
+    // A failed truncating submit must not leave the local timeline pretending
+    // the restore succeeded; desktop restores the prior authoritative view too.
+    gw.messages.value = originalMessages
+    toast.show(err.message || 'Restore failed', 'error')
+  } finally {
+    sending.value = false
+  }
 }
 
 function isThinking(content: string): boolean {
@@ -1062,12 +1077,12 @@ function formatTime(ts: number): string {
                 <span>Share</span>
               </button>
               <button
-                v-if="actionSheetMsg && !actionSheetMsg.error"
+                v-if="actionSheetMsg?.role === 'user' && !sending && selectedSessionId"
                 class="ActionSheetBtn danger"
-                @click="actionDeleteMessage"
+                @click="actionRestore"
               >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-                <span>Delete message</span>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M3.5 13A9 9 0 1 0 6 6.5L3 10"/></svg>
+                <span>Restore from here</span>
               </button>
             </div>
             <button class="ActionSheetCancel" @click="closeActionSheet">Cancel</button>

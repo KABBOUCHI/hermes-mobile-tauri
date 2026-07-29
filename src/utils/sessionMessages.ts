@@ -33,6 +33,17 @@ export function truncateBeforeUserParams(userOrdinal: number): Record<string, nu
   }
 }
 
+/** The ordinal expected by gateway rewind parameters for a visible user turn. */
+export function userOrdinalAtMessageIndex(messages: Pick<SessionMessage, 'role'>[], messageIndex: number): number | null {
+  if (messages[messageIndex]?.role !== 'user') return null
+
+  let ordinal = 0
+  for (let index = 0; index < messageIndex; index++) {
+    if (messages[index].role === 'user') ordinal++
+  }
+  return ordinal
+}
+
 /**
  * Desktop treats a `message.complete` event with status `error` as terminal,
  * even when the server retained a streamed partial response. Normalise the

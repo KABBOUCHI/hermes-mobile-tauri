@@ -1,7 +1,7 @@
 import { ref, computed } from 'vue'
 import { fetch } from '@tauri-apps/plugin-http'
 import WebSocket from '@tauri-apps/plugin-websocket'
-import { normalizeSessionMessages, completionFailure, truncateBeforeUserParams, type SessionMessage } from '../utils/sessionMessages'
+import { normalizeSessionMessages, completionFailure, truncateBeforeUserParams, userOrdinalAtMessageIndex, type SessionMessage } from '../utils/sessionMessages'
 
 const FETCH_TIMEOUT = 12000
 const RECONNECT_BASE_MS = 1000
@@ -644,6 +644,74 @@ async function regenerateLastMessage(
   return assistantMsg
 }
 
+/**
+ * Restore a previous user turn as the active checkpoint. Desktop uses the same
+ * truncating resubmit: discard that prompt and its descendants, then run the
+ * original text again so the server and every Hermes surface agree on history.
+ */
+async function restoreMessage(
+  _url: string,
+  sessionId: string,
+  msgIndex: number,
+): Promise<Message | null> {
+  if (!ws || wsState.value !== 'open') {
+    throw new Error('WebSocket not connected')
+  }
+
+  const userMessage = messages.value[msgIndex]
+  const userOrdinal = userOrdinalAtMessageIndex(messages.value, msgIndex)
+  if (!userMessage || userOrdinal === null || !userMessage.content.trim()) {
+    throw new Error('Could not restore this message')
+  }
+
+  const runtimeId = await resumeSession(sessionId)
+  messages.value = messages.value.slice(0, msgIndex + 1)
+
+  await interruptSession(runtimeId)
+
+  const assistantMsg: Message = {
+    role: 'assistant',
+    content: '',
+    timestamp: Date.now() / 1000,
+  }
+  messages.value.push(assistantMsg)
+
+  streamingContent = ''
+  turnStartedAt.value = Date.now()
+
+  const content = await new Promise<string>((resolve, reject) => {
+    const TURN_TIMEOUT = 1_800_000
+    const timer = setTimeout(() => {
+      activeTurn = null
+      streamingContent = ''
+      turnStartedAt.value = null
+      reject(new Error('Turn timed out'))
+    }, TURN_TIMEOUT)
+
+    activeTurn = { sessionId: runtimeId, resolve, reject, timer }
+
+    const id = ++nextId
+    ws.send(JSON.stringify({
+      jsonrpc: '2.0',
+      id,
+      method: 'prompt.submit',
+      params: {
+        session_id: runtimeId,
+        text: userMessage.content,
+        ...truncateBeforeUserParams(userOrdinal),
+      },
+    })).catch((err: any) => {
+      clearTimeout(timer)
+      activeTurn = null
+      streamingContent = ''
+      reject(err)
+    })
+  })
+
+  assistantMsg.content = content || '[empty response]'
+  return assistantMsg
+}
+
 /** Edit a user message at the given index and resend from that point. */
 async function editMessage(
   _url: string,
@@ -892,6 +960,7 @@ export function useGateway() {
     sendMessage,
     interruptSession,
     regenerateLastMessage,
+    restoreMessage,
     editMessage,
     fetchModels,
     setModel,

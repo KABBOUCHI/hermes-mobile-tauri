@@ -1009,7 +1009,17 @@ function formatTime(ts: number): string {
         <div class="text-sm">Start a conversation</div>
       </div>
 
-      <div v-if="gw.error.value && !hasMessages" class="rounded-lg border border-app-error/30 bg-app-error/10 px-3.5 py-2.5 text-center text-[13px] text-app-error">{{ gw.error.value }}</div>
+      <!-- A transcript fetch can fail before any cached history is available.
+           Match desktop's recovery contract: state the failure plainly and leave
+           a direct, bounded retry in the same place rather than a dead thread. -->
+      <div v-if="gw.error.value && !hasMessages" class="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+        <div class="rounded-lg border border-app-error/30 bg-app-error/10 px-3.5 py-2.5 text-[13px] text-app-error">{{ gw.error.value }}</div>
+        <button
+          class="h-9 cursor-pointer rounded-lg border-0 bg-app-accent px-4 text-[13px] font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-default disabled:opacity-40"
+          :disabled="gw.loadingMessages.value || !selectedSessionId"
+          @click="refreshMessages"
+        >{{ gw.loadingMessages.value ? 'Retrying…' : 'Retry' }}</button>
+      </div>
 
       <template
         v-for="(msg, idx) in gw.messages.value"

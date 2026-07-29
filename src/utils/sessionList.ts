@@ -23,3 +23,76 @@ export function mergeSessionsById<T extends { id: string }>(existing: T[], incom
 
   return merged
 }
+
+export interface SessionBranchEntry<T> {
+  branchStem?: string
+  session: T
+}
+
+/**
+ * Keep forked conversations adjacent to their parent, mirroring the desktop
+ * sidebar. A branch group's recency is its newest member, so a fresh fork does
+ * not leave its parent stranded elsewhere in the list.
+ */
+export function flattenSessionsWithBranches<
+  T extends { id: string; last_active?: number; started_at?: number; parent_session_id?: string | null; _lineage_root_id?: string | null },
+>(sessions: readonly T[]): SessionBranchEntry<T>[] {
+  if (sessions.length < 2) return sessions.map(session => ({ session }))
+
+  const recency = (session: T) => session.last_active || session.started_at || 0
+  const byVisibleId = new Map<string, T>()
+  for (const session of sessions) {
+    byVisibleId.set(session.id, session)
+    const rootId = session._lineage_root_id?.trim()
+    if (rootId) byVisibleId.set(rootId, session)
+  }
+
+  const childrenByParent = new Map<string, T[]>()
+  const nestedIds = new Set<string>()
+  for (const session of sessions) {
+    const parentId = session.parent_session_id?.trim()
+    const parent = parentId ? byVisibleId.get(parentId) : undefined
+    if (!parent || parent.id === session.id) continue
+    nestedIds.add(session.id)
+    const children = childrenByParent.get(parent.id) || []
+    children.push(session)
+    childrenByParent.set(parent.id, children)
+  }
+
+  for (const children of childrenByParent.values()) {
+    children.sort((left, right) => recency(right) - recency(left))
+  }
+
+  const groupRecencyMemo = new Map<string, number>()
+  const groupRecency = (session: T): number => {
+    const cached = groupRecencyMemo.get(session.id)
+    if (cached !== undefined) return cached
+    groupRecencyMemo.set(session.id, recency(session)) // cycle guard
+    const newest = (childrenByParent.get(session.id) || []).reduce(
+      (latest, child) => Math.max(latest, groupRecency(child)),
+      recency(session),
+    )
+    groupRecencyMemo.set(session.id, newest)
+    return newest
+  }
+
+  const entries: SessionBranchEntry<T>[] = []
+  const seen = new Set<string>()
+  const emit = (session: T, branchStem?: string) => {
+    if (seen.has(session.id)) return
+    seen.add(session.id)
+    entries.push(branchStem ? { branchStem, session } : { session })
+    const children = childrenByParent.get(session.id) || []
+    children.forEach((child, index) => emit(child, index === children.length - 1 ? '└─' : '├─'))
+  }
+
+  sessions
+    .filter(session => !nestedIds.has(session.id))
+    .map((session, index) => ({ index, session }))
+    .sort((left, right) => groupRecency(right.session) - groupRecency(left.session) || left.index - right.index)
+    .forEach(({ session }) => emit(session))
+
+  // A malformed parent cycle must not make a conversation disappear.
+  for (const session of sessions) emit(session)
+  return entries
+}

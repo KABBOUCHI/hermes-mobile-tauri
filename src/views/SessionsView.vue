@@ -7,6 +7,7 @@ import { useGateway } from '../composables/useGateway'
 import { usePins } from '../composables/usePins'
 import { useUnreads } from '../composables/useUnreads'
 import { sessionMatchesSearch } from '../utils/sessionSearch'
+import { flattenSessionsWithBranches, type SessionBranchEntry } from '../utils/sessionList'
 
 const router = useRouter()
 const auth = useAuth()
@@ -93,12 +94,12 @@ const menuStyle = computed(() => {
 // Date grouping
 interface DateGroup {
   label: string
-  sessions: Session[]
+  sessions: SessionBranchEntry<Session>[]
 }
 
 type SessionListRow =
   | { kind: 'divider'; key: string; label: string }
-  | { kind: 'session'; key: string; session: Session }
+  | { kind: 'session'; key: string; entry: SessionBranchEntry<Session> }
 
 // Keep the mobile list responsive once a gateway has accumulated a substantial
 // history. This mirrors desktop's VirtualSessionList: date dividers and cards
@@ -112,7 +113,7 @@ const virtualViewportHeight = ref(600)
 const measuredRowHeights = ref<Record<string, number>>({})
 let virtualResizeObserver: ResizeObserver | null = null
 
-function getDateGroups(sessions: Session[]): DateGroup[] {
+function getDateGroups(entries: SessionBranchEntry<Session>[]): DateGroup[] {
   const now = new Date()
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate())
   const startOfYesterday = new Date(startOfToday)
@@ -127,18 +128,27 @@ function getDateGroups(sessions: Session[]): DateGroup[] {
     { label: 'Earlier', sessions: [] },
   ]
 
-  for (const session of sessions) {
-    const sessionDate = new Date(session.last_active * 1000)
-    
-    if (sessionDate >= startOfToday) {
-      groups[0].sessions.push(session)
-    } else if (sessionDate >= startOfYesterday) {
-      groups[1].sessions.push(session)
-    } else if (sessionDate >= startOfWeek) {
-      groups[2].sessions.push(session)
-    } else {
-      groups[3].sessions.push(session)
+  let parentGroup: DateGroup | null = null
+  for (const entry of entries) {
+    // Flattening keeps descendants directly after their parent. Preserve that
+    // cluster across date boundaries rather than splitting a branch away.
+    if (entry.branchStem && parentGroup) {
+      parentGroup.sessions.push(entry)
+      continue
     }
+
+    const session = entry.session
+    const sessionDate = new Date(session.last_active * 1000)
+    if (sessionDate >= startOfToday) {
+      parentGroup = groups[0]
+    } else if (sessionDate >= startOfYesterday) {
+      parentGroup = groups[1]
+    } else if (sessionDate >= startOfWeek) {
+      parentGroup = groups[2]
+    } else {
+      parentGroup = groups[3]
+    }
+    parentGroup.sessions.push(entry)
   }
 
   return groups.filter(group => group.sessions.length > 0)
@@ -187,11 +197,11 @@ const unpinnedSessions = computed(() =>
 
 const groupedSessions = computed(() => {
   if (search.value) {
-    return [{ label: 'Search results', sessions: filtered.value }]
+    return [{ label: 'Search results', sessions: flattenSessionsWithBranches(filtered.value) }]
   }
-  const groups = getDateGroups(unpinnedSessions.value)
+  const groups = getDateGroups(flattenSessionsWithBranches(unpinnedSessions.value))
   if (pinnedSessions.value.length > 0) {
-    groups.unshift({ label: '📌 Pinned', sessions: pinnedSessions.value })
+    groups.unshift({ label: '📌 Pinned', sessions: flattenSessionsWithBranches(pinnedSessions.value) })
   }
   return groups
 })
@@ -199,7 +209,7 @@ const groupedSessions = computed(() => {
 const sessionRows = computed<SessionListRow[]>(() =>
   groupedSessions.value.flatMap(group => [
     { kind: 'divider' as const, key: `divider:${group.label}`, label: group.label },
-    ...group.sessions.map(session => ({ kind: 'session' as const, key: session.id, session })),
+    ...group.sessions.map(entry => ({ kind: 'session' as const, key: entry.session.id, entry })),
   ])
 )
 
@@ -622,34 +632,35 @@ function formatCount(n: number): string {
             v-else
             :ref="el => observeVirtualRow(row.key, el)"
             class="SessionCard"
-            :class="{ pinned: isPinned(row.session.id) }"
+            :class="{ pinned: isPinned(row.entry.session.id), branch: !!row.entry.branchStem }"
             :data-virtual-key="row.key"
-            @click="openSession(row.session.id)"
-            @touchstart="handleTouchStart($event, row.session.id)"
+            @click="openSession(row.entry.session.id)"
+            @touchstart="handleTouchStart($event, row.entry.session.id)"
             @touchmove="handleTouchMove"
             @touchend="handleTouchEnd"
           >
             <div class="CardTop">
-              <span v-if="isPinned(row.session.id)" class="PinIcon">📌</span>
-              <span v-if="unreadIds.has(row.session.id)" class="UnreadDot" />
-              <span class="SessionTitle">{{ row.session.title || row.session.preview || 'Untitled' }}</span>
-              <span v-if="row.session.is_active" class="ActiveDot" />
+              <span v-if="row.entry.branchStem" class="BranchStem" aria-hidden="true">{{ row.entry.branchStem }}</span>
+              <span v-if="isPinned(row.entry.session.id)" class="PinIcon">📌</span>
+              <span v-if="unreadIds.has(row.entry.session.id)" class="UnreadDot" />
+              <span class="SessionTitle">{{ row.entry.session.title || row.entry.session.preview || 'Untitled' }}</span>
+              <span v-if="row.entry.session.is_active" class="ActiveDot" />
               <button
                 class="DeleteBtn"
-                :class="{ confirming: deletingId === row.session.id }"
-                @click="confirmDelete($event, row.session.id)"
-                :title="deletingId === row.session.id ? 'Confirm delete' : 'Delete'"
+                :class="{ confirming: deletingId === row.entry.session.id }"
+                @click="confirmDelete($event, row.entry.session.id)"
+                :title="deletingId === row.entry.session.id ? 'Confirm delete' : 'Delete'"
               >
-                {{ deletingId === row.session.id ? '✓' : '✕' }}
+                {{ deletingId === row.entry.session.id ? '✓' : '✕' }}
               </button>
             </div>
-            <span class="SessionPreview">{{ row.session.preview || 'No messages' }}</span>
+            <span class="SessionPreview">{{ row.entry.session.preview || 'No messages' }}</span>
             <div class="CardMeta">
-              <span class="MetaText">{{ formatCount(row.session.message_count) }} msgs</span>
+              <span class="MetaText">{{ formatCount(row.entry.session.message_count) }} msgs</span>
               <span class="MetaDot">·</span>
-              <span class="MetaText">{{ gw.relativeTime(row.session.last_active) }}</span>
-              <span v-if="row.session.source && row.session.source !== 'desktop'" class="SourceBadge">{{ gw.sourceLabel(row.session.source) }}</span>
-              <span v-if="row.session.model" class="ModelBadge">{{ gw.modelShort(row.session.model) }}</span>
+              <span class="MetaText">{{ gw.relativeTime(row.entry.session.last_active) }}</span>
+              <span v-if="row.entry.session.source && row.entry.session.source !== 'desktop'" class="SourceBadge">{{ gw.sourceLabel(row.entry.session.source) }}</span>
+              <span v-if="row.entry.session.model" class="ModelBadge">{{ gw.modelShort(row.entry.session.model) }}</span>
             </div>
           </div>
         </template>
@@ -658,36 +669,37 @@ function formatCount(n: number): string {
       <template v-else v-for="group in groupedSessions" :key="group.label">
         <div class="DateGroupLabel">{{ group.label }}</div>
         <div
-          v-for="s in group.sessions"
-          :key="s.id"
+          v-for="entry in group.sessions"
+          :key="entry.session.id"
           class="SessionCard"
-          :class="{ pinned: isPinned(s.id) }"
-          @click="openSession(s.id)"
-          @touchstart="handleTouchStart($event, s.id)"
+          :class="{ pinned: isPinned(entry.session.id), branch: !!entry.branchStem }"
+          @click="openSession(entry.session.id)"
+          @touchstart="handleTouchStart($event, entry.session.id)"
           @touchmove="handleTouchMove"
           @touchend="handleTouchEnd"
         >
-          <div class="CardTop">
-            <span v-if="isPinned(s.id)" class="PinIcon">📌</span>
-            <span v-if="unreadIds.has(s.id)" class="UnreadDot" />
-            <span class="SessionTitle">{{ s.title || s.preview || 'Untitled' }}</span>
-            <span v-if="s.is_active" class="ActiveDot" />
-            <button
-              class="DeleteBtn"
-              :class="{ confirming: deletingId === s.id }"
-              @click="confirmDelete($event, s.id)"
-              :title="deletingId === s.id ? 'Confirm delete' : 'Delete'"
-            >
-              {{ deletingId === s.id ? '✓' : '✕' }}
-            </button>
-          </div>
-          <span class="SessionPreview">{{ s.preview || 'No messages' }}</span>
-          <div class="CardMeta">
-            <span class="MetaText">{{ formatCount(s.message_count) }} msgs</span>
-            <span class="MetaDot">·</span>
-            <span class="MetaText">{{ gw.relativeTime(s.last_active) }}</span>
-            <span v-if="s.source && s.source !== 'desktop'" class="SourceBadge">{{ gw.sourceLabel(s.source) }}</span>
-            <span v-if="s.model" class="ModelBadge">{{ gw.modelShort(s.model) }}</span>
+        <div class="CardTop">
+          <span v-if="entry.branchStem" class="BranchStem" aria-hidden="true">{{ entry.branchStem }}</span>
+          <span v-if="isPinned(entry.session.id)" class="PinIcon">📌</span>
+          <span v-if="unreadIds.has(entry.session.id)" class="UnreadDot" />
+          <span class="SessionTitle">{{ entry.session.title || entry.session.preview || 'Untitled' }}</span>
+          <span v-if="entry.session.is_active" class="ActiveDot" />
+          <button
+            class="DeleteBtn"
+            :class="{ confirming: deletingId === entry.session.id }"
+            @click="confirmDelete($event, entry.session.id)"
+            :title="deletingId === entry.session.id ? 'Confirm delete' : 'Delete'"
+          >
+            {{ deletingId === entry.session.id ? '✓' : '✕' }}
+          </button>
+        </div>
+        <span class="SessionPreview">{{ entry.session.preview || 'No messages' }}</span>
+        <div class="CardMeta">
+          <span class="MetaText">{{ formatCount(entry.session.message_count) }} msgs</span>
+          <span class="MetaDot">·</span>
+          <span class="MetaText">{{ gw.relativeTime(entry.session.last_active) }}</span>
+          <span v-if="entry.session.source && entry.session.source !== 'desktop'" class="SourceBadge">{{ gw.sourceLabel(entry.session.source) }}</span>
+          <span v-if="entry.session.model" class="ModelBadge">{{ gw.modelShort(entry.session.model) }}</span>
           </div>
         </div>
       </template>
@@ -1119,6 +1131,7 @@ function formatCount(n: number): string {
 
 .SessionCard:hover { background-color: var(--surface-2); }
 .SessionCard.pinned { border-color: rgba(94, 106, 210, 0.3); }
+.SessionCard.branch { margin-left: 16px; }
 
 .CardTop {
   display: flex;
@@ -1128,6 +1141,7 @@ function formatCount(n: number): string {
 }
 
 .PinIcon { font-size: 12px; }
+.BranchStem { color: var(--text-muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; letter-spacing: -2px; }
 
 .SessionTitle {
   font-size: 15px;

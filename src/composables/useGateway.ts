@@ -16,6 +16,8 @@ function fetchWithTimeout(url: string, init: RequestInit, ms: number): Promise<R
 
 export interface Session {
   id: string
+  _lineage_root_id?: string | null
+  parent_session_id?: string | null
   title: string | null
   preview: string
   model: string

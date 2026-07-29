@@ -39,12 +39,6 @@
   --font: var(--font-sans);
 }
 
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-
 html, body, #app {
   height: 100%;
   @apply bg-app-bg text-app-text font-sans;

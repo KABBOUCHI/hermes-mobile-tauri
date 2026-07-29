@@ -588,6 +588,15 @@ function isThinking(content: string): boolean {
 
 const hasMessages = computed(() => gw.messages.value.length > 0)
 
+// Keep the currently streaming tail fully laid out, while allowing Chromium to
+// skip paint and layout work for settled history. This follows desktop's thread
+// list strategy: virtualising a turn still receiving deltas can preserve an old
+// intrinsic height and make the scroll position drift.
+const LIVE_TAIL_MESSAGES = 12
+function shouldVirtualizeMessage(idx: number): boolean {
+  return idx < gw.messages.value.length - LIVE_TAIL_MESSAGES
+}
+
 // ── Date separators ──
 function getDateLabel(ts: number): string {
   if (!ts) return ''
@@ -879,7 +888,14 @@ function formatTime(ts: number): string {
       <div
         :data-msg-idx="idx"
         class="message"
-        :class="[msg.role, { 'search-match': isMatch(idx), 'search-current': matchIndices[currentMatchIdx] === idx }]"
+        :class="[
+          msg.role,
+          {
+            'search-match': isMatch(idx),
+            'search-current': matchIndices[currentMatchIdx] === idx,
+            'message-virtualized': shouldVirtualizeMessage(idx),
+          },
+        ]"
       >
         <div
           class="message-bubble"
@@ -1394,6 +1410,11 @@ function formatTime(ts: number): string {
 
 /* Messages */
 .message { display: flex; flex-direction: column; gap: 4px; }
+/* Chromium preserves a settled intrinsic height while skipping off-screen work. */
+.message-virtualized {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 260px;
+}
 .message.user { align-items: flex-end; }
 .message.assistant { align-items: flex-start; }
 .message.tool { align-items: stretch; padding: 0 2px; }

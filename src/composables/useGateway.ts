@@ -1,7 +1,7 @@
 import { ref, computed } from 'vue'
 import { fetch } from '@tauri-apps/plugin-http'
 import WebSocket from '@tauri-apps/plugin-websocket'
-import { normalizeSessionMessages, completionFailure, truncateBeforeUserParams, userOrdinalAtMessageIndex, type SessionMessage } from '../utils/sessionMessages'
+import { normalizeSessionMessages, completionFailure, truncateBeforeUserParams, userOrdinalAtMessageIndex, applyEditedUserTurn, type SessionMessage } from '../utils/sessionMessages'
 import { mergeSessionsById } from '../utils/sessionList'
 
 const FETCH_TIMEOUT = 12000
@@ -797,72 +797,72 @@ async function editMessage(
   }
 
   const msg = messages.value[msgIndex]
-  if (!msg || msg.role !== 'user') {
+  const userOrdinal = userOrdinalAtMessageIndex(messages.value, msgIndex)
+  if (!msg || userOrdinal === null) {
     throw new Error('No user message at that index')
   }
 
-  // Count user messages up to (but not including) this index to get the ordinal
-  let userOrdinal = 0
-  for (let i = 0; i < msgIndex; i++) {
-    if (messages.value[i].role === 'user') userOrdinal++
-  }
+  // An edit is a destructive rewind. Keep an immutable snapshot so a rejected
+  // resume/submit restores the exact prior transcript rather than leaving a
+  // locally truncated thread that no longer matches the gateway.
+  const originalMessages = messages.value
 
-  const runtimeId = await resumeSession(sessionId)
+  try {
+    const runtimeId = await resumeSession(sessionId)
 
-  // Truncate: keep everything up to and including this user message, remove assistant responses after
-  // Find the end of this user message's block (next user message or end)
-  let truncateIdx = msgIndex + 1
-  while (truncateIdx < messages.value.length && messages.value[truncateIdx].role !== 'user') {
-    truncateIdx++
-  }
-  messages.value = messages.value.slice(0, truncateIdx)
+    // Mirror desktop's applyRewindOptimistic: the edited user turn replaces
+    // the original and its complete old response branch disappears before the
+    // replacement response starts streaming.
+    messages.value = applyEditedUserTurn(originalMessages, msgIndex, newText)
 
-  // Update the user message content with the edited text
-  messages.value[msgIndex].content = newText
+    await interruptSession(runtimeId)
 
-  await interruptSession(runtimeId)
+    const assistantMsg: Message = {
+      role: 'assistant',
+      content: '',
+      timestamp: Date.now() / 1000,
+    }
+    messages.value.push(assistantMsg)
 
-  const assistantMsg: Message = {
-    role: 'assistant',
-    content: '',
-    timestamp: Date.now() / 1000,
-  }
-  messages.value.push(assistantMsg)
+    streamingContent = ''
+    turnStartedAt.value = Date.now()
 
-  streamingContent = ''
-  turnStartedAt.value = Date.now()
+    const content = await new Promise<string>((resolve, reject) => {
+      const TURN_TIMEOUT = 1_800_000
+      const timer = setTimeout(() => {
+        activeTurn = null
+        streamingContent = ''
+        turnStartedAt.value = null
+        reject(new Error('Turn timed out'))
+      }, TURN_TIMEOUT)
 
-  const content = await new Promise<string>((resolve, reject) => {
-    const TURN_TIMEOUT = 1_800_000
-    const timer = setTimeout(() => {
-      activeTurn = null
-      streamingContent = ''
-      turnStartedAt.value = null
-      reject(new Error('Turn timed out'))
-    }, TURN_TIMEOUT)
+      activeTurn = { sessionId: runtimeId, resolve, reject, timer }
 
-    activeTurn = { sessionId: runtimeId, resolve, reject, timer }
-
-    const id = ++nextId
-    ws.send(JSON.stringify({
-      jsonrpc: '2.0',
-      id,
-      method: 'prompt.submit',
-      params: {
-        session_id: runtimeId,
-        text: newText,
-        ...truncateBeforeUserParams(userOrdinal),
-      },
-    })).catch((err: any) => {
-      clearTimeout(timer)
-      activeTurn = null
-      streamingContent = ''
-      reject(err)
+      const id = ++nextId
+      ws.send(JSON.stringify({
+        jsonrpc: '2.0',
+        id,
+        method: 'prompt.submit',
+        params: {
+          session_id: runtimeId,
+          text: newText,
+          ...truncateBeforeUserParams(userOrdinal),
+        },
+      })).catch((err: any) => {
+        clearTimeout(timer)
+        activeTurn = null
+        streamingContent = ''
+        turnStartedAt.value = null
+        reject(err)
+      })
     })
-  })
 
-  assistantMsg.content = content || '[empty response]'
-  return assistantMsg
+    assistantMsg.content = content || '[empty response]'
+    return assistantMsg
+  } catch (err) {
+    messages.value = originalMessages
+    throw err
+  }
 }
 
 async function renameSession(sessionId: string, title: string): Promise<boolean> {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { markLatestAssistantFailure, normalizeSessionMessages, userOrdinalAtMessageIndex } from './sessionMessages'
+import { applyEditedUserTurn, markLatestAssistantFailure, normalizeSessionMessages, userOrdinalAtMessageIndex } from './sessionMessages'
 
 describe('normalizeSessionMessages', () => {
   it('retains text, tools, and separate reasoning in server order', () => {
@@ -209,6 +209,20 @@ describe('normalizeSessionMessages', () => {
 
     expect(completionFailure({ status: 'error', failure_reason: 'billing' }))
       .toEqual({ message: 'billing', partial: false })
+  })
+
+  it('discards an edited prompt’s complete old response branch before streaming its replacement', () => {
+    const messages = [
+      { id: 'u1', role: 'user' as const, content: 'Original prompt', timestamp: 1 },
+      { id: 'a1', role: 'assistant' as const, content: 'Old response', timestamp: 2 },
+      { id: 't1', role: 'tool' as const, content: 'Old activity', timestamp: 3 },
+      { id: 'u2', role: 'user' as const, content: 'Later prompt', timestamp: 4 },
+    ]
+
+    expect(applyEditedUserTurn(messages, 0, 'Edited prompt')).toEqual([
+      { id: 'u1', role: 'user', content: 'Edited prompt', timestamp: 1 },
+    ])
+    expect(messages[0].content).toBe('Original prompt')
   })
 
   it('uses the visible user ordinal when restoring an earlier checkpoint', () => {

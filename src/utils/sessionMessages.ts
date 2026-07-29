@@ -67,6 +67,18 @@ export function userOrdinalAtMessageIndex(messages: Pick<SessionMessage, 'role'>
   return ordinal
 }
 
+/**
+ * Desktop treats an edit as a rewind: retain the preceding transcript, replace
+ * the edited prompt, and discard its old response branch before the new turn
+ * streams. Keeping the old assistant records locally would show two answers
+ * until the next history hydration.
+ */
+export function applyEditedUserTurn(messages: SessionMessage[], messageIndex: number, text: string): SessionMessage[] {
+  const target = messages[messageIndex]
+  if (!target || target.role !== 'user') return messages
+  return [...messages.slice(0, messageIndex), { ...target, content: text }]
+}
+
 export function markLatestAssistantFailure(messages: SessionMessage[], fallbackMessage: string): void {
   const last = messages[messages.length - 1]
   if (!last || last.role !== 'assistant') return

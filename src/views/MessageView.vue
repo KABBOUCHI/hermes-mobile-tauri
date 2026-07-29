@@ -181,9 +181,9 @@ async function saveEdit() {
   try {
     await gw.editMessage(auth.gatewayUrl.value, selectedSessionId.value, idx, text)
   } catch (err: any) {
-    const message = err.message || 'Edit failed'
-    markLatestAssistantFailure(gw.messages.value, message)
-    toast.show(message, 'error')
+    // editMessage restores the discarded local branch on transport failure, so
+    // surface the error without incorrectly marking the prior assistant reply.
+    toast.show(err.message || 'Edit failed', 'error')
   } finally {
     editing.value = false
     editingIdx.value = null

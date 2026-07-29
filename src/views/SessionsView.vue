@@ -521,17 +521,20 @@ function formatCount(n: number): string {
 <template>
   <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-app-bg font-sans text-app-text">
     <!-- Header -->
-    <div class="flex shrink-0 items-center gap-2 border-b border-app-border px-4 pt-5 pb-4">
-      <div class="min-w-0 flex-1 flex flex-col gap-1">
-        <span class="truncate text-2xl font-bold tracking-[-0.02em]">☤ Hermes</span>
-        <div class="flex items-center gap-1.5">
-          <span class="size-1.5 shrink-0 rounded-full" :class="auth.isConnected.value ? 'bg-app-success shadow-[0_0_6px_rgba(34,197,94,0.5)]' : 'bg-app-error shadow-[0_0_6px_rgba(239,68,68,0.4)]'" />
-          <span class="text-xs text-app-muted">{{ hostShort }}</span>
+    <div class="flex h-[68px] shrink-0 items-center gap-3 border-b border-app-border bg-app-bg px-4">
+      <div class="flex min-w-0 flex-1 items-center gap-2.5">
+        <span class="flex size-9 shrink-0 items-center justify-center rounded-xl border border-app-accent/25 bg-app-accent/10 text-lg text-app-accent">☤</span>
+        <div class="min-w-0">
+          <div class="truncate text-[17px] font-semibold tracking-[-0.03em]">Hermes</div>
+          <div class="flex min-w-0 items-center gap-1.5">
+            <span class="size-1.5 shrink-0 rounded-full" :class="auth.isConnected.value ? 'bg-app-success shadow-[0_0_6px_rgba(34,197,94,0.5)]' : 'bg-app-error shadow-[0_0_6px_rgba(239,68,68,0.4)]'" />
+            <span class="truncate text-[11px] text-app-muted">{{ hostShort }}</span>
+          </div>
         </div>
       </div>
-      <div class="flex shrink-0 items-center gap-1.5">
+      <div class="flex shrink-0 items-center gap-0.5 rounded-lg border border-app-border bg-app-surface-2/80 p-1 shadow-[0_1px_0_rgba(255,255,255,0.04)_inset]">
         <button
-          class="flex size-9 cursor-pointer items-center justify-center rounded-lg border border-app-border bg-app-surface text-app-muted transition-all hover:bg-app-surface-2 hover:text-app-text"
+          class="flex size-8 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-app-muted transition-colors hover:bg-app-surface-3 hover:text-app-text"
           :class="showingArchived && 'border-app-accent/30 bg-app-accent/10 text-app-accent'"
           @click="toggleArchived"
           title="Archived sessions"
@@ -542,21 +545,26 @@ function formatCount(n: number): string {
             <line x1="10" y1="12" x2="14" y2="12" />
           </svg>
         </button>
-        <button v-if="unreadIds.size > 0" class="h-[30px] cursor-pointer whitespace-nowrap rounded-md border border-app-border bg-transparent px-2.5 text-xs font-medium text-app-muted transition-all hover:border-app-muted hover:text-app-text" @click="handleMarkAllRead" title="Mark all read">
+        <button v-if="unreadIds.size > 0" class="h-8 cursor-pointer whitespace-nowrap rounded-md border-0 bg-transparent px-2 text-[11px] font-medium text-app-muted transition-colors hover:bg-app-surface-3 hover:text-app-text" @click="handleMarkAllRead" title="Mark all read">
           ✓ Read
         </button>
-        <button class="flex size-9 cursor-pointer items-center justify-center rounded-lg border border-app-border bg-app-surface text-base text-app-muted transition-colors hover:bg-app-surface-2" @click="goToCron" title="Cron jobs">
-          ⏰
+        <button class="flex size-8 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-app-muted transition-colors hover:bg-app-surface-3 hover:text-app-text" @click="goToCron" title="Cron jobs" aria-label="Cron jobs">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="13" r="8" /><path d="M12 9v4l2.5 1.5M9 2h6M12 2v3M5.5 5.5 4 4M18.5 5.5 20 4" />
+          </svg>
         </button>
-        <button class="flex size-9 cursor-pointer items-center justify-center rounded-lg border-0 bg-app-accent text-xl font-medium leading-none text-white transition-opacity hover:opacity-90" @click="createNewSession" title="New session">
+        <button class="flex size-8 cursor-pointer items-center justify-center rounded-md border-0 bg-app-accent text-xl font-medium leading-none text-white transition-colors hover:bg-app-accent-hover" @click="createNewSession" title="New session" aria-label="New session">
           +
         </button>
-        <button class="flex size-9 cursor-pointer items-center justify-center rounded-lg border border-app-border bg-app-surface text-base text-app-muted transition-colors hover:bg-app-surface-2" :class="refreshing && 'animate-spin'" @click="handleRefresh">
-          ↻
+        <button class="flex size-8 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-app-muted transition-colors hover:bg-app-surface-3 hover:text-app-text" :class="refreshing && 'animate-spin'" @click="handleRefresh" title="Refresh" aria-label="Refresh">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 11a8 8 0 1 0 2 5.5M20 4v7h-7" />
+          </svg>
         </button>
-        <button class="flex h-9 cursor-pointer items-center justify-center rounded-lg border border-app-error/20 bg-transparent px-3.5 text-[13px] font-medium text-app-error transition-colors hover:border-app-error/40 max-[520px]:size-9 max-[520px]:px-0" @click="disconnect">
-          <span class="max-[520px]:hidden">Disconnect</span>
-          <span class="hidden max-[520px]:inline" aria-label="Disconnect">⏻</span>
+        <button class="flex size-8 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-app-error/80 transition-colors hover:bg-app-error/10 hover:text-app-error" @click="disconnect" title="Disconnect" aria-label="Disconnect">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2v10M18.36 6.64a9 9 0 1 1-12.73 0" />
+          </svg>
         </button>
       </div>
     </div>

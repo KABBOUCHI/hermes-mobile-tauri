@@ -326,7 +326,7 @@ export function renderMarkdown(text: string): string {
 
     // Paragraph (collect consecutive non-empty lines)
     const paraLines: string[] = []
-    while (i < lines.length && lines[i].trim() !== '' && !lines[i].match(/^(#{1,6}\s|```|>\s|[-*_]{3,}|\|)/) && !lines[i].match(/^%%THINKING_BLOCK_/)) {
+    while (i < lines.length && lines[i].trim() !== '' && !lines[i].match(/^(#{1,6}\s|```|>\s|[-*_]{3,}\s*$)/) && !lines[i].match(/^%%THINKING_BLOCK_/)) {
       paraLines.push(lines[i])
       i++
     }

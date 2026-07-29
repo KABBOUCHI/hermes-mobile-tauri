@@ -17,4 +17,16 @@ describe('renderMarkdown links', () => {
     expect(html).toContain('href="https://hermes-agent.nousresearch.com/docs"')
     expect(html.match(/class="md-link"/g)).toHaveLength(1)
   })
+
+  it('renders a pipe-prefixed non-table line as a paragraph', () => {
+    expect(renderMarkdown('| status output, not a markdown table')).toBe(
+      '<p class="md-p">| status output, not a markdown table</p>',
+    )
+  })
+
+  it('renders a rule-prefixed non-rule line as a paragraph', () => {
+    expect(renderMarkdown('--- Attached Context ---')).toBe(
+      '<p class="md-p">--- Attached Context ---</p>',
+    )
+  })
 })

@@ -375,6 +375,20 @@ function retryFailed(failedMsgIdx: number) {
   }
 }
 
+// Gateway failures are local display state, just as they are on desktop. Keep
+// partial streamed output when it exists, but remove an empty failure bubble so
+// a resolved or dismissed error does not linger in the transcript.
+function dismissFailed(failedMsgIdx: number) {
+  const failed = gw.messages.value[failedMsgIdx]
+  if (!failed?.error) return
+
+  if (failed.content.trim() || failed.reasoning || failed.toolCalls?.length) {
+    failed.error = false
+  } else {
+    gw.messages.value.splice(failedMsgIdx, 1)
+  }
+}
+
 function handleKeydown(e: KeyboardEvent) {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault()
@@ -621,6 +635,12 @@ function actionRetry() {
   const idx = actionSheetMsgIdx.value
   closeActionSheet()
   retryFailed(idx)
+}
+
+function actionDismissError() {
+  const idx = actionSheetMsgIdx.value
+  closeActionSheet()
+  dismissFailed(idx)
 }
 
 async function actionRegenerate() {
@@ -1094,6 +1114,7 @@ function formatTime(ts: number): string {
                 </svg>
                 <span class="error-text">{{ msg.content || 'Failed to send' }}</span>
                 <button class="retry-btn" :disabled="sending" @click.stop="retryFailed(idx)">Retry</button>
+                <button class="dismiss-error-btn" @click.stop="dismissFailed(idx)" aria-label="Dismiss error">Dismiss</button>
               </div>
 
               <!-- Streaming thinking indicator -->
@@ -1289,6 +1310,14 @@ function formatTime(ts: number): string {
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 4v6h6M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg>
                 <span>Retry</span>
+              </button>
+              <button
+                v-if="actionSheetMsg?.error"
+                class="ActionSheetBtn"
+                @click="actionDismissError"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                <span>Dismiss error</span>
               </button>
               <button
                 v-if="actionSheetIsLastAssistant && !sending && actionSheetMsg?.content"
@@ -1764,6 +1793,16 @@ function formatTime(ts: number): string {
   background: rgba(239, 68, 68, 0.15);
   border-color: rgba(239, 68, 68, 0.4);
 }
+
+.dismiss-error-btn {
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.dismiss-error-btn:hover { color: var(--text); }
 
 /* Search match styling */
 .message.search-match .message-bubble {

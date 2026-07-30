@@ -1,7 +1,7 @@
 import { ref, computed } from 'vue'
 import { fetch } from '@tauri-apps/plugin-http'
 import WebSocket from '@tauri-apps/plugin-websocket'
-import { normalizeSessionMessages, completionFailure, truncateBeforeUserParams, userOrdinalAtMessageIndex, applyEditedUserTurn, type SessionMessage } from '../utils/sessionMessages'
+import { normalizeSessionMessages, branchableMessageHistory, completionFailure, truncateBeforeUserParams, userOrdinalAtMessageIndex, applyEditedUserTurn, type SessionMessage } from '../utils/sessionMessages'
 import { mergeSessionsById } from '../utils/sessionList'
 
 const FETCH_TIMEOUT = 12000
@@ -578,6 +578,28 @@ async function createSession(): Promise<{ runtimeId: string; storedSessionId: st
   return { runtimeId, storedSessionId: result?.stored_session_id ?? null }
 }
 
+/**
+ * Create a stored child conversation without disturbing its parent. Desktop
+ * seeds a branch through `session.create` and keeps only conversational prose;
+ * the returned stored identity is what mobile routes and history fetches use.
+ */
+async function branchSession(parentSessionId: string, sourceMessages: readonly Pick<Message, 'role' | 'content'>[]): Promise<string> {
+  const messagesForBranch = branchableMessageHistory(sourceMessages)
+  if (!parentSessionId || !messagesForBranch.length) {
+    throw new Error('Nothing to branch')
+  }
+
+  const result = await rpcCall('session.create', {
+    cols: 96,
+    source: 'desktop',
+    parent_session_id: parentSessionId,
+    messages: messagesForBranch,
+  })
+  const storedSessionId = result?.stored_session_id ?? result?.session_id
+  if (!storedSessionId) throw new Error('session.create returned no stored session id')
+  return storedSessionId
+}
+
 async function sendMessage(
   _url: string,
   sessionId: string,
@@ -1075,6 +1097,7 @@ export function useGateway() {
     connectWs,
     disconnectWs,
     createSession,
+    branchSession,
     sendMessage,
     interruptSession,
     regenerateLastMessage,

@@ -15,7 +15,7 @@ import { useAuth } from '../composables/useAuth'
 import { useGateway, type ModelProvider } from '../composables/useGateway'
 import { useToast } from '../composables/useToast'
 import { openUrl } from '@tauri-apps/plugin-opener'
-import { ArrowDown, ArrowLeft, Check, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Copy, EllipsisVertical, FileImage, History, MessageCircle, MoreHorizontal, Pencil, RotateCcw, Search, Send, Share, Square, X } from '@lucide/vue'
+import { ArrowDown, ArrowLeft, Check, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Copy, EllipsisVertical, FileImage, GitFork, History, MessageCircle, MoreHorizontal, Pencil, RotateCcw, Search, Send, Share, Square, X } from '@lucide/vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -672,6 +672,22 @@ function actionDismissError() {
 async function actionRegenerate() {
   closeActionSheet()
   await handleRegenerate()
+}
+
+// Desktop branches from an assistant turn into a separate child session, so the
+// original transcript remains untouched while the new direction has its own
+// durable history. Navigate only after the gateway returns the stored identity.
+async function actionBranch() {
+  const msg = actionSheetMsg.value
+  closeActionSheet()
+  if (sending.value || !selectedSessionId.value || !msg || msg.role !== 'assistant' || !msg.content.trim()) return
+
+  try {
+    const branchSessionId = await gw.branchSession(selectedSessionId.value, [msg])
+    await router.push({ name: 'chat', params: { id: branchSessionId } })
+  } catch (err: any) {
+    toast.show(err?.message || 'Unable to branch this message', 'error')
+  }
 }
 
 async function actionShare() {
@@ -1336,6 +1352,14 @@ function formatTime(ts: number): string {
               >
                 <RotateCcw :size="18" :stroke-width="2" />
                 <span>Regenerate</span>
+              </button>
+              <button
+                v-if="actionSheetMsg?.role === 'assistant' && !sending && actionSheetMsg?.content"
+                class="flex w-full cursor-pointer items-center gap-3 rounded-[10px] border-0 bg-transparent px-3.5 py-3 text-left text-[15px] text-app-text transition-colors hover:bg-app-surface-2 active:bg-app-surface-3"
+                @click="actionBranch"
+              >
+                <GitFork :size="18" :stroke-width="2" />
+                <span>Branch into new chat</span>
               </button>
               <button
                 v-if="actionSheetMsg?.content && hasShareApi"

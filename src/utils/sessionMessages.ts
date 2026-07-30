@@ -79,6 +79,19 @@ export function applyEditedUserTurn(messages: SessionMessage[], messageIndex: nu
   return [...messages.slice(0, messageIndex), { ...target, content: text }]
 }
 
+/**
+ * Branches are durable conversational history, not a replay of transport
+ * activity. Match desktop's `toBranchMessages`: carry only visible user and
+ * assistant prose, and never seed a child session with tool rows or blanks.
+ */
+export function branchableMessageHistory(messages: readonly Pick<SessionMessage, 'role' | 'content'>[]): Array<{ role: 'user' | 'assistant'; content: string }> {
+  return messages.flatMap(message => {
+    const content = message.content.trim()
+    if (!content || (message.role !== 'user' && message.role !== 'assistant')) return []
+    return [{ role: message.role, content }]
+  })
+}
+
 export function markLatestAssistantFailure(messages: SessionMessage[], fallbackMessage: string): void {
   const last = messages[messages.length - 1]
   if (!last || last.role !== 'assistant') return

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyEditedUserTurn, markLatestAssistantFailure, normalizeSessionMessages, userOrdinalAtMessageIndex } from './sessionMessages'
+import { applyEditedUserTurn, branchableMessageHistory, markLatestAssistantFailure, normalizeSessionMessages, userOrdinalAtMessageIndex } from './sessionMessages'
 
 describe('normalizeSessionMessages', () => {
   it('retains text, tools, and separate reasoning in server order', () => {
@@ -249,5 +249,21 @@ describe('normalizeSessionMessages', () => {
     expect(truncateBeforeUserParams(2)).toEqual({
       truncate_before_user_ordinal: 2,
     })
+  })
+
+  it('creates branch history from visible conversational turns without tool records', () => {
+    const messages = [
+      { role: 'user' as const, content: 'Investigate the gateway', timestamp: 1 },
+      { role: 'assistant' as const, content: 'I will inspect the connection flow.', timestamp: 2 },
+      { role: 'tool' as const, content: 'socket connected', timestamp: 3 },
+      { role: 'assistant' as const, content: 'The cookie is required.', timestamp: 4 },
+      { role: 'assistant' as const, content: '   ', timestamp: 5 },
+    ]
+
+    expect(branchableMessageHistory(messages)).toEqual([
+      { role: 'user', content: 'Investigate the gateway' },
+      { role: 'assistant', content: 'I will inspect the connection flow.' },
+      { role: 'assistant', content: 'The cookie is required.' },
+    ])
   })
 })

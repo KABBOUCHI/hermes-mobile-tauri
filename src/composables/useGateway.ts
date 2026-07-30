@@ -503,9 +503,14 @@ function handleGatewayEvent(event: any) {
     clearTimeout(activeTurn.timer)
     const errMsg = event.payload?.message || event.payload?.error || 'Turn failed'
     const reject = activeTurn.reject
+    const storedSessionId = activeTurn.storedSessionId
     activeTurn = null
     streamingContent = ''
     turnStartedAt.value = null
+    // An error event is terminal just like a failed message.complete. Leaving
+    // its journal behind would resurrect a failed partial reply on a later
+    // history refresh, even though the reader has already received the failure.
+    clearInFlightTurn(storedSessionId)
     reject(new Error(errMsg))
   }
 }

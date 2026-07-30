@@ -1195,9 +1195,14 @@ function formatTime(ts: number): string {
                 v-html="searchQuery.trim() && isMatch(idx) ? highlightText(msg.content, searchQuery) : render(msg.content)"
               ></div>
 
-              <!-- Empty assistant placeholder (streaming start) -->
-              <div v-if="msg.role === 'assistant' && !msg.content && !msg.reasoning && !msg.toolCalls?.length" class="flex items-center gap-1 py-1">
-                <span></span><span></span><span></span>
+              <!-- Desktop keeps a response-loading indicator in the assistant
+                   bubble itself. On mobile, include the authoritative turn timer
+                   here as well so it remains visible when the composer is offscreen. -->
+              <div v-if="msg.role === 'assistant' && !msg.content && !msg.reasoning && !msg.toolCalls?.length" class="flex items-center gap-1.5 py-1">
+                <span class="size-[5px] rounded-full bg-app-accent"></span>
+                <span class="size-[5px] rounded-full bg-app-accent"></span>
+                <span class="size-[5px] rounded-full bg-app-accent"></span>
+                <span v-if="sending && idx === gw.messages.value.length - 1" class="ml-1 text-xs tabular-nums text-app-muted">Thinking<span v-if="elapsedDisplay"> · {{ elapsedDisplay }}</span><span v-else>…</span></span>
               </div>
             </template>
           </template>

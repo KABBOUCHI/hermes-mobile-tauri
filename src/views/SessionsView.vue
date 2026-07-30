@@ -21,7 +21,11 @@ const unreads = useUnreads()
 const toast = useToast()
 
 const search = ref('')
-const sourceFilter = ref('desktop')
+// Desktop's recent-session query is intentionally unscoped: source describes
+// where a conversation began, not whether it belongs in the user's history.
+// Start on All sources so mobile, CLI, messaging, and cron conversations are
+// discoverable without an extra filtering step.
+const sourceFilter = ref('all')
 const refreshing = ref(false)
 const pullStart = ref(0)
 const pullDelta = ref(0)

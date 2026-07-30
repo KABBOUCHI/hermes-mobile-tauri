@@ -3,6 +3,7 @@ import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { renderMarkdown } from '../utils/markdown'
 import { highlightRenderedHtml } from '../utils/renderedSearchHighlight'
+import { messageMatchesSearch } from '../utils/messageSearch'
 import { markLatestAssistantFailure } from '../utils/sessionMessages'
 import { extractUnifiedDiff, summarizeToolActivity, thoughtActivityLabel } from '../utils/activitySummary'
 import PatchDiff from '../components/PatchDiff.vue'
@@ -260,7 +261,9 @@ function computeMatches() {
   const indices: number[] = []
   for (let i = 0; i < gw.messages.value.length; i++) {
     const msg = gw.messages.value[i]
-    if (msg.content && msg.content.toLowerCase().includes(q)) {
+    // The transcript exposes reasoning and grouped tool detail in disclosures;
+    // search that visible semantic content too, rather than only the main bubble.
+    if (messageMatchesSearch(msg, q)) {
       indices.push(i)
     }
   }

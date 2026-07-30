@@ -60,6 +60,11 @@ let sessionsTotal = 0
 let sessionsOffset = 0
 let archivedSessionsTotal = 0
 let archivedSessionsOffset = 0
+// The archive toggle, a pull-to-refresh, and pagination can overlap on mobile.
+// As on desktop, only the newest list request may publish gateway truth; an
+// older response must not swap a freshly selected archive scope back underneath
+// the user.
+let sessionFetchGeneration = 0
 // A message request can finish after the user has opened another session. Keep
 // only the newest request authoritative so an older thread cannot replace it.
 let messageFetchGeneration = 0
@@ -224,6 +229,10 @@ export function sessionListPath(limit: number, offset: number, archived: 'exclud
 }
 
 async function fetchSessions(url: string, append = false, archived: 'exclude' | 'only' = 'exclude'): Promise<Session[]> {
+  // A refresh can be overtaken by an archive toggle, or a Load more request by
+  // a pull-to-refresh. Capture a generation before reading pagination state and
+  // allow only the newest request to change the shared session cache.
+  const generation = ++sessionFetchGeneration
   if (append) {
     loadingMore.value = true
   } else {
@@ -251,6 +260,11 @@ async function fetchSessions(url: string, append = false, archived: 'exclude' | 
     if (!resp.ok) throw new Error('HTTP ' + resp.status)
     const data = await resp.json()
     const incoming = data.sessions || []
+
+    // The response is cache data, not ownership of the list. A newer intent
+    // (notably archive scope) wins even when this request completes later.
+    if (generation !== sessionFetchGeneration) return sessions.value
+
     if (archived === 'only') {
       archivedSessionsTotal = data.total ?? incoming.length
       archivedSessionsOffset += incoming.length
@@ -267,11 +281,15 @@ async function fetchSessions(url: string, append = false, archived: 'exclude' | 
     }
     return sessions.value
   } catch (err: any) {
-    error.value = err.message || 'Failed to load sessions'
+    if (generation === sessionFetchGeneration) {
+      error.value = err.message || 'Failed to load sessions'
+    }
     return []
   } finally {
-    loadingSessions.value = false
-    loadingMore.value = false
+    if (generation === sessionFetchGeneration) {
+      loadingSessions.value = false
+      loadingMore.value = false
+    }
   }
 }
 

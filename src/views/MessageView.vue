@@ -11,6 +11,7 @@ import { isNearChatBottom, jumpToBottomOffset } from '../utils/chatScroll'
 import { writeClipboardText } from '../utils/clipboard'
 import { formatElapsedSeconds } from '../utils/elapsedTime'
 import { createSessionExport } from '../utils/sessionExport'
+import { messageLoadErrorState } from '../utils/messageLoadState'
 import { useAuth } from '../composables/useAuth'
 import { useGateway, type ModelProvider } from '../composables/useGateway'
 import { useToast } from '../composables/useToast'
@@ -769,6 +770,7 @@ function toolDiff(content: string, diff?: string): string | null {
 }
 
 const hasMessages = computed(() => gw.messages.value.length > 0)
+const loadErrorState = computed(() => messageLoadErrorState(gw.error.value, hasMessages.value))
 
 // Keep the currently streaming tail fully laid out, while allowing Chromium to
 // skip paint and layout work for settled history. This follows desktop's thread
@@ -1031,10 +1033,19 @@ function formatTime(ts: number): string {
       <!-- A transcript fetch can fail before any cached history is available.
            Match desktop's recovery contract: state the failure plainly and leave
            a direct, bounded retry in the same place rather than a dead thread. -->
-      <div v-if="gw.error.value && !hasMessages" class="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
-        <div class="rounded-lg border border-app-error/30 bg-app-error/10 px-3.5 py-2.5 text-[13px] text-app-error">{{ gw.error.value }}</div>
+      <div v-if="loadErrorState.kind === 'empty'" class="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+        <div class="rounded-lg border border-app-error/30 bg-app-error/10 px-3.5 py-2.5 text-[13px] text-app-error">{{ loadErrorState.message }}</div>
         <button
           class="h-9 cursor-pointer rounded-lg border-0 bg-app-accent px-4 text-[13px] font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-default disabled:opacity-40"
+          :disabled="gw.loadingMessages.value || !selectedSessionId"
+          @click="refreshMessages"
+        >{{ gw.loadingMessages.value ? 'Retrying…' : 'Retry' }}</button>
+      </div>
+
+      <div v-if="loadErrorState.kind === 'inline'" class="flex items-center justify-between gap-3 rounded-lg border border-app-error/30 bg-app-error/10 px-3 py-2 text-[13px] text-app-error">
+        <span class="min-w-0 flex-1">{{ loadErrorState.message }}</span>
+        <button
+          class="shrink-0 cursor-pointer rounded-md border border-app-error/30 bg-transparent px-2.5 py-1 text-xs font-semibold text-app-error transition-colors hover:border-app-error/50 hover:bg-app-error/15 disabled:cursor-default disabled:opacity-40"
           :disabled="gw.loadingMessages.value || !selectedSessionId"
           @click="refreshMessages"
         >{{ gw.loadingMessages.value ? 'Retrying…' : 'Retry' }}</button>

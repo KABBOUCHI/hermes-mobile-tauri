@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { flattenSessionsWithBranches, mergeSessionsById } from './sessionList'
+import { flattenSessionsWithBranches, mergeSessionsById, orderSessionsByIds } from './sessionList'
 
 describe('mergeSessionsById', () => {
   it('deduplicates overlapping pages while retaining the freshest session data', () => {
@@ -40,6 +40,21 @@ describe('mergeSessionsById', () => {
     expect(mergeSessionsById(existing, [])).toEqual([
       { id: 'same', preview: 'newer copy', message_count: 2 },
       { id: 'other', preview: 'keep', message_count: 1 },
+    ])
+  })
+})
+
+describe('orderSessionsByIds', () => {
+  it('uses persisted pin order, ignores stale ids, and does not duplicate rows', () => {
+    const sessions = [
+      { id: 'recent', preview: 'Most recently active' },
+      { id: 'older', preview: 'Older pinned session' },
+      { id: 'other', preview: 'Not pinned' },
+    ]
+
+    expect(orderSessionsByIds(sessions, ['older', 'missing', 'recent', 'older'])).toEqual([
+      { id: 'older', preview: 'Older pinned session' },
+      { id: 'recent', preview: 'Most recently active' },
     ])
   })
 })

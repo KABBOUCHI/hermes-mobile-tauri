@@ -8,7 +8,7 @@ import { usePins } from '../composables/usePins'
 import { useUnreads } from '../composables/useUnreads'
 import { useToast } from '../composables/useToast'
 import { sessionMatchesSearch } from '../utils/sessionSearch'
-import { flattenSessionsWithBranches, type SessionBranchEntry } from '../utils/sessionList'
+import { flattenSessionsWithBranches, orderSessionsByIds, type SessionBranchEntry } from '../utils/sessionList'
 import { filterSessionsBySource } from '../utils/sessionSource'
 import { writeClipboardText } from '../utils/clipboard'
 import { Archive, ArchiveRestore, Atom, Check, CircleX, Copy, Inbox, Pencil, Pin, Plus, RefreshCw, Search, Trash2 } from '@lucide/vue'
@@ -205,7 +205,7 @@ const sourceOptions = computed(() => {
 })
 
 const pinnedSessions = computed(() =>
-  filtered.value.filter(s => pinnedIds.value.includes(s.id))
+  orderSessionsByIds(filtered.value, pinnedIds.value)
 )
 
 const unpinnedSessions = computed(() =>

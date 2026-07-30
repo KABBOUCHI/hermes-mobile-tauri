@@ -30,6 +30,28 @@ export interface SessionBranchEntry<T> {
 }
 
 /**
+ * Resolve pinned rows in the persisted pin order rather than whatever recency
+ * order the latest sessions page happened to use. This mirrors desktop's
+ * sidebar, where the pin-id array is the user's deliberate ordering.
+ * Unknown ids are ignored and duplicate ids cannot duplicate a visible row.
+ */
+export function orderSessionsByIds<T extends { id: string }>(sessions: readonly T[], ids: readonly string[]): T[] {
+  const byId = new Map(sessions.map(session => [session.id, session]))
+  const seen = new Set<string>()
+  const ordered: T[] = []
+
+  for (const id of ids) {
+    const session = byId.get(id)
+    if (session && !seen.has(session.id)) {
+      seen.add(session.id)
+      ordered.push(session)
+    }
+  }
+
+  return ordered
+}
+
+/**
  * Keep forked conversations adjacent to their parent, mirroring the desktop
  * sidebar. A branch group's recency is its newest member, so a fresh fork does
  * not leave its parent stranded elsewhere in the list.

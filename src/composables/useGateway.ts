@@ -3,6 +3,7 @@ import { fetch } from '@tauri-apps/plugin-http'
 import WebSocket from '@tauri-apps/plugin-websocket'
 import { normalizeSessionMessages, branchableMessageHistory, completionFailure, truncateBeforeUserParams, userOrdinalAtMessageIndex, applyEditedUserTurn, rewindToMessage, type SessionMessage } from '../utils/sessionMessages'
 import { mergeSessionsById } from '../utils/sessionList'
+import { clearInFlightTurn, persistInFlightTurn, recoverInFlightTurn } from '../utils/inflightTurnJournal'
 
 const FETCH_TIMEOUT = 12000
 // A session transcript can contain hundreds of durable tool records. On a
@@ -117,7 +118,7 @@ let pendingRequests = new Map<number, { resolve: Function; reject: Function; tim
 let nextId = 0
 
 // Streaming turn state
-let activeTurn: { sessionId: string; resolve: (content: string) => void; reject: (err: Error) => void; timer: ReturnType<typeof setTimeout> } | null = null
+let activeTurn: { sessionId: string; storedSessionId: string; resolve: (content: string) => void; reject: (err: Error) => void; timer: ReturnType<typeof setTimeout> } | null = null
 let streamingContent = ''
 
 // Config
@@ -348,7 +349,7 @@ async function fetchMessages(url: string, sessionId: string): Promise<Message[]>
     if (!resp.ok) throw new Error('HTTP ' + resp.status)
     const data = await resp.json()
     const raw = attachLiveToolDiffs(sessionId, data.messages || [])
-    const incoming = normalizeSessionMessages(raw)
+    const incoming = recoverInFlightTurn(sessionId, normalizeSessionMessages(raw))
 
     // Navigation may have started a newer fetch while this request was in
     // flight. Preserve the foreground thread in that case.
@@ -475,6 +476,7 @@ function handleGatewayEvent(event: any) {
       const last = messages.value[messages.value.length - 1]
       if (last && last.role === 'assistant') {
         last.content = streamingContent
+        persistInFlightTurn(activeTurn.storedSessionId, messages.value)
       }
     }
   }
@@ -485,9 +487,11 @@ function handleGatewayEvent(event: any) {
     const failure = completionFailure(event.payload)
     const resolve = activeTurn.resolve
     const reject = activeTurn.reject
+    const storedSessionId = activeTurn.storedSessionId
     activeTurn = null
     streamingContent = ''
     turnStartedAt.value = null
+    clearInFlightTurn(storedSessionId)
     if (failure) {
       reject(new Error(failure.message))
     } else {
@@ -658,7 +662,8 @@ async function sendMessage(
       reject(new Error('Turn timed out'))
     }, TURN_TIMEOUT)
 
-    activeTurn = { sessionId: runtimeId, resolve, reject, timer }
+    activeTurn = { sessionId: runtimeId, storedSessionId: sessionId, resolve, reject, timer }
+    persistInFlightTurn(sessionId, messages.value)
 
     const id = ++nextId
     ws.send(JSON.stringify({
@@ -737,7 +742,8 @@ async function regenerateLastMessage(
       reject(new Error('Turn timed out'))
     }, TURN_TIMEOUT)
 
-    activeTurn = { sessionId: runtimeId, resolve, reject, timer }
+    activeTurn = { sessionId: runtimeId, storedSessionId: sessionId, resolve, reject, timer }
+    persistInFlightTurn(sessionId, messages.value)
 
     const id = ++nextId
     ws.send(JSON.stringify({
@@ -811,7 +817,8 @@ async function restoreMessage(
       reject(new Error('Turn timed out'))
     }, TURN_TIMEOUT)
 
-    activeTurn = { sessionId: runtimeId, resolve, reject, timer }
+    activeTurn = { sessionId: runtimeId, storedSessionId: sessionId, resolve, reject, timer }
+    persistInFlightTurn(sessionId, messages.value)
 
     const id = ++nextId
     ws.send(JSON.stringify({
@@ -890,7 +897,8 @@ async function editMessage(
         reject(new Error('Turn timed out'))
       }, TURN_TIMEOUT)
 
-      activeTurn = { sessionId: runtimeId, resolve, reject, timer }
+      activeTurn = { sessionId: runtimeId, storedSessionId: sessionId, resolve, reject, timer }
+      persistInFlightTurn(sessionId, messages.value)
 
       const id = ++nextId
       ws.send(JSON.stringify({

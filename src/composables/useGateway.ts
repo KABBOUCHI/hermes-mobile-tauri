@@ -1,7 +1,7 @@
 import { ref, computed } from 'vue'
 import { fetch } from '@tauri-apps/plugin-http'
 import WebSocket from '@tauri-apps/plugin-websocket'
-import { normalizeSessionMessages, branchableMessageHistory, completionFailure, truncateBeforeUserParams, userOrdinalAtMessageIndex, applyEditedUserTurn, type SessionMessage } from '../utils/sessionMessages'
+import { normalizeSessionMessages, branchableMessageHistory, completionFailure, truncateBeforeUserParams, userOrdinalAtMessageIndex, applyEditedUserTurn, rewindToMessage, type SessionMessage } from '../utils/sessionMessages'
 import { mergeSessionsById } from '../utils/sessionList'
 
 const FETCH_TIMEOUT = 12000
@@ -688,13 +688,17 @@ async function regenerateLastMessage(
   const lastUserText = lastUserEntry.msg.content
   const userOrdinal = userMsgs.length - 1
 
-  const runtimeId = await resumeSession(sessionId)
+  // The local rewind is optimistic. Preserve a snapshot so an unavailable
+  // runtime or rejected submit cannot strand the reader in a truncated chat.
+  const originalMessages = messages.value
+  try {
+    const runtimeId = await resumeSession(sessionId)
 
-  // Mirror desktop's optimistic reload: retain the prompt while replacing only
-  // the response branch. The gateway truncates and re-submits this same turn.
-  messages.value = messages.value.slice(0, lastUserEntry.idx + 1)
+    // Mirror desktop's optimistic reload: retain the prompt while replacing only
+    // the response branch. The gateway truncates and re-submits this same turn.
+    messages.value = rewindToMessage(originalMessages, lastUserEntry.idx)
 
-  await interruptSession(runtimeId)
+    await interruptSession(runtimeId)
 
   const assistantMsg: Message = {
     role: 'assistant',
@@ -737,6 +741,10 @@ async function regenerateLastMessage(
 
   assistantMsg.content = content || '[empty response]'
   return assistantMsg
+  } catch (err) {
+    messages.value = originalMessages
+    throw err
+  }
 }
 
 /**
@@ -759,10 +767,12 @@ async function restoreMessage(
     throw new Error('Could not restore this message')
   }
 
-  const runtimeId = await resumeSession(sessionId)
-  messages.value = messages.value.slice(0, msgIndex + 1)
+  const originalMessages = messages.value
+  try {
+    const runtimeId = await resumeSession(sessionId)
+    messages.value = rewindToMessage(originalMessages, msgIndex)
 
-  await interruptSession(runtimeId)
+    await interruptSession(runtimeId)
 
   const assistantMsg: Message = {
     role: 'assistant',
@@ -805,6 +815,10 @@ async function restoreMessage(
 
   assistantMsg.content = content || '[empty response]'
   return assistantMsg
+  } catch (err) {
+    messages.value = originalMessages
+    throw err
+  }
 }
 
 /** Edit a user message at the given index and resend from that point. */

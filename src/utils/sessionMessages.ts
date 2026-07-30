@@ -80,6 +80,15 @@ export function applyEditedUserTurn(messages: SessionMessage[], messageIndex: nu
 }
 
 /**
+ * Keep the selected checkpoint while a gateway rewind replaces its descendants.
+ * Invalid indices are a no-op so a stale action cannot erase local history.
+ */
+export function rewindToMessage<T>(messages: readonly T[], messageIndex: number): T[] {
+  if (!Number.isInteger(messageIndex) || messageIndex < 0 || messageIndex >= messages.length) return [...messages]
+  return messages.slice(0, messageIndex + 1)
+}
+
+/**
  * Branches are durable conversational history, not a replay of transport
  * activity. Match desktop's `toBranchMessages`: carry only visible user and
  * assistant prose, and never seed a child session with tool rows or blanks.

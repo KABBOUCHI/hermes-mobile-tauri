@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyEditedUserTurn, branchableMessageHistory, markLatestAssistantFailure, normalizeSessionMessages, userOrdinalAtMessageIndex } from './sessionMessages'
+import { applyEditedUserTurn, branchableMessageHistory, markLatestAssistantFailure, normalizeSessionMessages, rewindToMessage, userOrdinalAtMessageIndex } from './sessionMessages'
 
 describe('normalizeSessionMessages', () => {
   it('retains text, tools, and separate reasoning in server order', () => {
@@ -209,6 +209,20 @@ describe('normalizeSessionMessages', () => {
 
     expect(completionFailure({ status: 'error', failure_reason: 'billing' }))
       .toEqual({ message: 'billing', partial: false })
+  })
+
+  it('retains the selected user checkpoint while removing its old response branch', () => {
+    const messages = [
+      { id: 'u1', role: 'user' as const, content: 'First prompt', timestamp: 1 },
+      { id: 'a1', role: 'assistant' as const, content: 'First response', timestamp: 2 },
+      { id: 'u2', role: 'user' as const, content: 'Retry this prompt', timestamp: 3 },
+      { id: 'a2', role: 'assistant' as const, content: 'Old retry response', timestamp: 4 },
+      { id: 't1', role: 'tool' as const, content: 'Old activity', timestamp: 5 },
+    ]
+
+    expect(rewindToMessage(messages, 2)).toEqual(messages.slice(0, 3))
+    expect(rewindToMessage(messages, -1)).toEqual(messages)
+    expect(messages).toHaveLength(5)
   })
 
   it('discards an edited prompt’s complete old response branch before streaming its replacement', () => {

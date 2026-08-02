@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 
 import { fetch } from '@tauri-apps/plugin-http'
-import { AlarmClock, Pause, Play, RefreshCw, Zap } from '@lucide/vue'
+import { AlarmClock, History, Pause, Play, RefreshCw, Zap } from '@lucide/vue'
 import { useAuth } from '../composables/useAuth'
 import { cronActionUrl, type CronAction } from '../utils/cronActions'
+import { cronRunsUrl } from '../utils/cronRuns'
 
 const auth = useAuth()
+const router = useRouter()
 
 interface CronJob {
   id: string
@@ -22,11 +25,23 @@ interface CronJob {
   latest_execution?: { status: string }
 }
 
+interface CronRun {
+  id: string
+  title?: string | null
+  preview?: string | null
+  last_active?: number | null
+  started_at?: number | null
+}
+
 const jobs = ref<CronJob[]>([])
 const loading = ref(true)
 const error = ref('')
 const pendingActions = ref<Record<string, CronAction | undefined>>({})
 const actionErrors = ref<Record<string, string | undefined>>({})
+const runsByJobId = ref<Record<string, CronRun[] | undefined>>({})
+const runsLoading = ref<Record<string, boolean | undefined>>({})
+const runsErrors = ref<Record<string, string | undefined>>({})
+const expandedRuns = ref<Record<string, boolean | undefined>>({})
 
 function fetchWithTimeout(url: string, init: RequestInit, ms: number): Promise<Response> {
   const controller = new AbortController()
@@ -80,6 +95,56 @@ async function runJobAction(job: CronJob, action: CronAction) {
   } finally {
     pendingActions.value = { ...pendingActions.value, [job.id]: undefined }
   }
+}
+
+async function loadJobRuns(jobId: string) {
+  runsLoading.value = { ...runsLoading.value, [jobId]: true }
+  runsErrors.value = { ...runsErrors.value, [jobId]: undefined }
+  try {
+    const headers: Record<string, string> = {}
+    if (auth.sessionCookie.value) headers['Cookie'] = auth.sessionCookie.value
+    const resp = await fetchWithTimeout(
+      cronRunsUrl(auth.gatewayUrl.value, jobId),
+      { method: 'GET', headers, credentials: 'same-origin' },
+      10000,
+    )
+    if (!resp.ok) throw new Error('HTTP ' + resp.status)
+    const data = await resp.json()
+    const runs = Array.isArray(data) ? data : data?.runs
+    runsByJobId.value = {
+      ...runsByJobId.value,
+      [jobId]: Array.isArray(runs) ? runs.slice(0, 5) : [],
+    }
+  } catch (err: any) {
+    runsErrors.value = { ...runsErrors.value, [jobId]: err.message || 'Failed to load cron sessions' }
+  } finally {
+    runsLoading.value = { ...runsLoading.value, [jobId]: false }
+  }
+}
+
+async function toggleJobRuns(jobId: string) {
+  if (runsLoading.value[jobId]) return
+  if (expandedRuns.value[jobId]) {
+    expandedRuns.value = { ...expandedRuns.value, [jobId]: false }
+    return
+  }
+  expandedRuns.value = { ...expandedRuns.value, [jobId]: true }
+  await loadJobRuns(jobId)
+}
+
+function openRun(run: CronRun) {
+  router.push({ name: 'chat', params: { id: run.id } })
+}
+
+function runLabel(run: CronRun): string {
+  return run.title?.trim() || run.preview?.trim() || run.id
+}
+
+function formatRunTime(run: CronRun): string {
+  const timestamp = run.last_active || run.started_at
+  if (!timestamp) return '—'
+  const date = new Date(timestamp * 1000)
+  return Number.isNaN(date.valueOf()) ? '—' : date.toLocaleString()
 }
 
 function relativeTime(ts: number | null): string {
@@ -153,7 +218,7 @@ onMounted(fetchJobs)
           <span class="text-xs text-app-muted opacity-70">Next:</span>
           <span class="text-xs text-app-muted">{{ job.next_run_at ? relativeTime(new Date(job.next_run_at).getTime() / 1000) : '—' }}</span>
         </div>
-        <div class="mt-2 flex items-center gap-2 border-t border-app-border pt-2.5">
+        <div class="mt-2 flex flex-wrap items-center gap-2 border-t border-app-border pt-2.5">
           <button
             class="flex h-8 cursor-pointer items-center gap-1.5 rounded-md border border-app-border bg-transparent px-2.5 text-xs font-medium text-app-muted transition-colors hover:border-app-accent hover:bg-app-accent/10 hover:text-app-accent disabled:cursor-default disabled:opacity-50"
             :disabled="!!pendingActions[job.id]"
@@ -173,7 +238,36 @@ onMounted(fetchJobs)
             <Zap v-else :size="14" :stroke-width="2" />
             Trigger now
           </button>
+          <button
+            class="flex h-8 cursor-pointer items-center gap-1.5 rounded-md border border-app-border bg-transparent px-2.5 text-xs font-medium text-app-muted transition-colors hover:border-app-accent hover:bg-app-accent/10 hover:text-app-accent disabled:cursor-default disabled:opacity-50"
+            :disabled="!!runsLoading[job.id]"
+            :aria-expanded="!!expandedRuns[job.id]"
+            @click="toggleJobRuns(job.id)"
+          >
+            <span v-if="runsLoading[job.id]" class="size-3 animate-spin rounded-full border-2 border-app-border border-t-app-accent" />
+            <History v-else :size="14" :stroke-width="2" />
+            {{ expandedRuns[job.id] ? 'Hide latest sessions' : 'View latest 5 sessions' }}
+          </button>
           <span v-if="actionErrors[job.id]" class="min-w-0 truncate text-xs text-app-error">{{ actionErrors[job.id] }}</span>
+        </div>
+        <div v-if="expandedRuns[job.id]" class="mt-1 rounded-lg border border-app-border bg-app-bg/50 p-2">
+          <div v-if="runsLoading[job.id]" class="px-2 py-1 text-xs text-app-muted">Loading latest sessions…</div>
+          <div v-else-if="runsErrors[job.id]" class="flex items-center justify-between gap-2 px-2 py-1 text-xs text-app-error">
+            <span class="min-w-0 truncate">{{ runsErrors[job.id] }}</span>
+            <button class="shrink-0 cursor-pointer border-0 bg-transparent p-0 text-app-accent hover:underline disabled:cursor-default disabled:opacity-50" :disabled="!!runsLoading[job.id]" @click="loadJobRuns(job.id)">Retry</button>
+          </div>
+          <div v-else-if="runsByJobId[job.id]?.length" class="flex flex-col gap-px">
+            <button
+              v-for="run in runsByJobId[job.id]"
+              :key="run.id"
+              class="flex min-w-0 items-center justify-between gap-3 rounded-md border-0 bg-transparent px-2 py-1.5 text-left text-xs text-app-text transition-colors hover:bg-app-surface-2"
+              @click="openRun(run)"
+            >
+              <span class="min-w-0 truncate">{{ runLabel(run) }}</span>
+              <span class="shrink-0 text-[11px] tabular-nums text-app-muted">{{ formatRunTime(run) }}</span>
+            </button>
+          </div>
+          <div v-else class="px-2 py-1 text-xs text-app-muted">No sessions yet</div>
         </div>
       </div>
     </div>

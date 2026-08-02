@@ -10,6 +10,10 @@ const FETCH_TIMEOUT = 12000
 // mobile connection it must not inherit the short deadline intended for small
 // status and session-list requests.
 export const MESSAGE_FETCH_TIMEOUT = 60000
+// Desktop refreshes the sidebar shortly after a turn completes. Coalescing
+// nearby completions avoids a request burst when multiple background sessions
+// finish together while still making new sessions and previews appear quickly.
+export const SESSION_REFRESH_DEBOUNCE_MS = 300
 const RECONNECT_BASE_MS = 1000
 const RECONNECT_MAX_MS = 15000
 
@@ -69,6 +73,8 @@ let archivedSessionsOffset = 0
 // older response must not swap a freshly selected archive scope back underneath
 // the user.
 let sessionFetchGeneration = 0
+let sessionListArchiveScope: 'exclude' | 'only' = 'exclude'
+let sessionRefreshTimer: ReturnType<typeof setTimeout> | null = null
 // A message request can finish after the user has opened another session. Keep
 // only the newest request authoritative so an older thread cannot replace it.
 let messageFetchGeneration = 0
@@ -237,6 +243,7 @@ async function fetchSessions(url: string, append = false, archived: 'exclude' | 
   // a pull-to-refresh. Capture a generation before reading pagination state and
   // allow only the newest request to change the shared session cache.
   const generation = ++sessionFetchGeneration
+  sessionListArchiveScope = archived
   if (append) {
     loadingMore.value = true
   } else {
@@ -295,6 +302,22 @@ async function fetchSessions(url: string, append = false, archived: 'exclude' | 
       loadingMore.value = false
     }
   }
+}
+
+/**
+ * Keep the session list in sync with the desktop after a completed turn. The
+ * list endpoint is authoritative for generated titles, previews, counts, and
+ * newly-created stored sessions; a local message append cannot provide all of
+ * those fields. Preserve the current archive scope and coalesce completions
+ * arriving in the same short burst.
+ */
+function scheduleSessionRefresh(): void {
+  if (!baseUrl || disposed || sessionRefreshTimer !== null) return
+
+  sessionRefreshTimer = setTimeout(() => {
+    sessionRefreshTimer = null
+    void fetchSessions(baseUrl, false, sessionListArchiveScope)
+  }, SESSION_REFRESH_DEBOUNCE_MS)
 }
 
 /**
@@ -495,6 +518,7 @@ function handleGatewayEvent(event: any) {
     streamingContent = ''
     turnStartedAt.value = null
     clearInFlightTurn(storedSessionId)
+    scheduleSessionRefresh()
     if (failure) {
       reject(new Error(failure.message))
     } else {
@@ -530,6 +554,10 @@ function scheduleReconnect() {
 
 function disconnectWs() {
   disposed = true
+  if (sessionRefreshTimer) {
+    clearTimeout(sessionRefreshTimer)
+    sessionRefreshTimer = null
+  }
   if (reconnectTimer) {
     clearTimeout(reconnectTimer)
     reconnectTimer = null

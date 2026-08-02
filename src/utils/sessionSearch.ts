@@ -1,5 +1,9 @@
 export interface SearchableSession {
   id: string
+  _lineage_root_id?: string | null
+  cwd?: string | null
+  git_branch?: string | null
+  git_repo_root?: string | null
   title?: string | null
   preview?: string | null
   model?: string | null
@@ -58,9 +62,13 @@ export function sessionMatchesSearch(session: SearchableSession, query: string):
 
   return [
     session.id,
+    session._lineage_root_id || '',
     session.title || '',
     session.preview || '',
     session.model || '',
+    session.cwd || '',
+    session.git_branch || '',
+    session.git_repo_root || '',
     ...sourceSearchTerms(session.source),
   ].some(value => value.toLowerCase().includes(needle))
 }

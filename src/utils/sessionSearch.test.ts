@@ -24,6 +24,20 @@ describe('sessionMatchesSearch', () => {
     expect(sessionMatchesSearch({ ...session, source: 'bluebubbles' }, 'iMessage')).toBe(true)
   })
 
+  it('matches the project context fields exposed by the desktop session sidebar', () => {
+    const projectSession = {
+      ...session,
+      _lineage_root_id: 'lineage-root-123',
+      cwd: '/work/hermes-mobile-tauri',
+      git_branch: 'feature/session-search',
+      git_repo_root: '/work/hermes-mobile-tauri',
+    }
+
+    expect(sessionMatchesSearch(projectSession, 'lineage-root-123')).toBe(true)
+    expect(sessionMatchesSearch(projectSession, 'hermes-mobile-tauri')).toBe(true)
+    expect(sessionMatchesSearch(projectSession, 'feature/session-search')).toBe(true)
+  })
+
   it('does not match unrelated search text', () => {
     expect(sessionMatchesSearch(session, 'totally-unrelated')).toBe(false)
   })

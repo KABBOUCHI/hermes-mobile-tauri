@@ -23,6 +23,9 @@ export interface Session {
   id: string
   _lineage_root_id?: string | null
   parent_session_id?: string | null
+  cwd?: string | null
+  git_branch?: string | null
+  git_repo_root?: string | null
   title: string | null
   preview: string
   model: string

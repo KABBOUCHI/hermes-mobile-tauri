@@ -3,6 +3,7 @@ import { fetch } from '@tauri-apps/plugin-http'
 import WebSocket from '@tauri-apps/plugin-websocket'
 import { normalizeSessionMessages, branchableMessageHistory, completionFailure, truncateBeforeUserParams, userOrdinalAtMessageIndex, applyEditedUserTurn, rewindToMessage, type SessionMessage } from '../utils/sessionMessages'
 import { optimisticSessionForSend, mergeSessionsById } from '../utils/sessionList'
+import { resolveGatewayEventSessionId } from '../utils/gatewayEvents'
 import { clearInFlightTurn, persistInFlightTurn, recoverInFlightTurn } from '../utils/inflightTurnJournal'
 
 const FETCH_TIMEOUT = 12000
@@ -139,6 +140,10 @@ let nextId = 0
 // Streaming turn state
 let activeTurn: { sessionId: string; storedSessionId: string; resolve: (content: string) => void; reject: (err: Error) => void; timer: ReturnType<typeof setTimeout> } | null = null
 let streamingContent = ''
+// Some gateway stream frames are intentionally unscoped. Keep them attached
+// to the runtime that received message.start so switching chats mid-turn cannot
+// move the live response onto the newly focused transcript.
+let unscopedStreamSessionId: string | null = null
 
 // Config
 let baseUrl = ''
@@ -505,7 +510,16 @@ async function openWs() {
 
 function handleGatewayEvent(event: any) {
   const type = event.type as string
-  const sessionId = event.session_id
+  const explicitSessionId = typeof event.session_id === 'string' ? event.session_id : ''
+  const route = resolveGatewayEventSessionId({
+    activeSessionId: activeTurn?.sessionId ?? null,
+    eventType: type,
+    explicitSessionId,
+    unscopedStreamSessionId,
+  })
+  unscopedStreamSessionId = route.nextUnscopedStreamSessionId
+  if (route.drop) return
+  const sessionId = route.sessionId
 
   // Keep the session list authoritative for turns completed by another Hermes
   // surface as well as turns sent from this app. The scheduler coalesces this
@@ -607,6 +621,7 @@ function disconnectWs() {
   })
   pendingRequests.clear()
   streamingContent = ''
+  unscopedStreamSessionId = null
   turnStartedAt.value = null
   wsState.value = 'closed'
 }
@@ -725,6 +740,7 @@ async function sendMessage(
       reject(new Error('Turn timed out'))
     }, TURN_TIMEOUT)
 
+    unscopedStreamSessionId = null
     activeTurn = { sessionId: runtimeId, storedSessionId: sessionId, resolve, reject, timer }
     persistInFlightTurn(sessionId, messages.value)
 
@@ -805,6 +821,7 @@ async function regenerateLastMessage(
       reject(new Error('Turn timed out'))
     }, TURN_TIMEOUT)
 
+    unscopedStreamSessionId = null
     activeTurn = { sessionId: runtimeId, storedSessionId: sessionId, resolve, reject, timer }
     persistInFlightTurn(sessionId, messages.value)
 
@@ -880,6 +897,7 @@ async function restoreMessage(
       reject(new Error('Turn timed out'))
     }, TURN_TIMEOUT)
 
+    unscopedStreamSessionId = null
     activeTurn = { sessionId: runtimeId, storedSessionId: sessionId, resolve, reject, timer }
     persistInFlightTurn(sessionId, messages.value)
 
@@ -960,6 +978,7 @@ async function editMessage(
         reject(new Error('Turn timed out'))
       }, TURN_TIMEOUT)
 
+      unscopedStreamSessionId = null
       activeTurn = { sessionId: runtimeId, storedSessionId: sessionId, resolve, reject, timer }
       persistInFlightTurn(sessionId, messages.value)
 

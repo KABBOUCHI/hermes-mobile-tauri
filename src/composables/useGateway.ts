@@ -155,6 +155,7 @@ let cookie = ''
 let ticketFn: (() => Promise<string>) | null = null
 
 const activeRuntimeId = computed(() => activeTurn?.sessionId ?? null)
+const activeStoredSessionId = computed(() => activeTurn?.storedSessionId ?? null)
 
 // ── Helpers ────────────────────────────────────────
 
@@ -1230,6 +1231,7 @@ export function useGateway() {
     turnStartedAt,
     lastStreamActivityAt,
     activeRuntimeId,
+    activeStoredSessionId,
     extractText,
     relativeTime,
     modelShort,

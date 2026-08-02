@@ -10,6 +10,7 @@ import { useToast } from '../composables/useToast'
 import { sessionMatchesSearch } from '../utils/sessionSearch'
 import { flattenSessionsWithBranches, orderSessionsByIds, sessionIsPinned, sessionPinId, type SessionBranchEntry } from '../utils/sessionList'
 import { filterSessionsBySource } from '../utils/sessionSource'
+import { sessionActivityState, type SessionActivityState } from '../utils/sessionActivity'
 import { writeClipboardText } from '../utils/clipboard'
 import { Archive, ArchiveRestore, Atom, Check, CircleX, Copy, Inbox, Pencil, Pin, Plus, RefreshCw, Search, Trash2 } from '@lucide/vue'
 
@@ -574,6 +575,30 @@ function formatCount(n: number): string {
   if (n >= 1000) return (n / 1000).toFixed(1) + 'k'
   return String(n)
 }
+
+function sessionStatus(session: Session): SessionActivityState {
+  return sessionActivityState({
+    isActive: session.is_active,
+    isCurrentTurn: gw.activeStoredSessionId.value === session.id,
+    isUnread: unreadIds.value.has(session.id),
+  })
+}
+
+function sessionStatusClass(session: Session): string {
+  const state = sessionStatus(session)
+  if (state === 'working') return 'size-2 shrink-0 animate-pulse rounded-full bg-app-accent shadow-[0_0_7px_rgba(94,106,210,0.6)]'
+  if (state === 'background') return 'size-2 shrink-0 animate-pulse rounded-full bg-app-muted'
+  if (state === 'unread') return 'size-2 shrink-0 rounded-full bg-app-success shadow-[0_0_6px_rgba(34,197,94,0.5)]'
+  return ''
+}
+
+function sessionStatusLabel(session: Session): string {
+  const state = sessionStatus(session)
+  if (state === 'working') return 'Session running'
+  if (state === 'background') return 'Background task running'
+  if (state === 'unread') return 'Finished — unread'
+  return ''
+}
 </script>
 
 <template>
@@ -701,9 +726,14 @@ function formatCount(n: number): string {
             <div class="mb-1 flex items-center gap-1.5">
               <span v-if="row.entry.branchStem" class="font-mono text-xs tracking-[-2px] text-app-muted" aria-hidden="true">{{ row.entry.branchStem }}</span>
               <Pin v-if="isPinned(row.entry.session.id)" :size="14" :stroke-width="2" class="text-app-accent" />
-              <span v-if="unreadIds.has(row.entry.session.id)" class="size-2 shrink-0 rounded-full bg-app-accent shadow-[0_0_6px_rgba(94,106,210,0.5)]" />
               <span class="flex-1 truncate text-[15px] font-semibold tracking-[-0.02em]">{{ row.entry.session.title || row.entry.session.preview || 'Untitled' }}</span>
-              <span v-if="row.entry.session.is_active" class="size-2 shrink-0 rounded-full bg-app-success shadow-[0_0_6px_rgba(34,197,94,0.4)]" />
+              <span
+                v-if="sessionStatus(row.entry.session) !== 'idle'"
+                :class="sessionStatusClass(row.entry.session)"
+                :title="sessionStatusLabel(row.entry.session)"
+                :aria-label="sessionStatusLabel(row.entry.session)"
+                role="status"
+              />
               <button
                 class="flex size-7 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-sm text-app-muted transition-colors hover:bg-app-error/10 hover:text-app-error"
                 :class="deletingId === row.entry.session.id && 'bg-app-error/15 text-app-error'"
@@ -742,9 +772,14 @@ function formatCount(n: number): string {
         <div class="mb-1 flex items-center gap-1.5">
           <span v-if="entry.branchStem" class="font-mono text-xs tracking-[-2px] text-app-muted" aria-hidden="true">{{ entry.branchStem }}</span>
           <Pin v-if="isPinned(entry.session.id)" :size="14" :stroke-width="2" class="text-app-accent" />
-          <span v-if="unreadIds.has(entry.session.id)" class="size-2 shrink-0 rounded-full bg-app-accent shadow-[0_0_6px_rgba(94,106,210,0.5)]" />
           <span class="flex-1 truncate text-[15px] font-semibold tracking-[-0.02em]">{{ entry.session.title || entry.session.preview || 'Untitled' }}</span>
-          <span v-if="entry.session.is_active" class="size-2 shrink-0 rounded-full bg-app-success shadow-[0_0_6px_rgba(34,197,94,0.4)]" />
+          <span
+            v-if="sessionStatus(entry.session) !== 'idle'"
+            :class="sessionStatusClass(entry.session)"
+            :title="sessionStatusLabel(entry.session)"
+            :aria-label="sessionStatusLabel(entry.session)"
+            role="status"
+          />
           <button
             class="flex size-7 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-sm text-app-muted transition-colors hover:bg-app-error/10 hover:text-app-error"
             :class="deletingId === entry.session.id && 'bg-app-error/15 text-app-error'"

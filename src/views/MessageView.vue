@@ -12,11 +12,12 @@ import { writeClipboardText } from '../utils/clipboard'
 import { formatElapsedSeconds } from '../utils/elapsedTime'
 import { createSessionExport } from '../utils/sessionExport'
 import { messageLoadErrorState } from '../utils/messageLoadState'
+import { speakText, stopSpeech } from '../utils/speech'
 import { useAuth } from '../composables/useAuth'
 import { useGateway, type ModelProvider } from '../composables/useGateway'
 import { useToast } from '../composables/useToast'
 import { openUrl } from '@tauri-apps/plugin-opener'
-import { ArrowDown, ArrowLeft, Check, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Copy, EllipsisVertical, FileImage, GitFork, History, MessageCircle, MoreHorizontal, Pencil, RotateCcw, Search, Send, Share, Square, X } from '@lucide/vue'
+import { ArrowDown, ArrowLeft, Check, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Copy, EllipsisVertical, FileImage, GitFork, History, MessageCircle, MoreHorizontal, Pencil, RotateCcw, Search, Send, Share, Square, Volume2, VolumeX, X } from '@lucide/vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -121,6 +122,8 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  stopSpeech()
+  speakingMessageId.value = ''
   if (window.visualViewport) {
     window.visualViewport.removeEventListener('resize', onViewportResize)
   }
@@ -210,6 +213,8 @@ function autoResizeEdit() {
 
 // Watch for route changes (navigating between sessions without remount)
 watch(() => route.params.id, async (newId) => {
+  stopSpeech()
+  speakingMessageId.value = ''
   selectedSessionId.value = (newId as string) || ''
   isNewSession.value = !selectedSessionId.value
   // The module-level message store is reused across routes. Clear it in Vue's
@@ -589,6 +594,7 @@ function handleMessagesClick(e: Event) {
 // ── Message Action Sheet ──
 const actionSheetOpen = ref(false)
 const actionSheetMsgIdx = ref<number>(-1)
+const speakingMessageId = ref('')
 const actionSheetMsg = computed(() => {
   if (actionSheetMsgIdx.value < 0) return null
   return gw.messages.value[actionSheetMsgIdx.value] || null
@@ -597,6 +603,15 @@ const actionSheetIsLastAssistant = computed(() => {
   const msgs = gw.messages.value
   const idx = actionSheetMsgIdx.value
   return idx >= 0 && msgs[idx]?.role === 'assistant' && idx === msgs.length - 1
+})
+function messageActionId(message: { id?: string; role: string; timestamp: number }, idx: number): string {
+  return `${selectedSessionId.value || 'new'}:${message.id || `${message.role}-${message.timestamp}-${idx}`}`
+}
+
+const actionSheetIsSpeaking = computed(() => {
+  const message = actionSheetMsg.value
+  if (!message) return false
+  return speakingMessageId.value === messageActionId(message, actionSheetMsgIdx.value)
 })
 
 const hasShareApi = typeof navigator !== 'undefined' && !!navigator.share
@@ -650,6 +665,31 @@ async function actionCopyText() {
     toast.show(copied ? 'Copied to clipboard' : 'Unable to access clipboard', copied ? 'success' : 'error')
   }
   closeActionSheet()
+}
+
+function actionReadAloud() {
+  const idx = actionSheetMsgIdx.value
+  const message = actionSheetMsg.value
+  if (!message?.content || message.role !== 'assistant') {
+    closeActionSheet()
+    return
+  }
+
+  const id = messageActionId(message, idx)
+  closeActionSheet()
+  if (speakingMessageId.value === id) {
+    stopSpeech()
+    speakingMessageId.value = ''
+    return
+  }
+
+  stopSpeech()
+  speakingMessageId.value = id
+  void speakText(message.content).then(spoken => {
+    if (speakingMessageId.value !== id) return
+    speakingMessageId.value = ''
+    if (!spoken) toast.show('Read aloud is unavailable on this device', 'error')
+  })
 }
 
 function actionEdit() {
@@ -1340,6 +1380,13 @@ function formatTime(ts: number): string {
               <button class="flex w-full cursor-pointer items-center gap-3 rounded-[10px] border-0 bg-transparent px-3.5 py-3 text-left text-[15px] text-app-text transition-colors hover:bg-app-surface-2 active:bg-app-surface-3" @click="actionCopyText">
                 <Copy :size="18" :stroke-width="2" />
                 <span>Copy text</span>
+              </button>
+              <button
+                v-if="actionSheetMsg?.role === 'assistant' && actionSheetMsg?.content"
+                class="flex w-full cursor-pointer items-center gap-3 rounded-[10px] border-0 bg-transparent px-3.5 py-3 text-left text-[15px] text-app-text transition-colors hover:bg-app-surface-2 active:bg-app-surface-3" @click="actionReadAloud">
+                <VolumeX v-if="actionSheetIsSpeaking" :size="18" :stroke-width="2" />
+                <Volume2 v-else :size="18" :stroke-width="2" />
+                <span>{{ actionSheetIsSpeaking ? 'Stop reading' : 'Read aloud' }}</span>
               </button>
               <button
                 v-if="actionSheetMsg?.role === 'user' && !sending && editingIdx === null && !actionSheetMsg?.error"

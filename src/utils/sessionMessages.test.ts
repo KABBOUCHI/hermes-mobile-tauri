@@ -110,9 +110,11 @@ describe('normalizeSessionMessages', () => {
     const diff = '--- a/src/App.ts\n+++ b/src/App.ts\n@@ -1 +1 @@\n-old\n+new'
     const messages = normalizeSessionMessages([
       { id: 't1', role: 'tool', tool_name: 'patch', content: 'completed', inline_diff: diff, timestamp: 1 },
+      { id: 't2', role: 'tool', tool_name: 'patch', content: 'completed', diff, timestamp: 2 },
     ])
 
     expect(messages[0]?.toolResults?.[0]).toMatchObject({ name: 'patch', diff })
+    expect(messages[0]?.toolResults?.[1]).toMatchObject({ name: 'patch', diff })
   })
 
   it('hides transport-only context compaction records', () => {

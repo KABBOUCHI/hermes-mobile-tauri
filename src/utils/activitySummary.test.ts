@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { extractUnifiedDiff, summarizeToolActivity, thoughtActivityLabel } from './activitySummary'
+import { summarizeToolActivity, thoughtActivityLabel, toolDiffFromResult } from './activitySummary'
 
 describe('activity summaries', () => {
   it('collapses a mixed tool run into desktop-style activity clauses', () => {
@@ -16,8 +16,10 @@ describe('activity summaries', () => {
     expect(thoughtActivityLabel(0)).toBe('Thought briefly')
   })
 
-  it('extracts a unified diff while rejecting ordinary tool output', () => {
-    expect(extractUnifiedDiff('done')).toBeNull()
-    expect(extractUnifiedDiff('diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-old\n+new')).toContain('+new')
+  it('only accepts an explicitly supplied result diff', () => {
+    const diff = '--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-old\n+new'
+
+    expect(toolDiffFromResult({ content: diff })).toBeNull()
+    expect(toolDiffFromResult({ content: 'completed', diff })).toContain('+new')
   })
 })

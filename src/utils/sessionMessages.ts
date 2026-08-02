@@ -286,7 +286,13 @@ export function normalizeSessionMessages(rawMessages: unknown[]): SessionMessage
       const toolCalls = role === 'assistant' ? toolCallsFromRaw(raw.tool_calls) : undefined
       const toolName = role === 'tool' && typeof raw.tool_name === 'string' ? raw.tool_name : undefined
       const toolCallId = role === 'tool' && typeof raw.tool_call_id === 'string' ? raw.tool_call_id : undefined
-      const inlineDiff = role === 'tool' && typeof raw.inline_diff === 'string' ? raw.inline_diff.trim() : ''
+      const inlineDiff = role === 'tool'
+        ? typeof raw.inline_diff === 'string'
+          ? raw.inline_diff.trim()
+          : typeof raw.diff === 'string'
+            ? raw.diff.trim()
+            : ''
+        : ''
       const imageAttachments = role === 'user' ? imageAttachmentsFromRaw(raw.content) : []
 
       if (!content && !reasoning && !toolCalls?.length && role !== 'tool' && !imageAttachments.length) return []

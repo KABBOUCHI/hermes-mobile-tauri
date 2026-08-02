@@ -5,7 +5,7 @@ import { renderMarkdown } from '../utils/markdown'
 import { highlightRenderedHtml } from '../utils/renderedSearchHighlight'
 import { messageMatchesSearch } from '../utils/messageSearch'
 import { markLatestAssistantFailure } from '../utils/sessionMessages'
-import { extractUnifiedDiff, summarizeToolActivity, thoughtActivityLabel } from '../utils/activitySummary'
+import { summarizeToolActivity, thoughtActivityLabel, toolDiffFromResult } from '../utils/activitySummary'
 import PatchDiff from '../components/PatchDiff.vue'
 import { isNearChatBottom, jumpToBottomOffset } from '../utils/chatScroll'
 import { writeClipboardText } from '../utils/clipboard'
@@ -752,6 +752,10 @@ function toolSummaryLabel(message: Parameters<typeof toolResults>[0]): string {
   return summarizeToolActivity(results)
 }
 
+function activityHasDiff(message: Parameters<typeof toolResults>[0]): boolean {
+  return toolResults(message).some(tool => Boolean(toolDiffFromResult(tool)))
+}
+
 function isActivityMessage(message: { role: string; content: string; reasoning?: string; toolCalls?: unknown[] }): boolean {
   return message.role === 'tool' || (message.role === 'assistant' && !message.content && Boolean(message.reasoning || message.toolCalls?.length))
 }
@@ -763,10 +767,6 @@ function thoughtLabel(message: { timestamp: number }, idx: number): string {
 
 function activityThoughtLabel(seconds: number): string {
   return thoughtActivityLabel(seconds)
-}
-
-function toolDiff(content: string, diff?: string): string | null {
-  return diff || extractUnifiedDiff(content)
 }
 
 const hasMessages = computed(() => gw.messages.value.length > 0)
@@ -1112,7 +1112,7 @@ function formatTime(ts: number): string {
           <template v-else>
             <!-- Consecutive tool results are grouped by the normaliser so one
                  tool-heavy agent turn occupies one compact timeline row. -->
-            <details v-if="msg.role === 'tool'" class="my-1 w-full overflow-hidden rounded-lg border border-app-border bg-[color-mix(in_srgb,var(--surface)_88%,var(--accent))] [&>summary]:flex [&>summary]:cursor-pointer [&>summary]:items-center [&>summary]:gap-1.5 [&>summary]:bg-app-surface-2 [&>summary]:px-3 [&>summary]:py-2.5 [&>summary]:text-xs [&>summary]:font-medium [&>summary]:text-app-muted">
+            <details v-if="msg.role === 'tool'" :open="activityHasDiff(msg)" class="my-1 w-full overflow-hidden rounded-lg border border-app-border bg-[color-mix(in_srgb,var(--surface)_88%,var(--accent))] [&>summary]:flex [&>summary]:cursor-pointer [&>summary]:items-center [&>summary]:gap-1.5 [&>summary]:bg-app-surface-2 [&>summary]:px-3 [&>summary]:py-2.5 [&>summary]:text-xs [&>summary]:font-medium [&>summary]:text-app-muted">
               <summary>
                 <span class="text-[11px] text-app-success">✓</span>
                 <span>{{ toolSummaryLabel(msg) }}</span>
@@ -1125,18 +1125,18 @@ function formatTime(ts: number): string {
                 </details>
               </div>
               <template v-if="toolResults(msg).length === 1">
-                <div v-if="toolDiff(toolResults(msg)[0].content, toolResults(msg)[0].diff)" class="" aria-label="Diff view">
+                <div v-if="toolDiffFromResult(toolResults(msg)[0])" class="" aria-label="Diff view">
                   <div class="px-2.5 pt-1.5 pb-[3px] text-[11px] font-semibold uppercase tracking-[.04em] text-app-muted">Diff</div>
-                  <PatchDiff :patch="toolDiff(toolResults(msg)[0].content, toolResults(msg)[0].diff)!" />
+                  <PatchDiff :patch="toolDiffFromResult(toolResults(msg)[0])!" />
                 </div>
                 <pre v-else-if="toolResults(msg)[0].content" class="m-0 max-h-40 overflow-auto border-t border-app-border bg-app-bg p-2.5 font-mono text-[11px] leading-[1.5] whitespace-pre-wrap break-words text-[#b9bbc8]">{{ toolResults(msg)[0].content }}</pre>
               </template>
               <div v-else class="border-t border-app-border">
-                <details v-for="tool in toolResults(msg)" :key="tool.id" class="border-b border-app-border last:border-b-0 [&>summary]:cursor-pointer [&>summary]:bg-app-surface/60 [&>summary]:px-2.5 [&>summary]:py-1.5 [&>summary]:text-xs [&>summary]:text-app-muted">
+                <details v-for="tool in toolResults(msg)" :key="tool.id" :open="Boolean(toolDiffFromResult(tool))" class="border-b border-app-border last:border-b-0 [&>summary]:cursor-pointer [&>summary]:bg-app-surface/60 [&>summary]:px-2.5 [&>summary]:py-1.5 [&>summary]:text-xs [&>summary]:text-app-muted">
                   <summary>{{ tool.name }}</summary>
-                  <div v-if="toolDiff(tool.content, tool.diff)" class="" aria-label="Diff view">
+                  <div v-if="toolDiffFromResult(tool)" class="" aria-label="Diff view">
                     <div class="px-2.5 pt-1.5 pb-[3px] text-[11px] font-semibold uppercase tracking-[.04em] text-app-muted">Diff</div>
-                    <PatchDiff :patch="toolDiff(tool.content, tool.diff)!" />
+                    <PatchDiff :patch="toolDiffFromResult(tool)!" />
                   </div>
                   <pre v-else-if="tool.content" class="m-0 max-h-40 overflow-auto border-t border-app-border bg-app-bg p-2.5 font-mono text-[11px] leading-[1.5] whitespace-pre-wrap break-words text-[#b9bbc8]">{{ tool.content }}</pre>
                 </details>

@@ -55,13 +55,9 @@ export function thoughtActivityLabel(seconds: number): string {
   return `Thought for ${Math.round(seconds)}s`
 }
 
-/** Extract only reviewable unified diffs; ordinary tool output must remain ordinary output. */
-export function extractUnifiedDiff(content: string): string | null {
-  const gitStart = content.indexOf('diff --git ')
-  if (gitStart >= 0) return content.slice(gitStart).trim()
-
-  const fileStart = content.search(/^---\s+[^\n]+\n\+\+\+\s+[^\n]+/m)
-  if (fileStart >= 0) return content.slice(fileStart).trim()
-
-  return null
+/** Only render a diff supplied explicitly by the gateway result. */
+export function toolDiffFromResult(result: Record<string, unknown> | null | undefined): string | null {
+  if (typeof result?.diff !== 'string') return null
+  const diff = result.diff.trim()
+  return diff || null
 }

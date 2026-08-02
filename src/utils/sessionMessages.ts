@@ -101,6 +101,14 @@ export function branchableMessageHistory(messages: readonly Pick<SessionMessage,
   })
 }
 
+export function branchableMessageHistoryThrough(
+  messages: readonly Pick<SessionMessage, 'role' | 'content'>[],
+  messageIndex: number,
+): Array<{ role: 'user' | 'assistant'; content: string }> {
+  if (!Number.isInteger(messageIndex) || messageIndex < 0 || messageIndex >= messages.length) return []
+  return branchableMessageHistory(messages.slice(0, messageIndex + 1))
+}
+
 export function markLatestAssistantFailure(messages: SessionMessage[], fallbackMessage: string): void {
   const last = messages[messages.length - 1]
   if (!last || last.role !== 'assistant') return

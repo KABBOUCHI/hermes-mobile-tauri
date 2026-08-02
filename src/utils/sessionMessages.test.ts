@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyEditedUserTurn, branchableMessageHistory, markLatestAssistantFailure, normalizeSessionMessages, rewindToMessage, userOrdinalAtMessageIndex } from './sessionMessages'
+import { applyEditedUserTurn, branchableMessageHistory, branchableMessageHistoryThrough, markLatestAssistantFailure, normalizeSessionMessages, rewindToMessage, userOrdinalAtMessageIndex } from './sessionMessages'
 
 describe('normalizeSessionMessages', () => {
   it('retains text, tools, and separate reasoning in server order', () => {
@@ -281,5 +281,24 @@ describe('normalizeSessionMessages', () => {
       { role: 'assistant', content: 'I will inspect the connection flow.' },
       { role: 'assistant', content: 'The cookie is required.' },
     ])
+  })
+
+  it('keeps the full conversational spine through the selected assistant turn', () => {
+    const messages = [
+      { role: 'user' as const, content: 'First prompt', timestamp: 1 },
+      { role: 'assistant' as const, content: 'First response', timestamp: 2 },
+      { role: 'tool' as const, content: 'Hidden activity', timestamp: 3 },
+      { role: 'user' as const, content: 'Follow-up prompt', timestamp: 4 },
+      { role: 'assistant' as const, content: 'Selected response', timestamp: 5 },
+      { role: 'user' as const, content: 'Later prompt', timestamp: 6 },
+    ]
+
+    expect(branchableMessageHistoryThrough(messages, 4)).toEqual([
+      { role: 'user', content: 'First prompt' },
+      { role: 'assistant', content: 'First response' },
+      { role: 'user', content: 'Follow-up prompt' },
+      { role: 'assistant', content: 'Selected response' },
+    ])
+    expect(branchableMessageHistoryThrough(messages, 99)).toEqual([])
   })
 })

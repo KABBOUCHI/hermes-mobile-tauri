@@ -4,7 +4,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { renderMarkdown } from '../utils/markdown'
 import { highlightRenderedHtml } from '../utils/renderedSearchHighlight'
 import { messageMatchesSearch } from '../utils/messageSearch'
-import { markLatestAssistantFailure } from '../utils/sessionMessages'
+import { branchableMessageHistoryThrough, markLatestAssistantFailure } from '../utils/sessionMessages'
 import { summarizeToolActivity, thoughtActivityLabel, toolDiffFromResult } from '../utils/activitySummary'
 import PatchDiff from '../components/PatchDiff.vue'
 import { isNearChatBottom, jumpToBottomOffset } from '../utils/chatScroll'
@@ -680,11 +680,15 @@ async function actionRegenerate() {
 // durable history. Navigate only after the gateway returns the stored identity.
 async function actionBranch() {
   const msg = actionSheetMsg.value
+  const messageIndex = actionSheetMsgIdx.value
   closeActionSheet()
   if (sending.value || !selectedSessionId.value || !msg || msg.role !== 'assistant' || !msg.content.trim()) return
 
+  const branchMessages = branchableMessageHistoryThrough(gw.messages.value, messageIndex)
+  if (!branchMessages.length) return
+
   try {
-    const branchSessionId = await gw.branchSession(selectedSessionId.value, [msg])
+    const branchSessionId = await gw.branchSession(selectedSessionId.value, branchMessages)
     await router.push({ name: 'chat', params: { id: branchSessionId } })
   } catch (err: any) {
     toast.show(err?.message || 'Unable to branch this message', 'error')

@@ -41,6 +41,15 @@ const serverSearchResults = ref<SessionSearchResult[]>([])
 const searchPending = ref(false)
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 let searchGeneration = 0
+let unreadRefreshGeneration = 0
+
+async function refreshUnreadIndicators() {
+  const generation = ++unreadRefreshGeneration
+  const ids = await unreads.getUnreadIds(gw.sessions.value)
+  if (generation === unreadRefreshGeneration) {
+    unreadIds.value = ids
+  }
+}
 
 // ── Rename dialog ──
 const renameVisible = ref(false)
@@ -327,8 +336,17 @@ onMounted(async () => {
     await gw.fetchSessions(auth.gatewayUrl.value, false, showingArchived.value ? 'only' : 'exclude')
     pinnedIds.value = await pins.getPinnedIds()
   }
-  unreadIds.value = await unreads.getUnreadIds(gw.sessions.value)
+  await refreshUnreadIndicators()
 })
+
+// A background completion refreshes the shared session cache while this view is
+// already mounted. Recompute unread dots from the new authoritative counts so
+// the list reflects work completed in another Hermes surface without a manual
+// refresh or route change.
+watch(
+  () => gw.sessions.value.map(session => `${session.id}:${session.message_count}`).join('\u0000'),
+  () => { void refreshUnreadIndicators() },
+)
 
 // Match loaded sessions immediately, then ask the gateway's full-text index for
 // conversations beyond the current page. A generation guard prevents a late

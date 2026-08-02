@@ -14,6 +14,16 @@ export const MESSAGE_FETCH_TIMEOUT = 60000
 // nearby completions avoids a request burst when multiple background sessions
 // finish together while still making new sessions and previews appear quickly.
 export const SESSION_REFRESH_DEBOUNCE_MS = 300
+
+/**
+ * The desktop sidebar reconciles after every stored turn, not only turns sent
+ * by the currently focused window. Background completions can change a
+ * session's preview, title, count, and recency just as much as a local send.
+ */
+export function shouldRefreshSessionsForEvent(type: string, sessionId: unknown): boolean {
+  return type === 'message.complete' && typeof sessionId === 'string' && sessionId.trim().length > 0
+}
+
 const RECONNECT_BASE_MS = 1000
 const RECONNECT_MAX_MS = 15000
 
@@ -497,6 +507,13 @@ function handleGatewayEvent(event: any) {
   const type = event.type as string
   const sessionId = event.session_id
 
+  // Keep the session list authoritative for turns completed by another Hermes
+  // surface as well as turns sent from this app. The scheduler coalesces this
+  // with the active-turn refresh path below.
+  if (shouldRefreshSessionsForEvent(type, sessionId)) {
+    scheduleSessionRefresh()
+  }
+
   if (type === 'tool.complete' && sessionId) {
     const diff = event.payload?.inline_diff
     const toolId = event.payload?.tool_id || event.payload?.tool_call_id || event.payload?.id
@@ -528,7 +545,6 @@ function handleGatewayEvent(event: any) {
     streamingContent = ''
     turnStartedAt.value = null
     clearInFlightTurn(storedSessionId)
-    scheduleSessionRefresh()
     if (failure) {
       reject(new Error(failure.message))
     } else {

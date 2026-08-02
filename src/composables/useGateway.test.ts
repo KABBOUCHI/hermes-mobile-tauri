@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MESSAGE_FETCH_TIMEOUT, SESSION_REFRESH_DEBOUNCE_MS, sessionListPath } from './useGateway'
+import { MESSAGE_FETCH_TIMEOUT, SESSION_REFRESH_DEBOUNCE_MS, sessionListPath, shouldRefreshSessionsForEvent } from './useGateway'
 
 
 describe('session list request policy', () => {
@@ -23,5 +23,11 @@ describe('message history fetch policy', () => {
 describe('post-turn session refresh policy', () => {
   it('uses the same short coalescing window as the desktop sidebar', () => {
     expect(SESSION_REFRESH_DEBOUNCE_MS).toBe(300)
+  })
+
+  it('refreshes for completed background sessions with a stored identity', () => {
+    expect(shouldRefreshSessionsForEvent('message.complete', 'background-session')).toBe(true)
+    expect(shouldRefreshSessionsForEvent('message.complete', '  ')).toBe(false)
+    expect(shouldRefreshSessionsForEvent('message.delta', 'background-session')).toBe(false)
   })
 })

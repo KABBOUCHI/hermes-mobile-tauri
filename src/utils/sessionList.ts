@@ -25,6 +25,40 @@ export function mergeSessionsById<T extends { id: string }>(existing: T[], incom
 }
 
 /**
+ * Reconcile a refreshed recent-session page without evicting rows the user
+ * deliberately kept visible. Desktop preserves pinned/working rows because
+ * the gateway page is only a recency window; the same rule prevents a pinned
+ * mobile conversation from disappearing after an unrelated turn completes.
+ *
+ * A compressed session may rotate its live id while retaining its lineage root,
+ * so deduplicate both identities when deciding whether an old row survived.
+ */
+export function mergeSessionPage<
+  T extends { id: string; _lineage_root_id?: string | null; title?: string | null },
+>(previous: T[], incoming: T[], keepIds: Iterable<string>): T[] {
+  const previousById = new Map(previous.map(session => [session.id, session]))
+  const merged = incoming.map(session => {
+    if (session.title?.trim()) return session
+    const carriedTitle = previousById.get(session.id)?.title?.trim()
+    return carriedTitle ? { ...session, title: carriedTitle } : session
+  })
+
+  const keep = new Set(keepIds)
+  if (keep.size === 0) return merged
+
+  const incomingIds = new Set(merged.map(session => session.id))
+  const incomingLineageIds = new Set(merged.map(session => session._lineage_root_id || session.id))
+  const survivors = previous.filter(session => {
+    const lineageId = session._lineage_root_id || session.id
+    return !incomingIds.has(session.id)
+      && !incomingLineageIds.has(lineageId)
+      && (keep.has(session.id) || keep.has(lineageId))
+  })
+
+  return survivors.length ? [...survivors, ...merged] : merged
+}
+
+/**
  * Build the temporary row desktop shows immediately after creating a chat.
  * The session endpoint remains authoritative; a completed-turn refresh replaces
  * this preview with the server-generated title, preview, and message count.

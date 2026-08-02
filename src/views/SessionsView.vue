@@ -43,6 +43,10 @@ let searchTimer: ReturnType<typeof setTimeout> | null = null
 let searchGeneration = 0
 let unreadRefreshGeneration = 0
 
+watch(pinnedIds, ids => {
+  gw.setSessionListKeepIds(ids)
+}, { deep: true, immediate: true })
+
 async function refreshUnreadIndicators() {
   const generation = ++unreadRefreshGeneration
   const ids = await unreads.getUnreadIds(gw.sessions.value)

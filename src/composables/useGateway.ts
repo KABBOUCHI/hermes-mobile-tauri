@@ -2,7 +2,7 @@ import { ref, computed } from 'vue'
 import { fetch } from '@tauri-apps/plugin-http'
 import WebSocket from '@tauri-apps/plugin-websocket'
 import { normalizeSessionMessages, branchableMessageHistory, completionFailure, truncateBeforeUserParams, userOrdinalAtMessageIndex, applyEditedUserTurn, rewindToMessage, type SessionMessage } from '../utils/sessionMessages'
-import { optimisticSessionForSend, mergeSessionsById } from '../utils/sessionList'
+import { mergeSessionPage, optimisticSessionForSend, mergeSessionsById } from '../utils/sessionList'
 import { resolveGatewayEventSessionId } from '../utils/gatewayEvents'
 import { clearInFlightTurn, persistInFlightTurn, recoverInFlightTurn } from '../utils/inflightTurnJournal'
 
@@ -89,6 +89,7 @@ let archivedSessionsOffset = 0
 let sessionFetchGeneration = 0
 let sessionListArchiveScope: 'exclude' | 'only' = 'exclude'
 let sessionRefreshTimer: ReturnType<typeof setTimeout> | null = null
+let sessionListKeepIds = new Set<string>()
 // A message request can finish after the user has opened another session. Keep
 // only the newest request authoritative so an older thread cannot replace it.
 let messageFetchGeneration = 0
@@ -256,6 +257,11 @@ export function sessionListPath(limit: number, offset: number, archived: 'exclud
   return `/api/sessions?limit=${limit}&offset=${offset}&min_messages=1&archived=${archived}&order=recent`
 }
 
+/** Set durable rows that must survive the gateway's recency-window refresh. */
+function setSessionListKeepIds(ids: readonly string[]): void {
+  sessionListKeepIds = new Set(ids)
+}
+
 async function fetchSessions(url: string, append = false, archived: 'exclude' | 'only' = 'exclude'): Promise<Session[]> {
   // A refresh can be overtaken by an archive toggle, or a Load more request by
   // a pull-to-refresh. Capture a generation before reading pagination state and
@@ -306,7 +312,10 @@ async function fetchSessions(url: string, append = false, archived: 'exclude' | 
       // recent-activity index. Reconcile overlap rather than rendering it twice.
       sessions.value = mergeSessionsById(sessions.value, incoming)
     } else {
-      sessions.value = incoming
+      // The endpoint is a recent page, not the complete session archive. Keep
+      // pinned rows that fell outside that page, just as the desktop sidebar
+      // does, while letting the server replace all rows it did return.
+      sessions.value = mergeSessionPage(sessions.value, incoming, sessionListKeepIds)
     }
     return sessions.value
   } catch (err: any) {
@@ -1226,6 +1235,7 @@ export function useGateway() {
     modelShort,
     formatTime,
     sourceLabel,
+    setSessionListKeepIds,
     fetchSessions,
     searchSessions,
     hasMoreSessions,

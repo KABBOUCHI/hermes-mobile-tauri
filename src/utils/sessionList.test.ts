@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { flattenSessionsWithBranches, mergeSessionsById, optimisticSessionForSend, orderSessionsByIds, sessionIsPinned, sessionPinId } from './sessionList'
+import { flattenSessionsWithBranches, mergeSessionPage, mergeSessionsById, optimisticSessionForSend, orderSessionsByIds, sessionIsPinned, sessionPinId } from './sessionList'
 
 describe('mergeSessionsById', () => {
   it('deduplicates overlapping pages while retaining the freshest session data', () => {
@@ -57,6 +57,33 @@ describe('optimisticSessionForSend', () => {
       is_active: true,
       source: 'desktop',
     })
+  })
+})
+
+describe('mergeSessionPage', () => {
+  it('keeps a pinned row that falls outside the refreshed recency page', () => {
+    const previous = [
+      { id: 'pinned', title: 'Important chat', preview: 'old', message_count: 4 },
+      { id: 'recent', title: 'Recent chat', preview: 'old', message_count: 2 },
+    ]
+    const incoming = [
+      { id: 'recent', title: 'Recent chat', preview: 'fresh', message_count: 3 },
+      { id: 'new', title: null, preview: 'New chat', message_count: 1 },
+    ]
+
+    expect(mergeSessionPage(previous, incoming, ['pinned'])).toEqual([
+      previous[0],
+      incoming[0],
+      incoming[1],
+    ])
+  })
+
+  it('matches pinned lineage roots when compression rotates the live id', () => {
+    type TestSession = { id: string; _lineage_root_id: string; title: string | null; preview: string }
+    const previous: TestSession[] = [{ id: 'old-tip', _lineage_root_id: 'root', title: 'Pinned', preview: 'old' }]
+    const incoming: TestSession[] = [{ id: 'new-tip', _lineage_root_id: 'root', title: null, preview: 'fresh' }]
+
+    expect(mergeSessionPage(previous, incoming, ['root'])).toEqual(incoming)
   })
 })
 

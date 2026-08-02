@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { flattenSessionsWithBranches, mergeSessionsById, orderSessionsByIds } from './sessionList'
+import { flattenSessionsWithBranches, mergeSessionsById, orderSessionsByIds, sessionIsPinned, sessionPinId } from './sessionList'
 
 describe('mergeSessionsById', () => {
   it('deduplicates overlapping pages while retaining the freshest session data', () => {
@@ -56,6 +56,24 @@ describe('orderSessionsByIds', () => {
       { id: 'older', preview: 'Older pinned session' },
       { id: 'recent', preview: 'Most recently active' },
     ])
+  })
+})
+
+describe('session pin identity', () => {
+  it('uses the durable lineage root when compression rotates the live id', () => {
+    expect(sessionPinId({ id: 'tip', _lineage_root_id: 'root' })).toBe('root')
+    expect(sessionPinId({ id: 'plain' })).toBe('plain')
+  })
+
+  it('resolves persisted lineage-root pins to the live session row', () => {
+    const liveSession = { id: 'tip', _lineage_root_id: 'root', preview: 'Compressed conversation' }
+    expect(orderSessionsByIds([liveSession], ['root'])).toEqual([liveSession])
+    expect(sessionIsPinned(liveSession, ['root'])).toBe(true)
+  })
+
+  it('keeps legacy live-id pins recognised while they are migrated', () => {
+    const liveSession = { id: 'tip', _lineage_root_id: 'root' }
+    expect(sessionIsPinned(liveSession, ['tip'])).toBe(true)
   })
 })
 

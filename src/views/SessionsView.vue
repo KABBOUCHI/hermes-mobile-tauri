@@ -8,7 +8,7 @@ import { usePins } from '../composables/usePins'
 import { useUnreads } from '../composables/useUnreads'
 import { useToast } from '../composables/useToast'
 import { sessionMatchesSearch } from '../utils/sessionSearch'
-import { flattenSessionsWithBranches, orderSessionsByIds, type SessionBranchEntry } from '../utils/sessionList'
+import { flattenSessionsWithBranches, orderSessionsByIds, sessionIsPinned, sessionPinId, type SessionBranchEntry } from '../utils/sessionList'
 import { filterSessionsBySource } from '../utils/sessionSource'
 import { writeClipboardText } from '../utils/clipboard'
 import { Archive, ArchiveRestore, Atom, Check, CircleX, Copy, Inbox, Pencil, Pin, Plus, RefreshCw, Search, Trash2 } from '@lucide/vue'
@@ -180,6 +180,7 @@ const filtered = computed(() => {
         const timestamp = result.session_started || 0
         results.set(result.session_id, {
           id: result.session_id,
+          _lineage_root_id: result.lineage_root || null,
           title: null,
           preview: result.snippet?.trim() || 'Matched conversation',
           model: result.model || '',
@@ -395,12 +396,9 @@ function toggleArchived() {
 function confirmDelete(e: Event, id: string) {
   e.stopPropagation()
   if (deletingId.value === id) {
+    const pinIds = pinIdsForSession(id)
     gw.deleteSession(auth.gatewayUrl.value, id).then(async () => {
-      if (pinnedIds.value.includes(id)) {
-        await pins.unpinSession(id)
-        await pins.setSessionPinnedRemote(id, false, auth.gatewayUrl.value, auth.sessionCookie.value)
-        pinnedIds.value = await pins.getPinnedIds()
-      }
+      await clearPinnedIds(pinIds)
     })
     deletingId.value = ''
   } else {
@@ -410,8 +408,28 @@ function confirmDelete(e: Event, id: string) {
 }
 
 // ── Long press context menu ──
+function findSession(id: string): Session | undefined {
+  return gw.sessions.value.find(session => session.id === id) || filtered.value.find(session => session.id === id)
+}
+
+function pinIdsForSession(id: string): string[] {
+  const session = findSession(id)
+  if (!session) return [id]
+  return [...new Set([sessionPinId(session), session.id])]
+}
+
+async function clearPinnedIds(ids: readonly string[]) {
+  for (const pinId of ids) {
+    if (!pinnedIds.value.includes(pinId)) continue
+    await pins.unpinSession(pinId)
+    await pins.setSessionPinnedRemote(pinId, false, auth.gatewayUrl.value, auth.sessionCookie.value)
+  }
+  pinnedIds.value = await pins.getPinnedIds()
+}
+
 function isPinned(id: string): boolean {
-  return pinnedIds.value.includes(id)
+  const session = findSession(id)
+  return session ? sessionIsPinned(session, pinnedIds.value) : pinnedIds.value.includes(id)
 }
 
 function handleTouchStart(e: TouchEvent, sessionId: string) {
@@ -454,32 +472,33 @@ async function copySessionId() {
 
 async function handlePin() {
   const id = contextMenuSessionId.value
-  const isNowPinned = await pins.togglePin(id)
-  await pins.setSessionPinnedRemote(id, isNowPinned, auth.gatewayUrl.value, auth.sessionCookie.value)
-  pinnedIds.value = await pins.getPinnedIds()
+  const session = findSession(id)
+  const pinIds = pinIdsForSession(id)
+  const durableId = session ? sessionPinId(session) : id
+  if (session ? sessionIsPinned(session, pinnedIds.value) : pinnedIds.value.includes(id)) {
+    await clearPinnedIds(pinIds)
+  } else {
+    await pins.pinSession(durableId)
+    await pins.setSessionPinnedRemote(durableId, true, auth.gatewayUrl.value, auth.sessionCookie.value)
+    pinnedIds.value = await pins.getPinnedIds()
+  }
   closeContextMenu()
 }
 
 async function handleDelete() {
   const id = contextMenuSessionId.value
+  const pinIds = pinIdsForSession(id)
   closeContextMenu()
   await gw.deleteSession(auth.gatewayUrl.value, id)
-  if (pinnedIds.value.includes(id)) {
-    await pins.unpinSession(id)
-    await pins.setSessionPinnedRemote(id, false, auth.gatewayUrl.value, auth.sessionCookie.value)
-    pinnedIds.value = await pins.getPinnedIds()
-  }
+  await clearPinnedIds(pinIds)
 }
 
 async function handleArchive() {
   const id = contextMenuSessionId.value
+  const pinIds = pinIdsForSession(id)
   closeContextMenu()
   await gw.archiveSession(auth.gatewayUrl.value, id)
-  if (pinnedIds.value.includes(id)) {
-    await pins.unpinSession(id)
-    await pins.setSessionPinnedRemote(id, false, auth.gatewayUrl.value, auth.sessionCookie.value)
-    pinnedIds.value = await pins.getPinnedIds()
-  }
+  await clearPinnedIds(pinIds)
 }
 
 async function handleUnarchive() {

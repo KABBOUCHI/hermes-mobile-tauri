@@ -29,19 +29,43 @@ export interface SessionBranchEntry<T> {
   session: T
 }
 
+export interface SessionPinIdentity {
+  id: string
+  _lineage_root_id?: string | null
+}
+
+/**
+ * Desktop pins the durable lineage root so compression can rotate a live
+ * session id without making the conversation fall out of the pinned section.
+ */
+export function sessionPinId(session: SessionPinIdentity): string {
+  return session._lineage_root_id?.trim() || session.id
+}
+
+/** Keep pins written against an older live id visible during migration. */
+export function sessionIsPinned(session: SessionPinIdentity, pinnedIds: readonly string[]): boolean {
+  return pinnedIds.includes(sessionPinId(session)) || pinnedIds.includes(session.id)
+}
+
 /**
  * Resolve pinned rows in the persisted pin order rather than whatever recency
  * order the latest sessions page happened to use. This mirrors desktop's
  * sidebar, where the pin-id array is the user's deliberate ordering.
  * Unknown ids are ignored and duplicate ids cannot duplicate a visible row.
  */
-export function orderSessionsByIds<T extends { id: string }>(sessions: readonly T[], ids: readonly string[]): T[] {
+export function orderSessionsByIds<T extends SessionPinIdentity>(sessions: readonly T[], ids: readonly string[]): T[] {
   const byId = new Map(sessions.map(session => [session.id, session]))
+  const byPinId = new Map<string, T>()
+  for (const session of sessions) {
+    const pinId = sessionPinId(session)
+    if (!byPinId.has(pinId)) byPinId.set(pinId, session)
+  }
+
   const seen = new Set<string>()
   const ordered: T[] = []
 
   for (const id of ids) {
-    const session = byId.get(id)
+    const session = byId.get(id) || byPinId.get(id)
     if (session && !seen.has(session.id)) {
       seen.add(session.id)
       ordered.push(session)

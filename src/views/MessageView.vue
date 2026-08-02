@@ -29,6 +29,8 @@ const gw = useGateway()
 const sending = ref(false)
 const selectedSessionId = ref((route.params.id as string) || '')
 const isNewSession = ref(!selectedSessionId.value)
+const clarifyDraft = ref('')
+const clarifying = ref(false)
 
 // ── Model Picker ──
 const modelPickerOpen = ref(false)
@@ -151,6 +153,38 @@ const streamStalled = ref(false)
 let streamStallTimer: ReturnType<typeof setTimeout> | null = null
 let composerResizeObserver: ResizeObserver | null = null
 
+const activeClarifyRequest = computed(() => {
+  if (!selectedSessionId.value) return null
+  return gw.clarifyRequests.value[selectedSessionId.value] || null
+})
+
+watch(activeClarifyRequest, request => {
+  if (!request) clarifyDraft.value = ''
+})
+
+async function submitClarify(answer: string) {
+  const request = activeClarifyRequest.value
+  const trimmedAnswer = answer.trim()
+  if (!request || !trimmedAnswer || clarifying.value) return
+
+  clarifying.value = true
+  try {
+    await gw.respondToClarify(auth.gatewayUrl.value, request.sessionId, request.requestId, trimmedAnswer)
+    clarifyDraft.value = ''
+  } catch (err: any) {
+    toast.show(err?.message || 'Unable to send clarification', 'error')
+  } finally {
+    clarifying.value = false
+  }
+}
+
+function handleClarifyKeydown(e: KeyboardEvent) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault()
+    void submitClarify(clarifyDraft.value)
+  }
+}
+
 function observeComposerHeight() {
   const composer = composerEl.value
   if (!composer) return
@@ -231,6 +265,8 @@ watch(() => route.params.id, async (newId) => {
   gw.error.value = ''
   searchQuery.value = ''
   searchOpen.value = false
+  clarifyDraft.value = ''
+  clarifying.value = false
   editingIdx.value = null
   editText.value = ''
   closeActionSheet()
@@ -1328,8 +1364,40 @@ function formatTime(ts: number): string {
       </button>
     </Transition>
 
+    <div ref="composerEl" class="shrink-0">
+      <!-- Clarification prompt -->
+    <div v-if="activeClarifyRequest" class="shrink-0 border-t border-app-border bg-app-surface px-3 py-2.5">
+      <div class="rounded-lg border border-app-accent/30 bg-app-accent/10 p-2.5">
+        <div class="mb-2 text-[13px] font-medium text-app-text">{{ activeClarifyRequest.question }}</div>
+        <div v-if="activeClarifyRequest.choices?.length" class="mb-2 flex flex-wrap gap-1.5">
+          <button
+            v-for="choice in activeClarifyRequest.choices"
+            :key="choice"
+            class="cursor-pointer rounded-md border border-app-accent/35 bg-app-surface px-2.5 py-1.5 text-xs text-app-text transition-colors hover:bg-app-accent/15 disabled:cursor-default disabled:opacity-50"
+            :disabled="clarifying"
+            @click="submitClarify(choice)"
+          >{{ choice }}</button>
+        </div>
+        <div class="flex items-end gap-2">
+          <textarea
+            v-model="clarifyDraft"
+            rows="1"
+            class="min-h-9 min-w-0 flex-1 resize-none rounded-md border border-app-border bg-app-bg px-2.5 py-2 text-[13px] text-app-text outline-none placeholder:text-app-muted focus:border-app-accent"
+            placeholder="Or type an answer…"
+            :disabled="clarifying"
+            @keydown="handleClarifyKeydown"
+          ></textarea>
+          <button
+            class="h-9 shrink-0 cursor-pointer rounded-md border-0 bg-app-accent px-3 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-default disabled:opacity-40"
+            :disabled="clarifying || !clarifyDraft.trim()"
+            @click="submitClarify(clarifyDraft)"
+          >{{ clarifying ? 'Sending…' : 'Answer' }}</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Input -->
-    <div ref="composerEl" class="relative flex shrink-0 items-end gap-2 border-t border-app-border bg-app-surface px-3 py-2 pb-[max(8px,env(safe-area-inset-bottom))]">
+    <div class="relative flex shrink-0 items-end gap-2 border-t border-app-border bg-app-surface px-3 py-2 pb-[max(8px,env(safe-area-inset-bottom))]">
       <div v-if="sending && elapsedDisplay" class="absolute left-3.5 bottom-full mb-1.5 flex items-center gap-1.5 rounded-md border border-app-border bg-app-surface-2 px-2.5 py-1">
         <span class="size-1.5 rounded-full bg-app-accent"></span>
         <span class="text-xs tabular-nums text-app-muted">{{ elapsedDisplay }}</span>
@@ -1358,6 +1426,7 @@ function formatTime(ts: number): string {
           <Send :size="18" :stroke-width="2" />
         </button>
       </template>
+    </div>
     </div>
 
     <!-- Model Picker Dropdown -->

@@ -4,6 +4,7 @@ import WebSocket from '@tauri-apps/plugin-websocket'
 import { normalizeSessionMessages, branchableMessageHistory, completionFailure, truncateBeforeUserParams, userOrdinalAtMessageIndex, applyEditedUserTurn, rewindToMessage, type SessionMessage } from '../utils/sessionMessages'
 import { mergeSessionPage, optimisticSessionForSend, mergeSessionsById } from '../utils/sessionList'
 import { resolveGatewayEventSessionId } from '../utils/gatewayEvents'
+import { normalizeClarifyRequest, type ClarifyRequest } from '../utils/clarify'
 import { clearInFlightTurn, persistInFlightTurn, recoverInFlightTurn } from '../utils/inflightTurnJournal'
 
 const FETCH_TIMEOUT = 12000
@@ -100,6 +101,11 @@ const MESSAGE_CACHE_LIMIT = 12
 // The history endpoint does not always persist a tool's unified diff. Keep the
 // live `tool.complete` payload long enough to merge it into rehydrated history.
 const liveToolDiffs = new Map<string, Map<string, string>>()
+// Blocking clarify requests are gateway state, not transcript text. Keep them
+// keyed by stored session id so the prompt survives a route change and can be
+// answered after returning to the conversation.
+const clarifyRequests = ref<Record<string, ClarifyRequest>>({})
+const runtimeToStoredSession = new Map<string, string>()
 
 function rememberMessages(sessionId: string, incoming: Message[]) {
   messageCache.delete(sessionId)
@@ -128,6 +134,20 @@ function attachLiveToolDiffs(sessionId: string, rawMessages: unknown[]): unknown
     const diff = toolId ? sessionDiffs.get(toolId) : undefined
     return diff && typeof record.inline_diff !== 'string' ? { ...record, inline_diff: diff } : raw
   })
+}
+
+function storedSessionIdForRuntime(runtimeSessionId: string | null): string | null {
+  if (!runtimeSessionId) return null
+  if (activeTurn?.sessionId === runtimeSessionId) return activeTurn.storedSessionId
+  return runtimeToStoredSession.get(runtimeSessionId) ?? runtimeSessionId
+}
+
+function clearClarifyRequest(sessionId: string, requestId: string): void {
+  const current = clarifyRequests.value[sessionId]
+  if (!current || current.requestId !== requestId) return
+  const next = { ...clarifyRequests.value }
+  delete next[sessionId]
+  clarifyRequests.value = next
 }
 
 const loading = computed(() => loadingSessions.value || loadingMessages.value)
@@ -541,6 +561,15 @@ function handleGatewayEvent(event: any) {
     scheduleSessionRefresh()
   }
 
+  if (type === 'clarify.request') {
+    const storedSessionId = storedSessionIdForRuntime(sessionId)
+    const request = normalizeClarifyRequest(event.payload, storedSessionId)
+    if (request) {
+      clarifyRequests.value = { ...clarifyRequests.value, [request.sessionId]: request }
+    }
+    return
+  }
+
   if (type === 'tool.complete' && sessionId) {
     const diff = event.payload?.inline_diff
     const toolId = event.payload?.tool_id || event.payload?.tool_call_id || event.payload?.id
@@ -681,6 +710,7 @@ async function resumeSession(storedSessionId: string): Promise<string> {
   })
   const runtimeId = result?.session_id
   if (!runtimeId) throw new Error('session.resume returned no session id')
+  runtimeToStoredSession.set(runtimeId, storedSessionId)
   return runtimeId
 }
 
@@ -734,6 +764,7 @@ async function sendMessage(
       sessionId = created.storedSessionId
       upsertOptimisticSession(sessionId, text)
     }
+    runtimeToStoredSession.set(runtimeId, sessionId)
   } else {
     runtimeId = await resumeSession(sessionId)
   }
@@ -780,6 +811,26 @@ async function sendMessage(
 
   assistantMsg.content = content || '[empty response]'
   return { message: assistantMsg, newSessionId: isNewSession ? sessionId : null }
+}
+
+async function respondToClarify(
+  _url: string,
+  sessionId: string,
+  requestId: string,
+  answer: string,
+): Promise<void> {
+  const trimmedAnswer = answer.trim()
+  if (!sessionId || !requestId || !trimmedAnswer) {
+    throw new Error('A clarification answer is required')
+  }
+
+  const request = clarifyRequests.value[sessionId]
+  if (!request || request.requestId !== requestId) {
+    throw new Error('Clarification request is no longer active')
+  }
+
+  await rpcCall('clarify.respond', { request_id: requestId, answer: trimmedAnswer })
+  clearClarifyRequest(sessionId, requestId)
 }
 
 async function interruptSession(sessionId: string): Promise<void> {
@@ -1222,6 +1273,7 @@ export function useGateway() {
   return {
     sessions,
     messages,
+    clarifyRequests,
     loading,
     loadingSessions,
     loadingMessages,
@@ -1253,6 +1305,7 @@ export function useGateway() {
     createSession,
     branchSession,
     sendMessage,
+    respondToClarify,
     interruptSession,
     regenerateLastMessage,
     restoreMessage,

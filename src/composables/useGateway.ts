@@ -75,6 +75,9 @@ const loadingMessages = ref(false)
 const error = ref('')
 const wsState = ref<ConnectionState>('idle')
 const turnStartedAt = ref<number | null>(null)
+// Reactive activity marker for the focused turn. Desktop uses the last visible
+// message flush to restore a "still thinking" hint when a provider goes quiet.
+const lastStreamActivityAt = ref<number | null>(null)
 let sessionsTotal = 0
 let sessionsOffset = 0
 let archivedSessionsTotal = 0
@@ -539,6 +542,7 @@ function handleGatewayEvent(event: any) {
   if (type === 'message.delta' && activeTurn && sessionId === activeTurn.sessionId) {
     const delta = event.payload?.text || event.payload?.content || ''
     if (delta) {
+      lastStreamActivityAt.value = Date.now()
       streamingContent += delta
       const last = messages.value[messages.value.length - 1]
       if (last && last.role === 'assistant') {
@@ -558,6 +562,7 @@ function handleGatewayEvent(event: any) {
     activeTurn = null
     streamingContent = ''
     turnStartedAt.value = null
+    lastStreamActivityAt.value = null
     clearInFlightTurn(storedSessionId)
     if (failure) {
       reject(new Error(failure.message))
@@ -574,6 +579,7 @@ function handleGatewayEvent(event: any) {
     activeTurn = null
     streamingContent = ''
     turnStartedAt.value = null
+    lastStreamActivityAt.value = null
     // An error event is terminal just like a failed message.complete. Leaving
     // its journal behind would resurrect a failed partial reply on a later
     // history refresh, even though the reader has already received the failure.
@@ -623,6 +629,7 @@ function disconnectWs() {
   streamingContent = ''
   unscopedStreamSessionId = null
   turnStartedAt.value = null
+  lastStreamActivityAt.value = null
   wsState.value = 'closed'
 }
 
@@ -730,6 +737,7 @@ async function sendMessage(
 
   streamingContent = ''
   turnStartedAt.value = Date.now()
+  lastStreamActivityAt.value = turnStartedAt.value
 
   const content = await new Promise<string>((resolve, reject) => {
     const TURN_TIMEOUT = 1_800_000
@@ -737,6 +745,7 @@ async function sendMessage(
       activeTurn = null
       streamingContent = ''
       turnStartedAt.value = null
+      lastStreamActivityAt.value = null
       reject(new Error('Turn timed out'))
     }, TURN_TIMEOUT)
 
@@ -754,6 +763,7 @@ async function sendMessage(
       clearTimeout(timer)
       activeTurn = null
       streamingContent = ''
+      lastStreamActivityAt.value = null
       reject(err)
     })
   })
@@ -811,6 +821,7 @@ async function regenerateLastMessage(
 
   streamingContent = ''
   turnStartedAt.value = Date.now()
+  lastStreamActivityAt.value = turnStartedAt.value
 
   const content = await new Promise<string>((resolve, reject) => {
     const TURN_TIMEOUT = 1_800_000
@@ -818,6 +829,7 @@ async function regenerateLastMessage(
       activeTurn = null
       streamingContent = ''
       turnStartedAt.value = null
+      lastStreamActivityAt.value = null
       reject(new Error('Turn timed out'))
     }, TURN_TIMEOUT)
 
@@ -839,6 +851,7 @@ async function regenerateLastMessage(
       clearTimeout(timer)
       activeTurn = null
       streamingContent = ''
+      lastStreamActivityAt.value = null
       reject(err)
     })
   })
@@ -887,6 +900,7 @@ async function restoreMessage(
 
   streamingContent = ''
   turnStartedAt.value = Date.now()
+  lastStreamActivityAt.value = turnStartedAt.value
 
   const content = await new Promise<string>((resolve, reject) => {
     const TURN_TIMEOUT = 1_800_000
@@ -894,6 +908,7 @@ async function restoreMessage(
       activeTurn = null
       streamingContent = ''
       turnStartedAt.value = null
+      lastStreamActivityAt.value = null
       reject(new Error('Turn timed out'))
     }, TURN_TIMEOUT)
 
@@ -915,6 +930,7 @@ async function restoreMessage(
       clearTimeout(timer)
       activeTurn = null
       streamingContent = ''
+      lastStreamActivityAt.value = null
       reject(err)
     })
   })
@@ -968,6 +984,7 @@ async function editMessage(
 
     streamingContent = ''
     turnStartedAt.value = Date.now()
+    lastStreamActivityAt.value = turnStartedAt.value
 
     const content = await new Promise<string>((resolve, reject) => {
       const TURN_TIMEOUT = 1_800_000
@@ -975,6 +992,7 @@ async function editMessage(
         activeTurn = null
         streamingContent = ''
         turnStartedAt.value = null
+        lastStreamActivityAt.value = null
         reject(new Error('Turn timed out'))
       }, TURN_TIMEOUT)
 
@@ -997,6 +1015,7 @@ async function editMessage(
         activeTurn = null
         streamingContent = ''
         turnStartedAt.value = null
+        lastStreamActivityAt.value = null
         reject(err)
       })
     })
@@ -1200,6 +1219,7 @@ export function useGateway() {
     error,
     wsState,
     turnStartedAt,
+    lastStreamActivityAt,
     activeRuntimeId,
     extractText,
     relativeTime,

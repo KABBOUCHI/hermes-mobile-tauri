@@ -12,6 +12,7 @@ import { writeClipboardText } from '../utils/clipboard'
 import { formatElapsedSeconds } from '../utils/elapsedTime'
 import { createSessionExport } from '../utils/sessionExport'
 import { messageLoadErrorState } from '../utils/messageLoadState'
+import { isStreamStalled, STREAM_STALL_THRESHOLD_MS } from '../utils/streamStall'
 import { speakText, stopSpeech } from '../utils/speech'
 import { useAuth } from '../composables/useAuth'
 import { useGateway, type ModelProvider } from '../composables/useGateway'
@@ -130,6 +131,10 @@ onUnmounted(() => {
   composerResizeObserver?.disconnect()
   composerResizeObserver = null
   stopElapsedTimer()
+  if (streamStallTimer) {
+    clearTimeout(streamStallTimer)
+    streamStallTimer = null
+  }
 })
 
 function onViewportResize() {
@@ -142,6 +147,8 @@ const scrollEl = ref<HTMLElement | null>(null)
 const inputEl = ref<HTMLTextAreaElement | null>(null)
 const composerEl = ref<HTMLElement | null>(null)
 const composerHeight = ref(56)
+const streamStalled = ref(false)
+let streamStallTimer: ReturnType<typeof setTimeout> | null = null
 let composerResizeObserver: ResizeObserver | null = null
 
 function observeComposerHeight() {
@@ -879,6 +886,36 @@ function stopElapsedTimer() {
   elapsedDisplay.value = ''
 }
 
+// Desktop restores a small tail status after two seconds without visible stream
+// activity. Use one deadline timer per activity flush instead of a polling loop.
+function resetStreamStallTimer() {
+  if (streamStallTimer) {
+    clearTimeout(streamStallTimer)
+    streamStallTimer = null
+  }
+  streamStalled.value = false
+
+  const turnStartedAt = gw.turnStartedAt.value
+  const activityAt = gw.lastStreamActivityAt.value ?? turnStartedAt
+  if (turnStartedAt === null || activityAt === null) return
+
+  const delay = Math.max(0, STREAM_STALL_THRESHOLD_MS - (Date.now() - activityAt))
+  streamStallTimer = setTimeout(() => {
+    streamStallTimer = null
+    streamStalled.value = isStreamStalled(
+      gw.turnStartedAt.value,
+      gw.lastStreamActivityAt.value,
+      Date.now(),
+    )
+  }, delay)
+}
+
+watch(
+  () => [gw.turnStartedAt.value, gw.lastStreamActivityAt.value],
+  resetStreamStallTimer,
+  { immediate: true },
+)
+
 watch(() => gw.turnStartedAt.value, (val) => {
   if (val) {
     startElapsedTimer()
@@ -1247,6 +1284,18 @@ function formatTime(ts: number): string {
                 <span class="size-[5px] rounded-full bg-app-accent"></span>
                 <span class="size-[5px] rounded-full bg-app-accent"></span>
                 <span v-if="sending && idx === gw.messages.value.length - 1" class="ml-1 text-xs tabular-nums text-app-muted">Thinking<span v-if="elapsedDisplay"> · {{ elapsedDisplay }}</span><span v-else>…</span></span>
+              </div>
+
+              <!-- Match desktop's StreamStallIndicator when a live response goes
+                   quiet after producing visible content. -->
+              <div
+                v-if="msg.role === 'assistant' && streamStalled && idx === gw.messages.value.length - 1 && !msg.error && !isThinking(msg.content) && Boolean(msg.content || msg.reasoning || msg.toolCalls?.length)"
+                class="mt-1 flex items-center gap-1.5 text-xs text-app-muted"
+                role="status"
+                aria-live="polite"
+              >
+                <span class="size-[5px] animate-pulse rounded-full bg-app-accent"></span>
+                <span>Still thinking<span v-if="elapsedDisplay"> · {{ elapsedDisplay }}</span>…</span>
               </div>
             </template>
           </template>

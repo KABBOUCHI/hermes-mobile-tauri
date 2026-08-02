@@ -2,7 +2,7 @@ import { ref, computed } from 'vue'
 import { fetch } from '@tauri-apps/plugin-http'
 import WebSocket from '@tauri-apps/plugin-websocket'
 import { normalizeSessionMessages, branchableMessageHistory, completionFailure, truncateBeforeUserParams, userOrdinalAtMessageIndex, applyEditedUserTurn, rewindToMessage, type SessionMessage } from '../utils/sessionMessages'
-import { mergeSessionsById } from '../utils/sessionList'
+import { optimisticSessionForSend, mergeSessionsById } from '../utils/sessionList'
 import { clearInFlightTurn, persistInFlightTurn, recoverInFlightTurn } from '../utils/inflightTurnJournal'
 
 const FETCH_TIMEOUT = 12000
@@ -318,6 +318,16 @@ function scheduleSessionRefresh(): void {
     sessionRefreshTimer = null
     void fetchSessions(baseUrl, false, sessionListArchiveScope)
   }, SESSION_REFRESH_DEBOUNCE_MS)
+}
+
+/**
+ * Show a just-created chat in Sessions before its first turn completes. This is
+ * a presentation cache only; the debounced post-completion refresh replaces it
+ * with the gateway's generated title, preview, count, and recency.
+ */
+function upsertOptimisticSession(storedSessionId: string, preview: string): void {
+  const optimistic = optimisticSessionForSend(storedSessionId, preview)
+  sessions.value = [optimistic, ...sessions.value.filter(session => session.id !== storedSessionId)]
 }
 
 /**
@@ -674,6 +684,7 @@ async function sendMessage(
     runtimeId = created.runtimeId
     if (created.storedSessionId) {
       sessionId = created.storedSessionId
+      upsertOptimisticSession(sessionId, text)
     }
   } else {
     runtimeId = await resumeSession(sessionId)

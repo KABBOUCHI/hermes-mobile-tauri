@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { flattenSessionsWithBranches, mergeSessionsById, orderSessionsByIds, sessionIsPinned, sessionPinId } from './sessionList'
+import { flattenSessionsWithBranches, mergeSessionsById, optimisticSessionForSend, orderSessionsByIds, sessionIsPinned, sessionPinId } from './sessionList'
 
 describe('mergeSessionsById', () => {
   it('deduplicates overlapping pages while retaining the freshest session data', () => {
@@ -41,6 +41,22 @@ describe('mergeSessionsById', () => {
       { id: 'same', preview: 'newer copy', message_count: 2 },
       { id: 'other', preview: 'keep', message_count: 1 },
     ])
+  })
+})
+
+describe('optimisticSessionForSend', () => {
+  it('seeds a desktop session row with the first prompt until refresh reconciles it', () => {
+    expect(optimisticSessionForSend('new-session', '  Inspect the gateway  ', 123)).toEqual({
+      id: 'new-session',
+      title: null,
+      preview: 'Inspect the gateway',
+      model: '',
+      message_count: 1,
+      last_active: 123,
+      started_at: 123,
+      is_active: true,
+      source: 'desktop',
+    })
   })
 })
 

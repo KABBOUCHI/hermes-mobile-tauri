@@ -24,6 +24,39 @@ export function mergeSessionsById<T extends { id: string }>(existing: T[], incom
   return merged
 }
 
+/**
+ * Build the temporary row desktop shows immediately after creating a chat.
+ * The session endpoint remains authoritative; a completed-turn refresh replaces
+ * this preview with the server-generated title, preview, and message count.
+ */
+export function optimisticSessionForSend(
+  id: string,
+  preview: string,
+  timestamp = Date.now() / 1000,
+): {
+  id: string
+  title: null
+  preview: string
+  model: string
+  message_count: number
+  last_active: number
+  started_at: number
+  is_active: boolean
+  source: string
+} {
+  return {
+    id,
+    title: null,
+    preview: preview.trim(),
+    model: '',
+    message_count: 1,
+    last_active: timestamp,
+    started_at: timestamp,
+    is_active: true,
+    source: 'desktop',
+  }
+}
+
 export interface SessionBranchEntry<T> {
   branchStem?: string
   session: T

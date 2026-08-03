@@ -115,6 +115,19 @@ export function sessionIsPinned(session: SessionPinIdentity, pinnedIds: readonly
 }
 
 /**
+ * Resolve a stored session identity against a visible row. Compression can
+ * rotate the live id while keeping the lineage root stable, so foreground and
+ * attention state must recognise either identity just as the desktop does.
+ */
+export function sessionMatchesStoredId(
+  session: SessionPinIdentity,
+  storedSessionId: string | null | undefined,
+): boolean {
+  const id = storedSessionId?.trim()
+  return Boolean(id) && (session.id === id || session._lineage_root_id === id)
+}
+
+/**
  * Resolve pinned rows in the persisted pin order rather than whatever recency
  * order the latest sessions page happened to use. This mirrors desktop's
  * sidebar, where the pin-id array is the user's deliberate ordering.

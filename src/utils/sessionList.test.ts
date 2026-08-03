@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { flattenSessionsWithBranches, mergeSessionPage, mergeSessionsById, optimisticSessionForSend, orderSessionsByIds, sessionIsPinned, sessionPinId } from './sessionList'
+import { flattenSessionsWithBranches, mergeSessionPage, mergeSessionsById, optimisticSessionForSend, orderSessionsByIds, sessionIsPinned, sessionMatchesStoredId, sessionPinId } from './sessionList'
 
 describe('mergeSessionsById', () => {
   it('deduplicates overlapping pages while retaining the freshest session data', () => {
@@ -117,6 +117,14 @@ describe('session pin identity', () => {
   it('keeps legacy live-id pins recognised while they are migrated', () => {
     const liveSession = { id: 'tip', _lineage_root_id: 'root' }
     expect(sessionIsPinned(liveSession, ['tip'])).toBe(true)
+  })
+
+  it('matches active state against either the live id or compressed lineage root', () => {
+    const liveSession = { id: 'tip', _lineage_root_id: 'root' }
+    expect(sessionMatchesStoredId(liveSession, 'tip')).toBe(true)
+    expect(sessionMatchesStoredId(liveSession, 'root')).toBe(true)
+    expect(sessionMatchesStoredId(liveSession, 'other')).toBe(false)
+    expect(sessionMatchesStoredId(liveSession, null)).toBe(false)
   })
 })
 

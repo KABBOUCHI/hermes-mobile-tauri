@@ -19,6 +19,7 @@ import { useAuth } from '../composables/useAuth'
 import { useGateway, type ModelProvider } from '../composables/useGateway'
 import { useLastSession } from '../composables/useLastSession'
 import { useToast } from '../composables/useToast'
+import { sessionMatchesStoredId } from '../utils/sessionList'
 import { openUrl } from '@tauri-apps/plugin-opener'
 import { ArrowDown, ArrowLeft, Check, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Copy, EllipsisVertical, FileImage, GitFork, History, MessageCircle, MoreHorizontal, Pencil, RotateCcw, Search, Send, Share, Square, Terminal, Volume2, VolumeX, X } from '@lucide/vue'
 
@@ -159,7 +160,11 @@ let composerResizeObserver: ResizeObserver | null = null
 
 const activeClarifyRequest = computed(() => {
   if (!selectedSessionId.value) return null
-  return gw.clarifyRequests.value[selectedSessionId.value] || null
+  const selectedSession = gw.sessions.value.find(session => session.id === selectedSessionId.value)
+  const identity = selectedSession || { id: selectedSessionId.value }
+  return Object.values(gw.clarifyRequests.value).find(request =>
+    sessionMatchesStoredId(identity, request.sessionId)
+  ) || null
 })
 
 watch(activeClarifyRequest, request => {

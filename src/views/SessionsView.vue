@@ -9,7 +9,7 @@ import { useUnreads } from '../composables/useUnreads'
 import { useLastSession } from '../composables/useLastSession'
 import { useToast } from '../composables/useToast'
 import { sessionMatchesSearch } from '../utils/sessionSearch'
-import { flattenSessionsWithBranches, orderSessionsByIds, sessionIsPinned, sessionPinId, type SessionBranchEntry } from '../utils/sessionList'
+import { flattenSessionsWithBranches, orderSessionsByIds, sessionIsPinned, sessionMatchesStoredId, sessionPinId, type SessionBranchEntry } from '../utils/sessionList'
 import { filterSessionsBySource } from '../utils/sessionSource'
 import { sessionActivityState, type SessionActivityState } from '../utils/sessionActivity'
 import { writeClipboardText } from '../utils/clipboard'
@@ -586,11 +586,14 @@ function formatCount(n: number): string {
 }
 
 function sessionStatus(session: Session): SessionActivityState {
+  const hasClarifyRequest = Object.values(gw.clarifyRequests.value).some(request =>
+    sessionMatchesStoredId(session, request.sessionId),
+  )
   return sessionActivityState({
     isActive: session.is_active,
-    isCurrentTurn: gw.activeStoredSessionId.value === session.id,
+    isCurrentTurn: sessionMatchesStoredId(session, gw.activeStoredSessionId.value),
     isUnread: unreadIds.value.has(session.id),
-    needsInput: Boolean(gw.clarifyRequests.value[session.id]),
+    needsInput: hasClarifyRequest,
   })
 }
 

@@ -21,6 +21,7 @@ import { useLastSession } from '../composables/useLastSession'
 import { useToast } from '../composables/useToast'
 import { sessionMatchesStoredId } from '../utils/sessionList'
 import { attachmentError, attachmentKind, MAX_ATTACHMENTS, type PendingAttachment } from '../utils/composerAttachments'
+import { isBackSwipe, SWIPE_BACK_EDGE_PX, type SwipeBackGesture } from '../utils/swipeBack'
 import { openUrl } from '@tauri-apps/plugin-opener'
 import { ArrowDown, ArrowLeft, Check, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Copy, EllipsisVertical, FileImage, FileText, GitFork, History, MessageCircle, MoreHorizontal, Paperclip, Pencil, RotateCcw, Search, Send, Share, Square, Terminal, Volume2, VolumeX, X } from '@lucide/vue'
 
@@ -414,6 +415,67 @@ function goBack() {
   router.push({ name: 'sessions' })
 }
 
+// Keep chat navigation lightweight on mobile: a deliberate gesture from the
+// left edge returns to the session list, while ordinary vertical transcript
+// scrolling remains untouched.
+const swipeBackGesture = ref<SwipeBackGesture | null>(null)
+const swipeBackHandled = ref(false)
+
+function handleSwipeBackStart(e: TouchEvent) {
+  swipeBackHandled.value = false
+  if (e.touches.length !== 1 || e.touches[0].clientX > SWIPE_BACK_EDGE_PX) {
+    swipeBackGesture.value = null
+    return
+  }
+
+  const touch = e.touches[0]
+  pullStart.value = 0
+  pullDelta.value = 0
+  swipeBackGesture.value = {
+    startX: touch.clientX,
+    startY: touch.clientY,
+    currentX: touch.clientX,
+    currentY: touch.clientY,
+  }
+}
+
+function handleSwipeBackMove(e: TouchEvent) {
+  const gesture = swipeBackGesture.value
+  if (!gesture || e.touches.length !== 1) return
+
+  const touch = e.touches[0]
+  const next = {
+    ...gesture,
+    currentX: touch.clientX,
+    currentY: touch.clientY,
+  }
+  const distanceX = next.currentX - next.startX
+  const distanceY = Math.abs(next.currentY - next.startY)
+
+  // Cancel as soon as the finger is clearly moving back into transcript
+  // scrolling. The regular touch handlers can then resume normally.
+  if (distanceX < 0 || (distanceX < 16 && distanceY > 16) || distanceY > Math.max(24, distanceX * 0.85)) {
+    swipeBackGesture.value = null
+    return
+  }
+
+  swipeBackGesture.value = next
+}
+
+function handleSwipeBackEnd() {
+  const gesture = swipeBackGesture.value
+  swipeBackGesture.value = null
+  if (!gesture || !isBackSwipe(gesture)) return
+
+  swipeBackHandled.value = true
+  goBack()
+}
+
+function handleSwipeBackCancel() {
+  swipeBackGesture.value = null
+  swipeBackHandled.value = false
+}
+
 function handleSend() {
   const text = input.value.trim()
   if ((!text && pendingAttachments.value.length === 0) || sending.value) return
@@ -552,12 +614,14 @@ const pullStart = ref(0)
 const pullDelta = ref(0)
 
 function onChatTouchStart(e: TouchEvent) {
+  if (swipeBackGesture.value) return
   if (scrollEl.value && scrollEl.value.scrollTop === 0) {
     pullStart.value = e.touches[0].clientY
   }
 }
 
 function onChatTouchMove(e: TouchEvent) {
+  if (swipeBackGesture.value) return
   if (pullStart.value === 0) return
   const delta = e.touches[0].clientY - pullStart.value
   if (delta > 0 && scrollEl.value && scrollEl.value.scrollTop === 0) {
@@ -566,6 +630,12 @@ function onChatTouchMove(e: TouchEvent) {
 }
 
 async function onChatTouchEnd() {
+  if (swipeBackHandled.value) {
+    swipeBackHandled.value = false
+    pullStart.value = 0
+    pullDelta.value = 0
+    return
+  }
   if (pullDelta.value > 50 && selectedSessionId.value) {
     await gw.fetchMessages(auth.gatewayUrl.value, selectedSessionId.value)
   }
@@ -1238,7 +1308,7 @@ function formatTime(ts: number): string {
     </div>
 
     <!-- Messages -->
-    <div class="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-x-hidden overflow-y-auto overscroll-contain px-3 py-3" ref="scrollEl" @scroll="onScroll" @click="handleMessagesClick" @touchstart="onChatTouchStart" @touchmove="onChatTouchMove" @touchend="onChatTouchEnd">
+    <div class="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-x-hidden overflow-y-auto overscroll-contain px-3 py-3" ref="scrollEl" @scroll="onScroll" @click="handleMessagesClick" @touchstart.capture="handleSwipeBackStart" @touchmove.capture="handleSwipeBackMove" @touchend.capture="handleSwipeBackEnd" @touchcancel.capture="handleSwipeBackCancel" @touchstart="onChatTouchStart" @touchmove="onChatTouchMove" @touchend="onChatTouchEnd">
       <!-- Pull-to-refresh indicator -->
       <div
         v-if="pullDelta > 0"

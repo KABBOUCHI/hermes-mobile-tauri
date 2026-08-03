@@ -10,6 +10,14 @@ describe('sessionActivityState', () => {
     expect(sessionActivityState({ isActive: true, isCurrentTurn: true, isUnread: true })).toBe('working')
   })
 
+  it('distinguishes a quiet local turn from actively streaming work', () => {
+    expect(sessionActivityState({ isActive: true, isCurrentTurn: true, isStalled: true, isUnread: true })).toBe('stalled')
+  })
+
+  it('keeps a clarification prompt above a stalled local turn', () => {
+    expect(sessionActivityState({ isActive: true, isCurrentTurn: true, isStalled: true, isUnread: true, needsInput: true })).toBe('needs-input')
+  })
+
   it('shows a background-running session before its unread state', () => {
     expect(sessionActivityState({ isActive: true, isCurrentTurn: false, isUnread: true })).toBe('background')
   })

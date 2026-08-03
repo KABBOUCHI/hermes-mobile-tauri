@@ -12,6 +12,7 @@ import { sessionMatchesSearch } from '../utils/sessionSearch'
 import { flattenSessionsWithBranches, orderSessionsByIds, sessionIsPinned, sessionMatchesStoredId, sessionPinId, type SessionBranchEntry } from '../utils/sessionList'
 import { filterSessionsBySource } from '../utils/sessionSource'
 import { sessionActivityState, type SessionActivityState } from '../utils/sessionActivity'
+import { isStreamStalled, STREAM_STALL_THRESHOLD_MS } from '../utils/streamStall'
 import { writeClipboardText } from '../utils/clipboard'
 import { Archive, ArchiveRestore, Atom, Check, CircleX, Copy, Inbox, Pencil, Pin, Plus, RefreshCw, Search, Trash2 } from '@lucide/vue'
 
@@ -45,6 +46,35 @@ const searchPending = ref(false)
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 let searchGeneration = 0
 let unreadRefreshGeneration = 0
+const sessionStatusNow = ref(Date.now())
+let sessionStatusTimer: ReturnType<typeof setTimeout> | null = null
+
+// Desktop keeps a live session visibly active even when the provider pauses
+// between stream frames. Refresh the list exactly at that quiet-stream deadline
+// so the row can switch from working to stalled without polling continuously.
+function resetSessionStatusTimer() {
+  if (sessionStatusTimer) {
+    clearTimeout(sessionStatusTimer)
+    sessionStatusTimer = null
+  }
+
+  sessionStatusNow.value = Date.now()
+  const turnStartedAt = gw.turnStartedAt.value
+  const activityAt = gw.lastStreamActivityAt.value ?? turnStartedAt
+  if (turnStartedAt === null || activityAt === null) return
+
+  const delay = Math.max(0, STREAM_STALL_THRESHOLD_MS - (Date.now() - activityAt))
+  sessionStatusTimer = setTimeout(() => {
+    sessionStatusTimer = null
+    sessionStatusNow.value = Date.now()
+  }, delay)
+}
+
+watch(
+  () => [gw.turnStartedAt.value, gw.lastStreamActivityAt.value],
+  resetSessionStatusTimer,
+  { immediate: true },
+)
 
 watch(pinnedIds, ids => {
   gw.setSessionListKeepIds(ids)
@@ -389,6 +419,7 @@ watch(sessionRows, async () => {
 
 onUnmounted(() => {
   if (searchTimer) clearTimeout(searchTimer)
+  if (sessionStatusTimer) clearTimeout(sessionStatusTimer)
   virtualResizeObserver?.disconnect()
   virtualResizeObserver = null
 })
@@ -589,9 +620,15 @@ function sessionStatus(session: Session): SessionActivityState {
   const hasClarifyRequest = Object.values(gw.clarifyRequests.value).some(request =>
     sessionMatchesStoredId(session, request.sessionId),
   )
+  const isCurrentTurn = sessionMatchesStoredId(session, gw.activeStoredSessionId.value)
   return sessionActivityState({
     isActive: session.is_active,
-    isCurrentTurn: sessionMatchesStoredId(session, gw.activeStoredSessionId.value),
+    isCurrentTurn,
+    isStalled: isCurrentTurn && isStreamStalled(
+      gw.turnStartedAt.value,
+      gw.lastStreamActivityAt.value,
+      sessionStatusNow.value,
+    ),
     isUnread: unreadIds.value.has(session.id),
     needsInput: hasClarifyRequest,
   })
@@ -601,6 +638,7 @@ function sessionStatusClass(session: Session): string {
   const state = sessionStatus(session)
   if (state === 'needs-input') return 'size-2 shrink-0 rounded-full bg-app-accent shadow-[0_0_7px_rgba(94,106,210,0.6)]'
   if (state === 'working') return 'size-2 shrink-0 animate-pulse rounded-full bg-app-accent shadow-[0_0_7px_rgba(94,106,210,0.6)]'
+  if (state === 'stalled') return 'size-2 shrink-0 animate-pulse rounded-full bg-app-accent/70 shadow-[0_0_7px_rgba(94,106,210,0.4)]'
   if (state === 'background') return 'size-2 shrink-0 animate-pulse rounded-full bg-app-muted'
   if (state === 'unread') return 'size-2 shrink-0 rounded-full bg-app-success shadow-[0_0_6px_rgba(34,197,94,0.5)]'
   return ''
@@ -610,6 +648,7 @@ function sessionStatusLabel(session: Session): string {
   const state = sessionStatus(session)
   if (state === 'needs-input') return 'Waiting for your answer'
   if (state === 'working') return 'Session running'
+  if (state === 'stalled') return 'Session still running — stream quiet'
   if (state === 'background') return 'Background task running'
   if (state === 'unread') return 'Finished — unread'
   return ''

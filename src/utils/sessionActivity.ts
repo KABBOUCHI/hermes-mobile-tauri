@@ -1,8 +1,9 @@
-export type SessionActivityState = 'needs-input' | 'working' | 'background' | 'unread' | 'idle'
+export type SessionActivityState = 'needs-input' | 'working' | 'stalled' | 'background' | 'unread' | 'idle'
 
 export interface SessionActivityInput {
   isActive: boolean
   isCurrentTurn: boolean
+  isStalled?: boolean
   isUnread: boolean
   needsInput?: boolean
 }
@@ -16,11 +17,12 @@ export interface SessionActivityInput {
 export function sessionActivityState({
   isActive,
   isCurrentTurn,
+  isStalled = false,
   isUnread,
   needsInput = false,
 }: SessionActivityInput): SessionActivityState {
   if (needsInput) return 'needs-input'
-  if (isCurrentTurn) return 'working'
+  if (isCurrentTurn) return isStalled ? 'stalled' : 'working'
   if (isActive) return 'background'
   if (isUnread) return 'unread'
   return 'idle'

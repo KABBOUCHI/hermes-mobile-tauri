@@ -17,7 +17,7 @@ import { shouldOfferMessageExpansion } from '../utils/messageDisplay'
 import { isStreamStalled, STREAM_STALL_THRESHOLD_MS } from '../utils/streamStall'
 import { speakText, stopSpeech } from '../utils/speech'
 import { useAuth } from '../composables/useAuth'
-import { useGateway, type ModelProvider } from '../composables/useGateway'
+import { useGateway, type ModelProvider, type Session } from '../composables/useGateway'
 import { useLastSession } from '../composables/useLastSession'
 import { useToast } from '../composables/useToast'
 import { sessionMatchesStoredId } from '../utils/sessionList'
@@ -120,34 +120,48 @@ const sessionPickerOpen = ref(false)
 const sessionPickerQuery = ref('')
 const sessionPickerLoading = ref(false)
 const sessionPickerInputEl = ref<HTMLInputElement | null>(null)
+const sessionPickerRows = ref<Session[]>([])
+let sessionPickerGeneration = 0
 
 const sessionPickerSessions = computed(() => {
   const query = sessionPickerQuery.value.trim()
-  return gw.sessions.value.filter(session => sessionMatchesSearch(session, query))
+  const rows = sessionPickerRows.value.length > 0 ? sessionPickerRows.value : gw.sessions.value
+  return rows.filter(session => sessionMatchesSearch(session, query))
 })
 
 async function openSessionPicker() {
   headerMenuOpen.value = false
   sessionPickerOpen.value = true
+  const generation = ++sessionPickerGeneration
+  sessionPickerRows.value = gw.sessions.value
   await nextTick()
   sessionPickerInputEl.value?.focus()
 
-  // Direct deep links can arrive without SessionsView ever loading the list.
-  // Fetch once in that case; otherwise the shared cache already reflects the
-  // current session list and opening the picker stays instant.
-  if (gw.sessions.value.length === 0 && auth.isConnected.value && !gw.loadingSessions.value) {
+  // Desktop refreshes its picker query whenever the dialog opens. Do the same
+  // here so older sessions remain discoverable even when the sidebar has only
+  // loaded its first page; retain the cached rows if this auxiliary request
+  // fails.
+  if (auth.isConnected.value) {
     sessionPickerLoading.value = true
     try {
-      await gw.fetchSessions(auth.gatewayUrl.value, false, 'exclude')
+      const rows = await gw.fetchSessionPickerSessions(auth.gatewayUrl.value)
+      if (generation === sessionPickerGeneration && rows !== null) {
+        sessionPickerRows.value = rows
+      }
     } finally {
-      sessionPickerLoading.value = false
+      if (generation === sessionPickerGeneration) {
+        sessionPickerLoading.value = false
+      }
     }
   }
 }
 
 function closeSessionPicker() {
+  sessionPickerGeneration += 1
   sessionPickerOpen.value = false
   sessionPickerQuery.value = ''
+  sessionPickerRows.value = []
+  sessionPickerLoading.value = false
 }
 
 function selectSessionFromPicker(id: string) {

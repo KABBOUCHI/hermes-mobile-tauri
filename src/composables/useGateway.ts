@@ -292,6 +292,7 @@ function sourceLabel(source: string | null | undefined): string {
 // ── REST ───────────────────────────────────────────
 
 const PAGE_SIZE = 40
+export const SESSION_PICKER_LIMIT = 200
 
 /**
  * Match desktop's unscoped recent-session query. Source is display metadata,
@@ -300,6 +301,11 @@ const PAGE_SIZE = 40
  */
 export function sessionListPath(limit: number, offset: number, archived: 'exclude' | 'only'): string {
   return `/api/sessions?limit=${limit}&offset=${offset}&min_messages=1&archived=${archived}&order=recent`
+}
+
+/** Desktop refreshes a larger recent-session window whenever its picker opens. */
+export function sessionPickerPath(): string {
+  return sessionListPath(SESSION_PICKER_LIMIT, 0, 'exclude')
 }
 
 /** Set durable rows that must survive the gateway's recency-window refresh. */
@@ -391,6 +397,29 @@ async function fetchSessions(url: string, append = false, archived: 'exclude' | 
       loadingSessions.value = false
       loadingMore.value = false
     }
+  }
+}
+
+/**
+ * Fetch the picker-sized recent window without replacing the sidebar cache.
+ * Picker refresh is auxiliary: a transient failure must leave its cached rows
+ * usable and must not turn the whole chat surface into an error state.
+ */
+async function fetchSessionPickerSessions(url: string): Promise<Session[] | null> {
+  try {
+    const base = url.replace(/\/$/, '')
+    const headers: Record<string, string> = {}
+    if (cookie) headers['Cookie'] = cookie
+    const resp = await fetchWithTimeout(
+      `${base}${sessionPickerPath()}`,
+      { method: 'GET', headers, credentials: 'same-origin' },
+      FETCH_TIMEOUT,
+    )
+    if (!resp.ok) throw new Error('HTTP ' + resp.status)
+    const data = await resp.json()
+    return Array.isArray(data?.sessions) ? data.sessions : []
+  } catch {
+    return null
   }
 }
 
@@ -1513,6 +1542,7 @@ export function useGateway() {
     sourceLabel,
     setSessionListKeepIds,
     fetchSessions,
+    fetchSessionPickerSessions,
     searchSessions,
     hasMoreSessions,
     hasMoreArchivedSessions,

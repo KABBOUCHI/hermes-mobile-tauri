@@ -1,11 +1,18 @@
 import { describe, expect, it } from 'vitest'
-import { MESSAGE_FETCH_TIMEOUT, SESSION_REFRESH_DEBOUNCE_MS, sessionListPath, shouldRefreshSessionsForEvent } from './useGateway'
+import { MESSAGE_FETCH_TIMEOUT, SESSION_PICKER_LIMIT, SESSION_REFRESH_DEBOUNCE_MS, sessionListPath, sessionPickerPath, shouldRefreshSessionsForEvent } from './useGateway'
 
 
 describe('session list request policy', () => {
   it('matches desktop’s unscoped list path so sessions from every source remain visible', () => {
     expect(sessionListPath(40, 80, 'exclude')).toBe(
       '/api/sessions?limit=40&offset=80&min_messages=1&archived=exclude&order=recent',
+    )
+  })
+
+  it('uses the desktop-sized recent window for the quick session picker', () => {
+    expect(SESSION_PICKER_LIMIT).toBe(200)
+    expect(sessionPickerPath()).toBe(
+      '/api/sessions?limit=200&offset=0&min_messages=1&archived=exclude&order=recent',
     )
   })
 

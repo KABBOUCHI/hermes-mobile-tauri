@@ -14,6 +14,7 @@ import { filterSessionsBySource } from '../utils/sessionSource'
 import { sessionActivityState, type SessionActivityState } from '../utils/sessionActivity'
 import { isStreamStalled, STREAM_STALL_THRESHOLD_MS } from '../utils/streamStall'
 import { writeClipboardText } from '../utils/clipboard'
+import { sessionListTitle, sessionPreview } from '../utils/sessionTitle'
 import { Archive, ArchiveRestore, Atom, Check, CircleX, Copy, Inbox, Pencil, Pin, Plus, RefreshCw, Search, Trash2 } from '@lucide/vue'
 
 const router = useRouter()
@@ -780,7 +781,7 @@ function sessionStatusLabel(session: Session): string {
             <div class="mb-1 flex items-center gap-1.5">
               <span v-if="row.entry.branchStem" class="font-mono text-xs tracking-[-2px] text-app-muted" aria-hidden="true">{{ row.entry.branchStem }}</span>
               <Pin v-if="isPinned(row.entry.session.id)" :size="14" :stroke-width="2" class="text-app-accent" />
-              <span class="flex-1 truncate text-[15px] font-semibold tracking-[-0.02em]">{{ row.entry.session.title || row.entry.session.preview || 'Untitled' }}</span>
+              <span class="flex-1 truncate text-[15px] font-semibold tracking-[-0.02em]">{{ sessionListTitle(row.entry.session) }}</span>
               <span
                 v-if="sessionStatus(row.entry.session) !== 'idle'"
                 :class="sessionStatusClass(row.entry.session)"
@@ -798,7 +799,7 @@ function sessionStatusLabel(session: Session): string {
                 <Trash2 v-else :size="15" :stroke-width="2" />
               </button>
             </div>
-            <span class="mb-1.5 line-clamp-2 text-[13px] leading-[1.4] text-app-muted">{{ row.entry.session.preview || 'No messages' }}</span>
+            <span class="mb-1.5 line-clamp-2 text-[13px] leading-[1.4] text-app-muted">{{ sessionPreview(row.entry.session) }}</span>
             <div class="flex items-center gap-1.5">
               <span class="text-xs text-app-muted">{{ formatCount(row.entry.session.message_count) }} msgs</span>
               <span class="text-xs text-app-muted opacity-50">·</span>
@@ -826,7 +827,7 @@ function sessionStatusLabel(session: Session): string {
         <div class="mb-1 flex items-center gap-1.5">
           <span v-if="entry.branchStem" class="font-mono text-xs tracking-[-2px] text-app-muted" aria-hidden="true">{{ entry.branchStem }}</span>
           <Pin v-if="isPinned(entry.session.id)" :size="14" :stroke-width="2" class="text-app-accent" />
-          <span class="flex-1 truncate text-[15px] font-semibold tracking-[-0.02em]">{{ entry.session.title || entry.session.preview || 'Untitled' }}</span>
+          <span class="flex-1 truncate text-[15px] font-semibold tracking-[-0.02em]">{{ sessionListTitle(entry.session) }}</span>
           <span
             v-if="sessionStatus(entry.session) !== 'idle'"
             :class="sessionStatusClass(entry.session)"
@@ -844,7 +845,7 @@ function sessionStatusLabel(session: Session): string {
             <Trash2 v-else :size="15" :stroke-width="2" />
           </button>
         </div>
-        <span class="mb-1.5 line-clamp-2 text-[13px] leading-[1.4] text-app-muted">{{ entry.session.preview || 'No messages' }}</span>
+        <span class="mb-1.5 line-clamp-2 text-[13px] leading-[1.4] text-app-muted">{{ sessionPreview(entry.session) }}</span>
         <div class="flex items-center gap-1.5">
           <span class="text-xs text-app-muted">{{ formatCount(entry.session.message_count) }} msgs</span>
           <span class="text-xs text-app-muted opacity-50">·</span>

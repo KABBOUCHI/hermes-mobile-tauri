@@ -6,6 +6,7 @@ import { useAuth } from '../composables/useAuth'
 import { useGateway } from '../composables/useGateway'
 import { usePins } from '../composables/usePins'
 import { useUnreads } from '../composables/useUnreads'
+import { useLastSession } from '../composables/useLastSession'
 import { useToast } from '../composables/useToast'
 import { sessionMatchesSearch } from '../utils/sessionSearch'
 import { flattenSessionsWithBranches, orderSessionsByIds, sessionIsPinned, sessionPinId, type SessionBranchEntry } from '../utils/sessionList'
@@ -19,6 +20,7 @@ const auth = useAuth()
 const gw = useGateway()
 const pins = usePins()
 const unreads = useUnreads()
+const lastSession = useLastSession()
 const toast = useToast()
 
 const search = ref('')
@@ -420,7 +422,10 @@ function confirmDelete(e: Event, id: string) {
   e.stopPropagation()
   if (deletingId.value === id) {
     const pinIds = pinIdsForSession(id)
-    gw.deleteSession(auth.gatewayUrl.value, id).then(async () => {
+    gw.deleteSession(auth.gatewayUrl.value, id).then(async deleted => {
+      if (deleted) {
+        await lastSession.clearLastSessionId(auth.gatewayUrl.value, id)
+      }
       await clearPinnedIds(pinIds)
     })
     deletingId.value = ''
@@ -512,7 +517,10 @@ async function handleDelete() {
   const id = contextMenuSessionId.value
   const pinIds = pinIdsForSession(id)
   closeContextMenu()
-  await gw.deleteSession(auth.gatewayUrl.value, id)
+  const deleted = await gw.deleteSession(auth.gatewayUrl.value, id)
+  if (deleted) {
+    await lastSession.clearLastSessionId(auth.gatewayUrl.value, id)
+  }
   await clearPinnedIds(pinIds)
 }
 
@@ -536,6 +544,7 @@ function openSession(id: string) {
     unreads.markSessionRead(id, session.message_count)
     unreadIds.value = new Set([...unreadIds.value].filter(uid => uid !== id))
   }
+  void lastSession.setLastSessionId(auth.gatewayUrl.value, id)
   router.push({ name: 'chat', params: { id } })
 }
 

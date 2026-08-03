@@ -17,6 +17,7 @@ import { isStreamStalled, STREAM_STALL_THRESHOLD_MS } from '../utils/streamStall
 import { speakText, stopSpeech } from '../utils/speech'
 import { useAuth } from '../composables/useAuth'
 import { useGateway, type ModelProvider } from '../composables/useGateway'
+import { useLastSession } from '../composables/useLastSession'
 import { useToast } from '../composables/useToast'
 import { openUrl } from '@tauri-apps/plugin-opener'
 import { ArrowDown, ArrowLeft, Check, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Copy, EllipsisVertical, FileImage, GitFork, History, MessageCircle, MoreHorizontal, Pencil, RotateCcw, Search, Send, Share, Square, Terminal, Volume2, VolumeX, X } from '@lucide/vue'
@@ -26,6 +27,7 @@ const route = useRoute()
 const auth = useAuth()
 const toast = useToast()
 const gw = useGateway()
+const lastSession = useLastSession()
 
 const sending = ref(false)
 const selectedSessionId = ref((route.params.id as string) || '')
@@ -108,6 +110,7 @@ const selectedSessionTitle = computed(() => {
 // Load messages when entering with an existing session
 onMounted(async () => {
   if (selectedSessionId.value) {
+    void lastSession.setLastSessionId(auth.gatewayUrl.value, selectedSessionId.value)
     try {
       await gw.fetchMessages(auth.gatewayUrl.value, selectedSessionId.value)
     } catch (err: any) {
@@ -279,6 +282,9 @@ watch(() => route.params.id, async (newId) => {
   speakingMessageId.value = ''
   selectedSessionId.value = (newId as string) || ''
   isNewSession.value = !selectedSessionId.value
+  if (selectedSessionId.value) {
+    void lastSession.setLastSessionId(auth.gatewayUrl.value, selectedSessionId.value)
+  }
   // The module-level message store is reused across routes. Clear it in Vue's
   // synchronous route phase so the outgoing session cannot paint beneath the
   // next session title while its request is starting.
@@ -434,6 +440,7 @@ function sendText(text: string, preserveUserMessage = false) {
       if (result?.newSessionId) {
         selectedSessionId.value = result.newSessionId
         isNewSession.value = false
+        void lastSession.setLastSessionId(auth.gatewayUrl.value, result.newSessionId)
       }
     })
     .catch((err: any) => {

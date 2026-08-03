@@ -7,6 +7,7 @@ import { useAuth } from './composables/useAuth'
 import { useGateway } from './composables/useGateway'
 import { usePins } from './composables/usePins'
 import { usePreferences } from './composables/usePreferences'
+import { useLastSession } from './composables/useLastSession'
 import { useToast } from './composables/useToast'
 import {
   canRetryGatewayConnection,
@@ -21,6 +22,7 @@ const auth = useAuth()
 const gw = useGateway()
 const pins = usePins()
 const preferences = usePreferences()
+const lastSession = useLastSession()
 const toast = useToast()
 
 // ── Global link handler: open external links in system browser ──
@@ -123,10 +125,15 @@ async function boot() {
         auth.sessionCookie.value,
         auth.fetchWsTicket,
       )
-      // Preserve a deep link to an existing conversation. The ordinary launch
-      // route is ConnectView, so only that route becomes the session list.
+      // Restore the last durable chat on a normal launch, mirroring desktop's
+      // remembered-session integration. Explicit deep links still win.
       if (router.currentRoute.value.name === 'connect') {
-        await router.replace({ name: 'sessions' })
+        const rememberedSessionId = await lastSession.getLastSessionId(auth.gatewayUrl.value)
+        if (rememberedSessionId) {
+          await router.replace({ name: 'chat', params: { id: rememberedSessionId } })
+        } else {
+          await router.replace({ name: 'sessions' })
+        }
       }
     } else {
       await router.replace({ name: 'connect' })

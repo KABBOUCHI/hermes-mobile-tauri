@@ -39,6 +39,7 @@ const lastSession = useLastSession()
 const sending = ref(false)
 const selectedSessionId = ref((route.params.id as string) || '')
 const isNewSession = ref(!selectedSessionId.value)
+const newSessionCwd = ref(typeof route.query.cwd === 'string' ? route.query.cwd.trim() : '')
 const clarifyDraft = ref('')
 const clarifying = ref(false)
 
@@ -471,12 +472,13 @@ function autoResizeEdit() {
 }
 
 // Watch for route changes (navigating between sessions without remount)
-watch(() => route.params.id, async (newId) => {
+watch([() => route.params.id, () => route.query.cwd], async ([newId, cwd]) => {
   stopSpeech()
   speakingMessageId.value = ''
   resetComposerBrowse(selectedSessionId.value)
   selectedSessionId.value = (newId as string) || ''
   isNewSession.value = !selectedSessionId.value
+  newSessionCwd.value = typeof cwd === 'string' ? cwd.trim() : ''
   if (selectedSessionId.value) {
     void lastSession.setLastSessionId(auth.gatewayUrl.value, selectedSessionId.value)
   }
@@ -707,7 +709,7 @@ function sendText(
     inputEl.value.style.height = 'auto'
   }
 
-  gw.sendMessage(auth.gatewayUrl.value, selectedSessionId.value, text, isNewSession.value, attachments)
+  gw.sendMessage(auth.gatewayUrl.value, selectedSessionId.value, text, isNewSession.value, attachments, newSessionCwd.value)
     .then((result) => {
       pendingAttachments.value = pendingAttachments.value.filter(attachment => !attachments.includes(attachment))
       if (result?.newSessionId) {

@@ -10,6 +10,7 @@ import { buildSessionListKeepIds } from '../utils/sessionKeep'
 import { base64FromDataUrl, buildAttachmentPrompt, type PendingAttachment } from '../utils/composerAttachments'
 import { runtimeIdForStoredSession } from '../utils/sessionRename'
 import { normalizeContextUsage, type ContextUsage } from '../utils/contextUsage'
+import { normalizeProjectsPayload, projectCreateParams, projectSessionCreateParams, type Project } from '../utils/projects'
 
 const FETCH_TIMEOUT = 12000
 // A session transcript can contain hundreds of durable tool records. On a
@@ -73,6 +74,10 @@ type ConnectionState = 'idle' | 'connecting' | 'open' | 'closed' | 'error'
 
 // ── Module-level singleton state ───────────────────
 const sessions = ref<Session[]>([])
+// Projects are per-profile gateway state. Keep the mobile cache at the
+// transport boundary so views can render it without recreating RPC plumbing.
+const projects = ref<Project[]>([])
+const activeProjectId = ref<string | null>(null)
 const messages = ref<Message[]>([])
 const loadingSessions = ref(false)
 const loadingMore = ref(false)
@@ -857,6 +862,57 @@ function rpcCall(method: string, params: any, timeoutMs = 120000): Promise<any> 
   })
 }
 
+/** Load the explicit per-profile projects managed by the gateway. */
+async function fetchProjects(): Promise<Project[]> {
+  try {
+    const payload = normalizeProjectsPayload(await rpcCall('projects.list', {}))
+    projects.value = payload.projects
+    activeProjectId.value = payload.activeId
+    return projects.value
+  } catch (err: any) {
+    error.value = err.message || 'Failed to load projects'
+    return projects.value
+  }
+}
+
+/** Persist the selected project so future Hermes surfaces share the workspace. */
+async function setActiveProject(projectId: string | null): Promise<boolean> {
+  try {
+    const result = await rpcCall('projects.set_active', { id: projectId || null })
+    const returnedId = typeof result?.active_id === 'string' ? result.active_id.trim() : ''
+    activeProjectId.value = projects.value.some(project => project.id === returnedId) ? returnedId : null
+    return true
+  } catch (err: any) {
+    error.value = err.message || 'Failed to set active project'
+    return false
+  }
+}
+
+/** Create and select a project; its primary folder is where a new chat will run. */
+async function createProject(name: string, primaryPath: string): Promise<Project | null> {
+  const params = projectCreateParams(name, primaryPath)
+  if (typeof params.name !== 'string' || !params.name) {
+    error.value = 'A project name is required'
+    return null
+  }
+
+  try {
+    const result = await rpcCall('projects.create', params)
+    const project = normalizeProjectsPayload({ projects: [result?.project] }).projects[0]
+    if (!project) throw new Error('projects.create returned no project')
+
+    projects.value = [project, ...projects.value.filter(item => item.id !== project.id)]
+    activeProjectId.value = project.id
+    // The create response is enough to paint immediately; refresh in the
+    // background so any server-computed fields remain the source of truth.
+    void fetchProjects()
+    return project
+  } catch (err: any) {
+    error.value = err.message || 'Failed to create project'
+    return null
+  }
+}
+
 async function resumeSession(storedSessionId: string): Promise<string> {
   const result = await rpcCall('session.resume', {
     session_id: storedSessionId,
@@ -869,11 +925,8 @@ async function resumeSession(storedSessionId: string): Promise<string> {
   return runtimeId
 }
 
-async function createSession(): Promise<{ runtimeId: string; storedSessionId: string | null }> {
-  const result = await rpcCall('session.create', {
-    cols: 96,
-    source: 'desktop',
-  })
+async function createSession(cwd = ''): Promise<{ runtimeId: string; storedSessionId: string | null }> {
+  const result = await rpcCall('session.create', projectSessionCreateParams(cwd))
   const runtimeId = result?.session_id
   if (!runtimeId) throw new Error('session.create returned no session id')
   return { runtimeId, storedSessionId: result?.stored_session_id ?? null }
@@ -958,6 +1011,7 @@ async function sendMessage(
   text: string,
   isNewSession: boolean = false,
   attachments: readonly PendingAttachment[] = [],
+  workspaceCwd = '',
 ): Promise<{ message: Message; newSessionId: string | null } | null> {
   if (!ws || wsState.value !== 'open') {
     throw new Error('WebSocket not connected')
@@ -965,7 +1019,7 @@ async function sendMessage(
 
   let runtimeId: string
   if (isNewSession) {
-    const created = await createSession()
+    const created = await createSession(workspaceCwd)
     runtimeId = created.runtimeId
     if (created.storedSessionId) {
       sessionId = created.storedSessionId
@@ -1549,6 +1603,8 @@ async function setModel(url: string, provider: string, model: string): Promise<b
 export function useGateway() {
   return {
     sessions,
+    projects,
+    activeProjectId,
     messages,
     clarifyRequests,
     loading,
@@ -1566,6 +1622,9 @@ export function useGateway() {
     modelShort,
     formatTime,
     sourceLabel,
+    fetchProjects,
+    setActiveProject,
+    createProject,
     setSessionListKeepIds,
     fetchSessions,
     fetchSessionPickerSessions,

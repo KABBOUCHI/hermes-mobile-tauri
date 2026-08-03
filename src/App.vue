@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { AlarmClock, Atom, CheckCircle2, CircleX, Info, MessagesSquare, Settings } from '@lucide/vue'
+import { AlarmClock, Atom, CheckCircle2, CircleX, FolderKanban, Info, MessagesSquare, Settings } from '@lucide/vue'
 import { openUrl } from '@tauri-apps/plugin-opener'
 import { useAuth } from './composables/useAuth'
 import { useGateway } from './composables/useGateway'
@@ -86,7 +86,7 @@ function handleGlobalCopy(e: Event) {
 // ── Boot ───────────────────────────────────────────
 let booted = false
 const bootReady = ref(false)
-const showWorkspaceNav = computed(() => ['sessions', 'cron', 'settings'].includes(route.name as string))
+const showWorkspaceNav = computed(() => ['sessions', 'projects', 'cron', 'settings'].includes(route.name as string))
 const reconnecting = ref(false)
 const gatewayConnectionState = computed(() => gw.wsState.value as GatewayConnectionState)
 const showConnectionRecovery = computed(() =>
@@ -185,10 +185,14 @@ onUnmounted(() => {
         @click="retryGatewayConnection"
       >{{ reconnecting ? 'Retrying…' : 'Retry connection' }}</button>
     </div>
-    <nav v-if="bootReady && showWorkspaceNav" class="grid shrink-0 grid-cols-3 border-t border-app-border bg-app-surface px-2 pt-1 pb-[calc(env(safe-area-inset-bottom,0px)+4px)]" aria-label="Workspace navigation">
+    <nav v-if="bootReady && showWorkspaceNav" class="grid shrink-0 grid-cols-4 border-t border-app-border bg-app-surface px-2 pt-1 pb-[calc(env(safe-area-inset-bottom,0px)+4px)]" aria-label="Workspace navigation">
       <button class="flex min-h-12 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-md border-0 bg-transparent text-[11px] transition-colors" :class="route.name === 'sessions' ? 'text-app-accent' : 'text-app-muted hover:text-app-text'" @click="router.push({ name: 'sessions' })">
         <MessagesSquare :size="18" :stroke-width="1.8" />
         Sessions
+      </button>
+      <button class="flex min-h-12 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-md border-0 bg-transparent text-[11px] transition-colors" :class="route.name === 'projects' ? 'text-app-accent' : 'text-app-muted hover:text-app-text'" @click="router.push({ name: 'projects' })">
+        <FolderKanban :size="18" :stroke-width="1.8" />
+        Projects
       </button>
       <button class="flex min-h-12 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-md border-0 bg-transparent text-[11px] transition-colors" :class="route.name === 'cron' ? 'text-app-accent' : 'text-app-muted hover:text-app-text'" @click="router.push({ name: 'cron' })">
         <AlarmClock :size="18" :stroke-width="1.8" />

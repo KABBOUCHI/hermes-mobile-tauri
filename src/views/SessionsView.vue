@@ -15,7 +15,7 @@ import { sessionActivityState, type SessionActivityState } from '../utils/sessio
 import { isStreamStalled, STREAM_STALL_THRESHOLD_MS } from '../utils/streamStall'
 import { writeClipboardText } from '../utils/clipboard'
 import { sessionListTitle, sessionPreview } from '../utils/sessionTitle'
-import { Archive, ArchiveRestore, Atom, Check, CircleX, Copy, Inbox, Pencil, Pin, Plus, RefreshCw, Search, Trash2 } from '@lucide/vue'
+import { Archive, ArchiveRestore, Atom, Check, CircleX, Copy, GitFork, Inbox, Pencil, Pin, Plus, RefreshCw, Search, Trash2 } from '@lucide/vue'
 
 const router = useRouter()
 const auth = useAuth()
@@ -35,6 +35,7 @@ const pullStart = ref(0)
 const pullDelta = ref(0)
 const listEl = ref<HTMLElement | null>(null)
 const deletingId = ref('')
+const branchingId = ref('')
 const longPressTimer = ref<ReturnType<typeof setTimeout> | null>(null)
 const contextMenuSessionId = ref('')
 const contextMenuVisible = ref(false)
@@ -143,7 +144,7 @@ const menuStyle = computed(() => {
   const maxY = typeof window !== 'undefined' ? window.innerHeight : 800
   return {
     left: Math.min(contextMenuPos.value.x, maxX - 180) + 'px',
-    top: Math.min(contextMenuPos.value.y, maxY - 140) + 'px',
+    top: Math.min(contextMenuPos.value.y, maxY - 260) + 'px',
   }
 })
 
@@ -556,6 +557,28 @@ async function handleDelete() {
   await clearPinnedIds(pinIds)
 }
 
+// Match Desktop's session-row action: branch the complete conversation into a
+// new child session without altering the parent. Search results can be stubs,
+// so hydrate the authoritative transcript before creating the branch.
+async function handleBranch() {
+  const id = contextMenuSessionId.value
+  closeContextMenu()
+  if (!id || branchingId.value) return
+
+  branchingId.value = id
+  try {
+    const history = await gw.fetchMessages(auth.gatewayUrl.value, id)
+    if (!history.length) throw new Error('This session has no messages to branch')
+    const branchId = await gw.branchSession(id, history)
+    await lastSession.setLastSessionId(auth.gatewayUrl.value, branchId)
+    await router.push({ name: 'chat', params: { id: branchId } })
+  } catch (err: any) {
+    toast.show(err?.message || 'Unable to branch session', 'error')
+  } finally {
+    branchingId.value = ''
+  }
+}
+
 async function handleArchive() {
   const id = contextMenuSessionId.value
   const pinIds = pinIdsForSession(id)
@@ -881,6 +904,9 @@ function sessionStatusLabel(session: Session): string {
           </button>
           <button class="flex w-full cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-3.5 py-2.5 text-left text-sm text-app-text transition-colors hover:bg-app-surface-2" @click="copySessionId">
             <Copy :size="16" :stroke-width="2" /> Copy session ID
+          </button>
+          <button class="flex w-full cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-3.5 py-2.5 text-left text-sm text-app-text transition-colors hover:bg-app-surface-2 disabled:cursor-default disabled:opacity-50" :disabled="branchingId === contextMenuSessionId" @click="handleBranch">
+            <GitFork :size="16" :stroke-width="2" /> {{ branchingId === contextMenuSessionId ? 'Branching…' : 'Branch from here' }}
           </button>
           <button class="flex w-full cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-3.5 py-2.5 text-left text-sm text-app-text transition-colors hover:bg-app-surface-2" @click="handlePin">
             <Pin :size="16" :stroke-width="2" /> {{ isPinned(contextMenuSessionId) ? 'Unpin' : 'Pin to top' }}

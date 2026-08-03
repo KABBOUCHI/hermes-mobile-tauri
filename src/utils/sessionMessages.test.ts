@@ -1,5 +1,19 @@
 import { describe, expect, it } from 'vitest'
-import { applyEditedUserTurn, branchableMessageHistory, branchableMessageHistoryThrough, finalizeInterruptedMessages, markLatestAssistantFailure, normalizeSessionMessages, rewindToMessage, userOrdinalAtMessageIndex } from './sessionMessages'
+import { applyEditedUserTurn, branchableMessageHistory, branchableMessageHistoryThrough, finalizeInterruptedMessages, markLatestAssistantFailure, normalizeSessionMessages, processNotification, rewindToMessage, userOrdinalAtMessageIndex } from './sessionMessages'
+
+describe('processNotification', () => {
+  it('parses desktop background notices into a compact headline and output', () => {
+    expect(processNotification('[IMPORTANT: Background process 123 finished\ncommand output\nline two]')).toEqual({
+      headline: 'Background process 123 finished',
+      detail: 'command output\nline two',
+    })
+  })
+
+  it('rejects ordinary user messages and malformed notices', () => {
+    expect(processNotification('Background process 123 finished')).toBeNull()
+    expect(processNotification('[IMPORTANT: Something else]')).toBeNull()
+  })
+})
 
 describe('normalizeSessionMessages', () => {
   it('retains text, tools, and separate reasoning in server order', () => {

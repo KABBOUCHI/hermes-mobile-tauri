@@ -4,7 +4,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { renderMarkdown } from '../utils/markdown'
 import { highlightRenderedHtml } from '../utils/renderedSearchHighlight'
 import { messageMatchesSearch } from '../utils/messageSearch'
-import { branchableMessageHistoryThrough, markLatestAssistantFailure } from '../utils/sessionMessages'
+import { branchableMessageHistoryThrough, markLatestAssistantFailure, processNotification } from '../utils/sessionMessages'
 import { summarizeToolActivity, thoughtActivityLabel, toolDiffFromResult } from '../utils/activitySummary'
 import PatchDiff from '../components/PatchDiff.vue'
 import { isNearChatBottom, jumpToBottomOffset } from '../utils/chatScroll'
@@ -18,7 +18,7 @@ import { useAuth } from '../composables/useAuth'
 import { useGateway, type ModelProvider } from '../composables/useGateway'
 import { useToast } from '../composables/useToast'
 import { openUrl } from '@tauri-apps/plugin-opener'
-import { ArrowDown, ArrowLeft, Check, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Copy, EllipsisVertical, FileImage, GitFork, History, MessageCircle, MoreHorizontal, Pencil, RotateCcw, Search, Send, Share, Square, Volume2, VolumeX, X } from '@lucide/vue'
+import { ArrowDown, ArrowLeft, Check, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Copy, EllipsisVertical, FileImage, GitFork, History, MessageCircle, MoreHorizontal, Pencil, RotateCcw, Search, Send, Share, Square, Terminal, Volume2, VolumeX, X } from '@lucide/vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -847,6 +847,10 @@ function isActivityMessage(message: { role: string; content: string; reasoning?:
   return message.role === 'tool' || (message.role === 'assistant' && !message.content && Boolean(message.reasoning || message.toolCalls?.length))
 }
 
+function processNoteFor(message: { role: string; content: string }) {
+  return message.role === 'user' ? processNotification(message.content) : null
+}
+
 function thoughtLabel(message: { timestamp: number }, idx: number): string {
   const next = gw.messages.value.slice(idx + 1).find(item => item.timestamp > message.timestamp)
   return thoughtActivityLabel(next ? next.timestamp - message.timestamp : 0)
@@ -1192,7 +1196,19 @@ function formatTime(ts: number): string {
           },
         ]"
       >
+        <div v-if="processNoteFor(msg)" class="flex max-w-[min(86%,44rem)] flex-col gap-0.5 self-center px-2 py-0.5 text-[11px] leading-5 text-app-muted/60">
+          <span class="flex items-center gap-1.5">
+            <Terminal class="shrink-0 text-app-muted/55" :size="12" :stroke-width="2" />
+            <span class="break-words">{{ processNoteFor(msg)?.headline }}</span>
+          </span>
+          <details v-if="processNoteFor(msg)?.detail" class="pl-[21px]">
+            <summary class="cursor-pointer select-none text-app-muted/45 hover:text-app-muted/70">output</summary>
+            <pre class="mt-0.5 max-h-48 overflow-auto whitespace-pre-wrap font-mono text-[10px] leading-4 text-app-muted/55">{{ processNoteFor(msg)?.detail }}</pre>
+          </details>
+        </div>
+
         <div
+          v-else
           class="max-w-[88%] break-words rounded-[14px] px-4 py-3 text-sm leading-[1.55]"
           :class="[
             msg.role === 'user'
@@ -1337,7 +1353,7 @@ function formatTime(ts: number): string {
           </template>
         </div>
 
-        <div v-if="!isActivityMessage(msg)" class="flex items-center gap-2 px-1" :class="msg.role === 'user' ? 'self-end' : 'self-start'">
+        <div v-if="!isActivityMessage(msg) && !processNoteFor(msg)" class="flex items-center gap-2 px-1" :class="msg.role === 'user' ? 'self-end' : 'self-start'">
           <span v-if="msg.timestamp" class="text-[11px] text-app-muted">{{ formatTime(msg.timestamp) }}</span>
           <button
             class="flex cursor-pointer items-center justify-center rounded border-0 bg-transparent px-1 py-0.5 text-app-muted opacity-60 transition-opacity hover:opacity-100 focus-visible:opacity-100"

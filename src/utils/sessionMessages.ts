@@ -45,6 +45,30 @@ export interface CompletionFailure {
   partial: boolean
 }
 
+export interface ProcessNotification {
+  headline: string
+  detail: string
+}
+
+const PROCESS_NOTIFICATION_RE = /^\[IMPORTANT: Background process [\s\S]*\]$/
+
+/**
+ * Background-process notifications are injected as user records so the agent
+ * can react to them. Desktop renders them as compact system notices rather than
+ * human chat bubbles; keep the parsing pure so mobile can follow the same rule.
+ */
+export function processNotification(text: string): ProcessNotification | null {
+  const trimmed = text.trim()
+  if (!PROCESS_NOTIFICATION_RE.test(trimmed)) return null
+
+  const body = trimmed.replace(/^\[IMPORTANT:\s*/, '').replace(/\]$/, '')
+  const newline = body.indexOf('\n')
+  const headline = (newline === -1 ? body : body.slice(0, newline)).trim()
+  const detail = newline === -1 ? '' : body.slice(newline + 1).trim()
+
+  return headline ? { headline, detail } : null
+}
+
 /**
  * The gateway refuses a rewind to ordinal zero unless the client explicitly
  * confirms it. This mirrors desktop's first-turn edit/regenerate contract.

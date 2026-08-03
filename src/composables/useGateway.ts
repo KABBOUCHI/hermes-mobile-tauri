@@ -484,6 +484,11 @@ async function connectWs(url: string, sessCookie: string, getTicket: () => Promi
   cookie = sessCookie
   ticketFn = getTicket
   disposed = false
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer)
+    reconnectTimer = null
+  }
+  reconnectAttempt = 0
   await openWs()
 }
 

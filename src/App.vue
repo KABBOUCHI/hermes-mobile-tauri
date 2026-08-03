@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
-import { computed } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { AlarmClock, Atom, CheckCircle2, CircleX, Info, MessagesSquare, Settings } from '@lucide/vue'
 import { openUrl } from '@tauri-apps/plugin-opener'
@@ -9,6 +8,12 @@ import { useGateway } from './composables/useGateway'
 import { usePins } from './composables/usePins'
 import { usePreferences } from './composables/usePreferences'
 import { useToast } from './composables/useToast'
+import {
+  canRetryGatewayConnection,
+  gatewayConnectionMessage,
+  gatewayConnectionTone,
+  type GatewayConnectionState,
+} from './utils/gatewayConnection'
 
 const router = useRouter()
 const route = useRoute()
@@ -80,6 +85,29 @@ function handleGlobalCopy(e: Event) {
 let booted = false
 const bootReady = ref(false)
 const showWorkspaceNav = computed(() => ['sessions', 'cron', 'settings'].includes(route.name as string))
+const reconnecting = ref(false)
+const gatewayConnectionState = computed(() => gw.wsState.value as GatewayConnectionState)
+const showConnectionRecovery = computed(() =>
+  bootReady.value && auth.isConnected.value && gatewayConnectionState.value !== 'open',
+)
+const connectionMessage = computed(() => gatewayConnectionMessage(gatewayConnectionState.value))
+const connectionTone = computed(() => gatewayConnectionTone(gatewayConnectionState.value))
+const canRetryConnection = computed(() => canRetryGatewayConnection(gatewayConnectionState.value))
+
+async function retryGatewayConnection() {
+  if (reconnecting.value || !canRetryConnection.value) return
+  reconnecting.value = true
+  try {
+    await gw.connectWs(auth.gatewayUrl.value, auth.sessionCookie.value, auth.fetchWsTicket)
+    if (gw.wsState.value !== 'open') {
+      toast.show('Hermes is still offline. Retrying automatically.', 'error')
+    }
+  } catch (err: any) {
+    toast.show(err?.message || 'Unable to reconnect to Hermes', 'error')
+  } finally {
+    reconnecting.value = false
+  }
+}
 
 async function boot() {
   if (booted) return
@@ -133,6 +161,23 @@ onUnmounted(() => {
       <div class="text-xs text-app-muted">Restoring your workspace…</div>
     </div>
     <router-view v-else class="AppRoute min-h-0 flex-1" />
+    <div
+      v-if="showConnectionRecovery"
+      class="flex shrink-0 items-center justify-between gap-3 border-t border-app-border bg-app-surface px-3 py-2"
+      role="status"
+      aria-live="polite"
+    >
+      <div class="flex min-w-0 items-center gap-2 text-[12px]" :class="connectionTone === 'info' ? 'text-app-accent' : 'text-app-error'">
+        <span class="size-1.5 shrink-0 rounded-full" :class="connectionTone === 'info' ? 'animate-pulse bg-app-accent' : 'bg-app-error'" />
+        <span class="truncate">{{ connectionMessage }}</span>
+      </div>
+      <button
+        v-if="canRetryConnection"
+        class="shrink-0 cursor-pointer rounded-md border border-app-error/30 bg-transparent px-2.5 py-1 text-[11px] font-semibold text-app-error transition-colors hover:border-app-error/50 hover:bg-app-error/10 disabled:cursor-default disabled:opacity-50"
+        :disabled="reconnecting"
+        @click="retryGatewayConnection"
+      >{{ reconnecting ? 'Retrying…' : 'Retry connection' }}</button>
+    </div>
     <nav v-if="bootReady && showWorkspaceNav" class="grid shrink-0 grid-cols-3 border-t border-app-border bg-app-surface px-2 pt-1 pb-[calc(env(safe-area-inset-bottom,0px)+4px)]" aria-label="Workspace navigation">
       <button class="flex min-h-12 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-md border-0 bg-transparent text-[11px] transition-colors" :class="route.name === 'sessions' ? 'text-app-accent' : 'text-app-muted hover:text-app-text'" @click="router.push({ name: 'sessions' })">
         <MessagesSquare :size="18" :stroke-width="1.8" />

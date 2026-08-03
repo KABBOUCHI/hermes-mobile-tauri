@@ -21,6 +21,8 @@ import { useGateway, type ModelProvider } from '../composables/useGateway'
 import { useLastSession } from '../composables/useLastSession'
 import { useToast } from '../composables/useToast'
 import { sessionMatchesStoredId } from '../utils/sessionList'
+import { sessionMatchesSearch } from '../utils/sessionSearch'
+import { sessionListTitle, sessionPreview } from '../utils/sessionTitle'
 import { attachmentError, attachmentKind, MAX_ATTACHMENTS, type PendingAttachment } from '../utils/composerAttachments'
 import { isBackSwipe, SWIPE_BACK_EDGE_PX, type SwipeBackGesture } from '../utils/swipeBack'
 import { openUrl } from '@tauri-apps/plugin-opener'
@@ -110,6 +112,50 @@ const selectedSessionTitle = computed(() => {
   const s = gw.sessions.value.find(s => s.id === selectedSessionId.value)
   return s?.title || s?.preview || 'Session'
 })
+
+// Desktop exposes a dedicated session picker for quick resume/switch. Keep the
+// same affordance on mobile so switching chats does not require returning to the
+// full Sessions screen and losing the current conversation context.
+const sessionPickerOpen = ref(false)
+const sessionPickerQuery = ref('')
+const sessionPickerLoading = ref(false)
+const sessionPickerInputEl = ref<HTMLInputElement | null>(null)
+
+const sessionPickerSessions = computed(() => {
+  const query = sessionPickerQuery.value.trim()
+  return gw.sessions.value.filter(session => sessionMatchesSearch(session, query))
+})
+
+async function openSessionPicker() {
+  headerMenuOpen.value = false
+  sessionPickerOpen.value = true
+  await nextTick()
+  sessionPickerInputEl.value?.focus()
+
+  // Direct deep links can arrive without SessionsView ever loading the list.
+  // Fetch once in that case; otherwise the shared cache already reflects the
+  // current session list and opening the picker stays instant.
+  if (gw.sessions.value.length === 0 && auth.isConnected.value && !gw.loadingSessions.value) {
+    sessionPickerLoading.value = true
+    try {
+      await gw.fetchSessions(auth.gatewayUrl.value, false, 'exclude')
+    } finally {
+      sessionPickerLoading.value = false
+    }
+  }
+}
+
+function closeSessionPicker() {
+  sessionPickerOpen.value = false
+  sessionPickerQuery.value = ''
+}
+
+function selectSessionFromPicker(id: string) {
+  closeSessionPicker()
+  if (id !== selectedSessionId.value) {
+    router.push({ name: 'chat', params: { id } })
+  }
+}
 
 // Load messages when entering with an existing session
 onMounted(async () => {
@@ -310,6 +356,7 @@ watch(() => route.params.id, async (newId) => {
   expandedMessageIds.value = new Set()
   pendingAttachments.value = []
   closeActionSheet()
+  closeSessionPicker()
   matchIndices.value = []
   currentMatchIdx.value = -1
   shouldFollowMessages.value = true
@@ -1302,7 +1349,16 @@ function formatTime(ts: number): string {
     <!-- Header -->
     <div class="flex min-h-12 shrink-0 items-center gap-2 border-b border-app-border bg-app-surface px-3 py-2.5">
       <button class="flex cursor-pointer items-center justify-center border-0 bg-transparent px-1 text-app-accent" @click="goBack" aria-label="Back to sessions"><ArrowLeft :size="22" :stroke-width="2" /></button>
-      <div class="flex-1 truncate text-[15px] font-semibold tracking-[-0.02em]">{{ selectedSessionTitle }}</div>
+      <button
+        class="flex min-w-0 flex-1 cursor-pointer items-center gap-1 rounded-md border-0 bg-transparent px-1 py-1 text-left text-[15px] font-semibold tracking-[-0.02em] text-app-text transition-colors hover:bg-app-surface-2"
+        type="button"
+        aria-label="Switch session"
+        title="Switch session"
+        @click="openSessionPicker"
+      >
+        <span class="min-w-0 flex-1 truncate">{{ selectedSessionTitle }}</span>
+        <ChevronDown class="shrink-0 text-app-muted" :size="14" :stroke-width="2" />
+      </button>
       <button class="flex max-w-[120px] shrink-0 cursor-pointer items-center gap-1 rounded-md border border-app-border bg-app-surface-2 px-2 py-1 text-xs font-medium text-app-muted transition-all hover:border-app-accent hover:bg-app-accent/10 hover:text-app-accent" @click="toggleModelPicker" :class="{ active: modelPickerOpen }">
         <span class="truncate">{{ currentModelShort }}</span>
         <ChevronDown :size="10" :stroke-width="2.5" />
@@ -1695,6 +1751,52 @@ function formatTime(ts: number): string {
       </template>
     </div>
     </div>
+
+    <!-- Session Picker -->
+    <Teleport to="body">
+      <div v-if="sessionPickerOpen" class="fixed inset-0 z-[1100] flex items-end justify-center bg-black/50" @click="closeSessionPicker">
+        <div class="flex max-h-[78vh] w-full max-w-[400px] flex-col overflow-hidden rounded-t-2xl border border-b-0 border-app-border bg-app-surface animate-[slideUp_.2s_ease]" @click.stop>
+          <div class="flex items-center justify-between border-b border-app-border px-4 py-3.5">
+            <span class="text-[15px] font-semibold tracking-[-0.02em]">Switch session</span>
+            <button class="flex cursor-pointer items-center justify-center rounded-md border-0 bg-transparent px-2 py-1 text-app-muted transition-colors hover:text-app-error" type="button" @click="closeSessionPicker" aria-label="Close session picker"><X :size="16" :stroke-width="2" /></button>
+          </div>
+          <div class="shrink-0 border-b border-app-border px-3 py-2.5">
+            <input
+              ref="sessionPickerInputEl"
+              v-model="sessionPickerQuery"
+              type="search"
+              class="h-9 w-full rounded-md border border-app-border bg-app-surface-2 px-2.5 text-[13px] outline-none transition-colors placeholder:text-app-muted focus:border-app-accent"
+              placeholder="Search sessions…"
+              aria-label="Search sessions"
+            />
+          </div>
+          <div v-if="sessionPickerLoading" class="flex items-center justify-center gap-2 px-4 py-8 text-[13px] text-app-muted">
+            <span class="inline-block size-3.5 animate-spin rounded-full border-2 border-app-border border-t-app-accent" />
+            <span>Loading sessions…</span>
+          </div>
+          <div v-else-if="sessionPickerSessions.length === 0" class="flex items-center justify-center px-4 py-8 text-[13px] text-app-muted">
+            {{ sessionPickerQuery ? 'No matching sessions' : 'No sessions available' }}
+          </div>
+          <div v-else class="overflow-y-auto overscroll-contain p-2">
+            <button
+              v-for="session in sessionPickerSessions"
+              :key="session.id"
+              class="flex w-full min-w-0 cursor-pointer items-center gap-2.5 rounded-lg border-0 bg-transparent px-3 py-2.5 text-left transition-colors hover:bg-app-surface-2"
+              :class="session.id === selectedSessionId ? 'bg-app-accent/10 text-app-accent' : 'text-app-text'"
+              type="button"
+              @click="selectSessionFromPicker(session.id)"
+            >
+              <MessageCircle class="shrink-0 text-app-muted" :size="16" :stroke-width="1.8" />
+              <span class="flex min-w-0 flex-1 flex-col gap-0.5 leading-snug">
+                <span class="truncate text-[13px] font-medium">{{ sessionListTitle(session) }}</span>
+                <span class="truncate text-xs text-app-muted">{{ sessionPreview(session) }}</span>
+              </span>
+              <Check v-if="session.id === selectedSessionId" class="shrink-0 text-app-accent" :size="16" :stroke-width="2.5" />
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
 
     <!-- Model Picker Dropdown -->
     <Teleport to="body">

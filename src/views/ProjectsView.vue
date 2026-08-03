@@ -22,6 +22,11 @@ const visibleProjects = computed(() => gw.projects.value.filter(project => !proj
 const archivedCount = computed(() => gw.projects.value.length - visibleProjects.value.length)
 
 function folderCount(project: Project): string {
+  if (project.is_auto) {
+    const count = project.session_count || 0
+    return `${count} session${count === 1 ? '' : 's'} · discovered workspace`
+  }
+
   const count = project.folders.length
   return `${count} folder${count === 1 ? '' : 's'}`
 }
@@ -56,7 +61,7 @@ async function startProjectChat(project: Project) {
     toast.show('This project needs a primary folder before starting a chat', 'error')
     return
   }
-  if (!await activateProject(project)) return
+  if (!project.is_auto && !await activateProject(project)) return
   await router.push({ name: 'chat', query: { cwd } })
 }
 
@@ -116,10 +121,21 @@ onMounted(() => { void refresh() })
       <article v-for="project in visibleProjects" :key="project.id" class="overflow-hidden rounded-app border border-app-border bg-app-surface">
         <div class="flex items-start gap-3 px-4 pt-4 pb-3">
           <span class="grid size-8 shrink-0 place-items-center rounded-md bg-app-surface-2" :class="gw.activeProjectId.value === project.id ? 'text-app-accent' : 'text-app-muted'"><FolderKanban :size="17" :stroke-width="1.8" /></span>
-          <div class="min-w-0 flex-1"><div class="flex items-center gap-2"><h2 class="truncate text-[14px] font-medium">{{ project.name }}</h2><span v-if="gw.activeProjectId.value === project.id" class="inline-flex shrink-0 items-center gap-1 rounded-full bg-app-accent/15 px-1.5 py-0.5 text-[10px] font-semibold text-app-accent"><Check :size="11" :stroke-width="2.4" /> Active</span></div><p v-if="project.description" class="mt-1 text-[12px] leading-4 text-app-muted">{{ project.description }}</p><div class="mt-2 flex items-center gap-1.5 text-[11px] text-app-muted"><Folder :size="13" :stroke-width="1.8" /><span>{{ folderCount(project) }}</span></div></div>
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center gap-2">
+              <h2 class="truncate text-[14px] font-medium">{{ project.name }}</h2>
+              <span v-if="project.is_auto" class="inline-flex shrink-0 rounded-full bg-app-surface-2 px-1.5 py-0.5 text-[10px] font-semibold text-app-muted">Discovered</span>
+              <span v-if="gw.activeProjectId.value === project.id" class="inline-flex shrink-0 items-center gap-1 rounded-full bg-app-accent/15 px-1.5 py-0.5 text-[10px] font-semibold text-app-accent"><Check :size="11" :stroke-width="2.4" /> Active</span>
+            </div>
+            <p v-if="project.description" class="mt-1 text-[12px] leading-4 text-app-muted">{{ project.description }}</p>
+            <div class="mt-2 flex items-center gap-1.5 text-[11px] text-app-muted"><Folder :size="13" :stroke-width="1.8" /><span>{{ folderCount(project) }}</span></div>
+          </div>
         </div>
         <div v-if="projectPrimaryPath(project)" class="mx-4 mb-3 truncate rounded-md border border-app-border bg-app-surface-2 px-2.5 py-2 font-mono text-[11px] text-app-muted">{{ projectPrimaryPath(project) }}</div>
-        <div class="grid grid-cols-2 gap-2 border-t border-app-border p-3"><button class="flex h-9 cursor-pointer items-center justify-center gap-1.5 rounded-md border text-[12px] font-medium transition-colors disabled:cursor-wait disabled:opacity-60" :class="gw.activeProjectId.value === project.id ? 'border-app-accent/30 bg-app-accent/10 text-app-accent' : 'border-app-border bg-app-surface-2 text-app-text hover:border-app-accent hover:text-app-accent'" :disabled="Boolean(activeProjectAction) || gw.activeProjectId.value === project.id" @click="activateProject(project)"><Check :size="14" :stroke-width="2" />{{ gw.activeProjectId.value === project.id ? 'Active project' : 'Use project' }}</button><button class="flex h-9 cursor-pointer items-center justify-center gap-1.5 rounded-md bg-app-accent text-[12px] font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-wait disabled:opacity-60" :disabled="Boolean(activeProjectAction) || !projectPrimaryPath(project)" @click="startProjectChat(project)"><Send :size="14" :stroke-width="2" />New chat</button></div>
+        <div class="grid gap-2 border-t border-app-border p-3" :class="project.is_auto ? 'grid-cols-1' : 'grid-cols-2'">
+          <button v-if="!project.is_auto" class="flex h-9 cursor-pointer items-center justify-center gap-1.5 rounded-md border text-[12px] font-medium transition-colors disabled:cursor-wait disabled:opacity-60" :class="gw.activeProjectId.value === project.id ? 'border-app-accent/30 bg-app-accent/10 text-app-accent' : 'border-app-border bg-app-surface-2 text-app-text hover:border-app-accent hover:text-app-accent'" :disabled="Boolean(activeProjectAction) || gw.activeProjectId.value === project.id" @click="activateProject(project)"><Check :size="14" :stroke-width="2" />{{ gw.activeProjectId.value === project.id ? 'Active project' : 'Use project' }}</button>
+          <button class="flex h-9 cursor-pointer items-center justify-center gap-1.5 rounded-md bg-app-accent text-[12px] font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-wait disabled:opacity-60" :disabled="Boolean(activeProjectAction) || !projectPrimaryPath(project)" @click="startProjectChat(project)"><Send :size="14" :stroke-width="2" />New chat</button>
+        </div>
       </article>
     </div>
 

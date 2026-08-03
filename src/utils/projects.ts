@@ -16,6 +16,8 @@ export interface Project {
   primary_path: string | null
   archived?: boolean
   created_at?: number
+  is_auto?: boolean
+  session_count?: number
   folders: ProjectFolder[]
 }
 
@@ -64,11 +66,45 @@ function normalizeProject(value: unknown): Project | null {
   } as Project
 }
 
+/** Map a Desktop projects.tree overview node into the mobile project card model. */
+function normalizeProjectTreeNode(value: unknown): Project | null {
+  if (!value || typeof value !== 'object') return null
+  const record = value as Record<string, unknown>
+  if (record.isNoProject === true) return null
+
+  const id = text(record.id)
+  const name = text(record.label) || text(record.name)
+  const path = text(record.path)
+  if (!id || !name) return null
+
+  return {
+    id,
+    slug: text(record.slug) || id,
+    name,
+    primary_path: path || null,
+    folders: path ? [{ path, label: null, is_primary: true, added_at: 0 }] : [],
+    ...(record.isAuto === true ? { is_auto: true } : {}),
+    ...(typeof record.sessionCount === 'number' ? { session_count: record.sessionCount } : {}),
+  }
+}
+
 /** Normalise the projects RPC without trusting stale or malformed remote rows. */
 export function normalizeProjectsPayload(value: unknown): ProjectsPayload {
   const record = value && typeof value === 'object' ? value as Record<string, unknown> : {}
   const projects = Array.isArray(record.projects)
     ? record.projects.map(normalizeProject).filter((project): project is Project => project !== null)
+    : []
+  const requestedActiveId = text(record.active_id)
+  const activeId = projects.some(project => project.id === requestedActiveId) ? requestedActiveId : null
+
+  return { projects, activeId }
+}
+
+/** Normalise the Desktop overview payload, including automatically discovered repositories. */
+export function normalizeProjectTreePayload(value: unknown): ProjectsPayload {
+  const record = value && typeof value === 'object' ? value as Record<string, unknown> : {}
+  const projects = Array.isArray(record.projects)
+    ? record.projects.map(normalizeProjectTreeNode).filter((project): project is Project => project !== null)
     : []
   const requestedActiveId = text(record.active_id)
   const activeId = projects.some(project => project.id === requestedActiveId) ? requestedActiveId : null

@@ -10,7 +10,7 @@ import { buildSessionListKeepIds } from '../utils/sessionKeep'
 import { base64FromDataUrl, buildAttachmentPrompt, type PendingAttachment } from '../utils/composerAttachments'
 import { runtimeIdForStoredSession } from '../utils/sessionRename'
 import { normalizeContextUsage, type ContextUsage } from '../utils/contextUsage'
-import { normalizeProjectsPayload, projectCreateParams, projectSessionCreateParams, type Project } from '../utils/projects'
+import { normalizeProjectTreePayload, normalizeProjectsPayload, projectCreateParams, projectSessionCreateParams, type Project } from '../utils/projects'
 
 const FETCH_TIMEOUT = 12000
 // A session transcript can contain hundreds of durable tool records. On a
@@ -862,10 +862,10 @@ function rpcCall(method: string, params: any, timeoutMs = 120000): Promise<any> 
   })
 }
 
-/** Load the explicit per-profile projects managed by the gateway. */
+/** Load the same explicit and auto-discovered workspaces that Desktop shows. */
 async function fetchProjects(): Promise<Project[]> {
   try {
-    const payload = normalizeProjectsPayload(await rpcCall('projects.list', {}))
+    const payload = normalizeProjectTreePayload(await rpcCall('projects.tree', { preview_limit: 0 }))
     projects.value = payload.projects
     activeProjectId.value = payload.activeId
     return projects.value

@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { normalizeProjectsPayload, projectCreateParams, projectPrimaryPath, projectSessionCreateParams } from './projects'
+import {
+  normalizeProjectTreePayload,
+  normalizeProjectsPayload,
+  projectCreateParams,
+  projectPrimaryPath,
+  projectSessionCreateParams,
+} from './projects'
 
 describe('project gateway payloads', () => {
   it('keeps valid projects and the server-selected active project', () => {
@@ -30,6 +36,31 @@ describe('project gateway payloads', () => {
     expect(normalizeProjectsPayload({ projects: [project, { id: '', name: 'Broken' }], active_id: 'p_missing' })).toEqual({
       projects: [project],
       activeId: null,
+    })
+  })
+
+  it('keeps a discovered workspace from the Desktop project tree', () => {
+    expect(normalizeProjectTreePayload({
+      active_id: null,
+      projects: [{
+        id: '/workspace/hermes-mobile-tauri',
+        label: 'hermes-mobile-tauri',
+        path: '/workspace/hermes-mobile-tauri',
+        isAuto: true,
+        repos: [],
+        sessionCount: 2,
+      }],
+    })).toEqual({
+      activeId: null,
+      projects: [{
+        id: '/workspace/hermes-mobile-tauri',
+        slug: '/workspace/hermes-mobile-tauri',
+        name: 'hermes-mobile-tauri',
+        primary_path: '/workspace/hermes-mobile-tauri',
+        folders: [{ path: '/workspace/hermes-mobile-tauri', label: null, is_primary: true, added_at: 0 }],
+        is_auto: true,
+        session_count: 2,
+      }],
     })
   })
 })

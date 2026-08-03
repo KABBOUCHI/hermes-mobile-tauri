@@ -121,6 +121,7 @@ const sessionPickerQuery = ref('')
 const sessionPickerLoading = ref(false)
 const sessionPickerInputEl = ref<HTMLInputElement | null>(null)
 const sessionPickerRows = ref<Session[]>([])
+const sessionPickerActiveIndex = ref(0)
 let sessionPickerGeneration = 0
 
 const sessionPickerSessions = computed(() => {
@@ -129,13 +130,77 @@ const sessionPickerSessions = computed(() => {
   return rows.filter(session => sessionMatchesSearch(session, query))
 })
 
+function sessionPickerOptionId(id: string): string {
+  return `session-picker-option-${encodeURIComponent(id)}`
+}
+
+function scrollToActiveSessionPickerRow() {
+  const session = sessionPickerSessions.value[sessionPickerActiveIndex.value]
+  if (!session) return
+  nextTick(() => {
+    document.getElementById(sessionPickerOptionId(session.id))?.scrollIntoView({ block: 'nearest' })
+  })
+}
+
+function moveSessionPickerSelection(delta: number) {
+  const count = sessionPickerSessions.value.length
+  if (count === 0) return
+  sessionPickerActiveIndex.value = (sessionPickerActiveIndex.value + delta + count) % count
+  scrollToActiveSessionPickerRow()
+}
+
+function handleSessionPickerKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape') {
+    e.preventDefault()
+    closeSessionPicker()
+    return
+  }
+
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault()
+    moveSessionPickerSelection(e.key === 'ArrowDown' ? 1 : -1)
+    return
+  }
+
+  if (e.key === 'Enter') {
+    const session = sessionPickerSessions.value[sessionPickerActiveIndex.value]
+    if (!session) return
+    e.preventDefault()
+    selectSessionFromPicker(session.id)
+  }
+}
+
+watch(sessionPickerQuery, () => {
+  sessionPickerActiveIndex.value = 0
+})
+
+watch(sessionPickerRows, rows => {
+  if (sessionPickerQuery.value.trim()) {
+    sessionPickerActiveIndex.value = 0
+    return
+  }
+  const selectedIndex = rows.findIndex(session => session.id === selectedSessionId.value)
+  sessionPickerActiveIndex.value = selectedIndex >= 0 ? selectedIndex : 0
+})
+
+watch(sessionPickerSessions, sessions => {
+  if (sessions.length === 0) {
+    sessionPickerActiveIndex.value = 0
+  } else if (sessionPickerActiveIndex.value >= sessions.length) {
+    sessionPickerActiveIndex.value = sessions.length - 1
+  }
+})
+
 async function openSessionPicker() {
   headerMenuOpen.value = false
   sessionPickerOpen.value = true
   const generation = ++sessionPickerGeneration
   sessionPickerRows.value = gw.sessions.value
+  const selectedIndex = sessionPickerRows.value.findIndex(session => session.id === selectedSessionId.value)
+  sessionPickerActiveIndex.value = selectedIndex >= 0 ? selectedIndex : 0
   await nextTick()
   sessionPickerInputEl.value?.focus()
+  scrollToActiveSessionPickerRow()
 
   // Desktop refreshes its picker query whenever the dialog opens. Do the same
   // here so older sessions remain discoverable even when the sidebar has only
@@ -161,6 +226,7 @@ function closeSessionPicker() {
   sessionPickerOpen.value = false
   sessionPickerQuery.value = ''
   sessionPickerRows.value = []
+  sessionPickerActiveIndex.value = 0
   sessionPickerLoading.value = false
 }
 
@@ -1782,6 +1848,8 @@ function formatTime(ts: number): string {
               class="h-9 w-full rounded-md border border-app-border bg-app-surface-2 px-2.5 text-[13px] outline-none transition-colors placeholder:text-app-muted focus:border-app-accent"
               placeholder="Search sessions…"
               aria-label="Search sessions"
+              :aria-activedescendant="sessionPickerSessions.length > 0 ? sessionPickerOptionId(sessionPickerSessions[sessionPickerActiveIndex].id) : undefined"
+              @keydown="handleSessionPickerKeydown"
             />
           </div>
           <div v-if="sessionPickerLoading" class="flex items-center justify-center gap-2 px-4 py-8 text-[13px] text-app-muted">
@@ -1791,13 +1859,20 @@ function formatTime(ts: number): string {
           <div v-else-if="sessionPickerSessions.length === 0" class="flex items-center justify-center px-4 py-8 text-[13px] text-app-muted">
             {{ sessionPickerQuery ? 'No matching sessions' : 'No sessions available' }}
           </div>
-          <div v-else class="overflow-y-auto overscroll-contain p-2">
+          <div v-else class="overflow-y-auto overscroll-contain p-2" role="listbox" aria-label="Sessions">
             <button
-              v-for="session in sessionPickerSessions"
+              v-for="(session, index) in sessionPickerSessions"
+              :id="sessionPickerOptionId(session.id)"
               :key="session.id"
               class="flex w-full min-w-0 cursor-pointer items-center gap-2.5 rounded-lg border-0 bg-transparent px-3 py-2.5 text-left transition-colors hover:bg-app-surface-2"
-              :class="session.id === selectedSessionId ? 'bg-app-accent/10 text-app-accent' : 'text-app-text'"
+              :class="{
+                'bg-app-accent/10 text-app-accent': session.id === selectedSessionId,
+                'bg-app-surface-2': index === sessionPickerActiveIndex,
+              }"
               type="button"
+              role="option"
+              :aria-selected="index === sessionPickerActiveIndex"
+              @mouseenter="sessionPickerActiveIndex = index"
               @click="selectSessionFromPicker(session.id)"
             >
               <MessageCircle class="shrink-0 text-app-muted" :size="16" :stroke-width="1.8" />

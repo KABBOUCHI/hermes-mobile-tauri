@@ -12,6 +12,7 @@ import { writeClipboardText } from '../utils/clipboard'
 import { formatElapsedSeconds } from '../utils/elapsedTime'
 import { createSessionExport } from '../utils/sessionExport'
 import { messageLoadErrorState } from '../utils/messageLoadState'
+import { shouldOfferMessageExpansion } from '../utils/messageDisplay'
 import { isStreamStalled, STREAM_STALL_THRESHOLD_MS } from '../utils/streamStall'
 import { speakText, stopSpeech } from '../utils/speech'
 import { useAuth } from '../composables/useAuth'
@@ -200,6 +201,7 @@ const editingIdx = ref<number | null>(null)
 const editText = ref('')
 const editEl = ref<HTMLTextAreaElement | null>(null)
 const editing = ref(false)
+const expandedMessageIds = ref<Set<string>>(new Set())
 
 function startEdit(idx: number) {
   const msg = gw.messages.value[idx]
@@ -215,6 +217,25 @@ function startEdit(idx: number) {
 function cancelEdit() {
   editingIdx.value = null
   editText.value = ''
+}
+
+function isExpandableUserMessage(message: { role: string; content: string }): boolean {
+  return message.role === 'user' && shouldOfferMessageExpansion(message.content)
+}
+
+function isMessageExpanded(message: { id?: string; role: string; timestamp: number }, idx: number): boolean {
+  return expandedMessageIds.value.has(messageKey(message, idx))
+}
+
+function toggleMessageExpansion(message: { id?: string; role: string; timestamp: number }, idx: number) {
+  const key = messageKey(message, idx)
+  const next = new Set(expandedMessageIds.value)
+  if (next.has(key)) {
+    next.delete(key)
+  } else {
+    next.add(key)
+  }
+  expandedMessageIds.value = next
 }
 
 async function saveEdit() {
@@ -269,6 +290,7 @@ watch(() => route.params.id, async (newId) => {
   clarifying.value = false
   editingIdx.value = null
   editText.value = ''
+  expandedMessageIds.value = new Set()
   closeActionSheet()
   matchIndices.value = []
   currentMatchIdx.value = -1
@@ -1325,8 +1347,18 @@ function formatTime(ts: number): string {
               <div
                 v-if="msg.content"
                 class="md-content"
+                :class="isExpandableUserMessage(msg) && !isMessageExpanded(msg, idx) ? 'max-h-[6.5rem] overflow-hidden' : ''"
                 v-html="searchQuery.trim() && isMatch(idx) ? highlightText(msg.content, searchQuery) : render(msg.content)"
               ></div>
+              <button
+                v-if="isExpandableUserMessage(msg)"
+                type="button"
+                class="mt-1 cursor-pointer border-0 bg-transparent px-0 text-xs font-medium text-app-accent hover:text-app-accent-hover"
+                :aria-expanded="isMessageExpanded(msg, idx)"
+                @click.stop="toggleMessageExpansion(msg, idx)"
+              >
+                {{ isMessageExpanded(msg, idx) ? 'Show less' : 'Show more' }}
+              </button>
 
               <!-- Desktop keeps a response-loading indicator in the assistant
                    bubble itself. On mobile, include the authoritative turn timer

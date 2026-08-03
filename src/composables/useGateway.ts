@@ -6,6 +6,7 @@ import { mergeSessionPage, optimisticSessionForSend, mergeSessionsById } from '.
 import { resolveGatewayEventSessionId } from '../utils/gatewayEvents'
 import { normalizeClarifyRequest, type ClarifyRequest } from '../utils/clarify'
 import { clearInFlightTurn, persistInFlightTurn, recoverInFlightTurn } from '../utils/inflightTurnJournal'
+import { buildSessionListKeepIds } from '../utils/sessionKeep'
 
 const FETCH_TIMEOUT = 12000
 // A session transcript can contain hundreds of durable tool records. On a
@@ -90,7 +91,9 @@ let archivedSessionsOffset = 0
 let sessionFetchGeneration = 0
 let sessionListArchiveScope: 'exclude' | 'only' = 'exclude'
 let sessionRefreshTimer: ReturnType<typeof setTimeout> | null = null
-let sessionListKeepIds = new Set<string>()
+let sessionListPinnedIds = new Set<string>()
+const recentlySettledSessionIds = new Map<string, number>()
+export const SESSION_SETTLE_GRACE_MS = 30_000
 // A message request can finish after the user has opened another session. Keep
 // only the newest request authoritative so an older thread cannot replace it.
 let messageFetchGeneration = 0
@@ -285,7 +288,25 @@ export function sessionListPath(limit: number, offset: number, archived: 'exclud
 
 /** Set durable rows that must survive the gateway's recency-window refresh. */
 function setSessionListKeepIds(ids: readonly string[]): void {
-  sessionListKeepIds = new Set(ids)
+  sessionListPinnedIds = new Set(ids)
+}
+
+function rememberSettledSession(sessionId: string): void {
+  const id = sessionId.trim()
+  if (id) recentlySettledSessionIds.set(id, Date.now() + SESSION_SETTLE_GRACE_MS)
+}
+
+function currentSessionListKeepIds(now = Date.now()): Set<string> {
+  for (const [id, expiresAt] of recentlySettledSessionIds) {
+    if (expiresAt <= now) recentlySettledSessionIds.delete(id)
+  }
+
+  return buildSessionListKeepIds({
+    pinnedIds: [...sessionListPinnedIds],
+    activeSessionId: activeStoredSessionId.value,
+    activeSessionRows: sessions.value,
+    recentlySettledIds: [...recentlySettledSessionIds.keys()],
+  })
 }
 
 async function fetchSessions(url: string, append = false, archived: 'exclude' | 'only' = 'exclude'): Promise<Session[]> {
@@ -341,7 +362,7 @@ async function fetchSessions(url: string, append = false, archived: 'exclude' | 
       // The endpoint is a recent page, not the complete session archive. Keep
       // pinned rows that fell outside that page, just as the desktop sidebar
       // does, while letting the server replace all rows it did return.
-      sessions.value = mergeSessionPage(sessions.value, incoming, sessionListKeepIds)
+      sessions.value = mergeSessionPage(sessions.value, incoming, currentSessionListKeepIds())
     }
     return sessions.value
   } catch (err: any) {
@@ -564,10 +585,12 @@ function handleGatewayEvent(event: any) {
   if (route.drop) return
   const sessionId = route.sessionId
 
-  // Keep the session list authoritative for turns completed by another Hermes
-  // surface as well as turns sent from this app. The scheduler coalesces this
-  // with the active-turn refresh path below.
-  if (shouldRefreshSessionsForEvent(type, sessionId)) {
+  // Keep the completed row in the local recency window while the gateway
+  // persists its new preview/count. Desktop uses the same short settle grace;
+  // without it a background completion can make the row disappear on refresh.
+  if (shouldRefreshSessionsForEvent(type, sessionId) && sessionId) {
+    const storedSessionId = storedSessionIdForRuntime(sessionId) || sessionId
+    rememberSettledSession(storedSessionId)
     scheduleSessionRefresh()
   }
 
@@ -677,6 +700,7 @@ function disconnectWs() {
   pendingRequests.clear()
   streamingContent = ''
   unscopedStreamSessionId = null
+  recentlySettledSessionIds.clear()
   turnStartedAt.value = null
   lastStreamActivityAt.value = null
   wsState.value = 'closed'

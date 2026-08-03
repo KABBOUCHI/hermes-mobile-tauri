@@ -572,7 +572,7 @@ async function handleUnarchive() {
 function openSession(id: string) {
   const session = gw.sessions.value.find(s => s.id === id)
   if (session) {
-    unreads.markSessionRead(id, session.message_count)
+    unreads.markSessionRead(id, session.message_count, session._lineage_root_id)
     unreadIds.value = new Set([...unreadIds.value].filter(uid => uid !== id))
   }
   void lastSession.setLastSessionId(auth.gatewayUrl.value, id)

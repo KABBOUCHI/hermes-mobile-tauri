@@ -1,7 +1,7 @@
 import { ref, computed } from 'vue'
 import { fetch } from '@tauri-apps/plugin-http'
 import WebSocket from '@tauri-apps/plugin-websocket'
-import { normalizeSessionMessages, branchableMessageHistory, completionFailure, finalizeInterruptedMessages, truncateBeforeUserParams, userOrdinalAtMessageIndex, applyEditedUserTurn, rewindToMessage, type SessionMessage } from '../utils/sessionMessages'
+import { normalizeSessionMessages, branchableMessageHistory, completionFailure, finalizeInterruptedMessages, sealInterimAssistantMessage, truncateBeforeUserParams, userOrdinalAtMessageIndex, applyEditedUserTurn, rewindToMessage, type SessionMessage } from '../utils/sessionMessages'
 import { mergeSessionPage, optimisticSessionForSend, mergeSessionsById } from '../utils/sessionList'
 import { resolveGatewayEventSessionId } from '../utils/gatewayEvents'
 import { normalizeClarifyRequest, type ClarifyRequest } from '../utils/clarify'
@@ -168,10 +168,24 @@ let nextId = 0
 interface TurnResult {
   content: string
   interrupted: boolean
+  assistantMessage: Message
 }
 
-let activeTurn: { sessionId: string; storedSessionId: string; resolve: (result: TurnResult) => void; reject: (err: Error) => void; timer: ReturnType<typeof setTimeout> } | null = null
+let activeTurn: {
+  sessionId: string
+  storedSessionId: string
+  assistantMessage: Message
+  resolve: (result: TurnResult) => void
+  reject: (err: Error) => void
+  timer: ReturnType<typeof setTimeout>
+} | null = null
 let streamingContent = ''
+
+function currentTranscriptMessage(message: Message): Message {
+  const index = messages.value.indexOf(message)
+  return index >= 0 ? messages.value[index] : message
+}
+
 // Some gateway stream frames are intentionally unscoped. Keep them attached
 // to the runtime that received message.start so switching chats mid-turn cannot
 // move the live response onto the newly focused transcript.
@@ -616,21 +630,71 @@ function handleGatewayEvent(event: any) {
     if (delta) {
       lastStreamActivityAt.value = Date.now()
       streamingContent += delta
+      const target = currentTranscriptMessage(activeTurn.assistantMessage)
       const last = messages.value[messages.value.length - 1]
-      if (last && last.role === 'assistant') {
-        last.content = streamingContent
+      const assistant = target?.role === 'assistant' ? target : last
+      if (assistant && assistant.role === 'assistant') {
+        assistant.content = streamingContent
         persistInFlightTurn(activeTurn.storedSessionId, messages.value)
       }
     }
   }
 
+  // Desktop seals interim commentary before the final response starts. Without
+  // this boundary, the final completion overwrites progress text that was
+  // already visible during tool-heavy or verify-on-stop turns.
+  if (type === 'message.interim' && activeTurn && sessionId === activeTurn.sessionId) {
+    const interimText = event.payload?.text || event.payload?.content || streamingContent || ''
+    const boundary = sealInterimAssistantMessage(
+      messages.value,
+      currentTranscriptMessage(activeTurn.assistantMessage),
+      interimText,
+      Date.now() / 1000,
+    )
+    if (boundary) {
+      lastStreamActivityAt.value = Date.now()
+      const activeMessageIndex = boundary.messages.indexOf(boundary.activeMessage)
+      messages.value = boundary.messages
+      activeTurn.assistantMessage = messages.value[activeMessageIndex] || boundary.activeMessage
+      streamingContent = ''
+      persistInFlightTurn(activeTurn.storedSessionId, messages.value)
+    }
+  }
+
   if (type === 'message.complete' && activeTurn && sessionId === activeTurn.sessionId) {
-    clearTimeout(activeTurn.timer)
+    const turn = activeTurn
+    clearTimeout(turn.timer)
     const content = streamingContent || event.payload?.content || ''
     const failure = completionFailure(event.payload)
-    const resolve = activeTurn.resolve
-    const reject = activeTurn.reject
-    const storedSessionId = activeTurn.storedSessionId
+    const resolve = turn.resolve
+    const reject = turn.reject
+    const storedSessionId = turn.storedSessionId
+    let assistantMessage = currentTranscriptMessage(turn.assistantMessage)
+
+    // If the final text includes a sealed interim segment, settle the final
+    // response onto that segment instead of rendering the same text twice.
+    const currentIndex = messages.value.indexOf(assistantMessage)
+    const previous = currentIndex > 0 ? messages.value[currentIndex - 1] : undefined
+    const previousText = previous?.role === 'assistant' && previous.interim ? previous.content.trim() : ''
+    const finalText = content.trim()
+    const finalContinuesInterim = Boolean(
+      previousText
+      && finalText
+      && (event.payload?.response_previewed === true
+        || finalText === previousText
+        || finalText.startsWith(previousText)
+        || previousText.startsWith(finalText)),
+    )
+    if (!failure && finalContinuesInterim && previous && currentIndex > 0) {
+      const settled = { ...previous, content: finalText, interim: false }
+      messages.value = [
+        ...messages.value.slice(0, currentIndex - 1),
+        settled,
+        ...messages.value.slice(currentIndex + 1),
+      ]
+      assistantMessage = messages.value[currentIndex - 1] || settled
+    }
+
     activeTurn = null
     streamingContent = ''
     turnStartedAt.value = null
@@ -639,7 +703,7 @@ function handleGatewayEvent(event: any) {
     if (failure) {
       reject(new Error(failure.message))
     } else {
-      resolve({ content, interrupted: false })
+      resolve({ content, interrupted: false, assistantMessage })
     }
   }
 
@@ -825,7 +889,7 @@ async function sendMessage(
     }, TURN_TIMEOUT)
 
     unscopedStreamSessionId = null
-    activeTurn = { sessionId: runtimeId, storedSessionId: sessionId, resolve, reject, timer }
+    activeTurn = { sessionId: runtimeId, storedSessionId: sessionId, assistantMessage: assistantMsg, resolve, reject, timer }
     persistInFlightTurn(sessionId, messages.value)
 
     const id = ++nextId
@@ -843,14 +907,15 @@ async function sendMessage(
     })
   })
 
-  assistantMsg.content = turnResult.content
+  const responseMessage = turnResult.assistantMessage
+  responseMessage.content = turnResult.content
   if (turnResult.interrupted) {
-    const streamIndex = messages.value.indexOf(assistantMsg)
+    const streamIndex = messages.value.indexOf(responseMessage)
     messages.value = finalizeInterruptedMessages(messages.value, streamIndex)
-  } else if (!assistantMsg.content) {
-    assistantMsg.content = '[empty response]'
+  } else if (!responseMessage.content) {
+    responseMessage.content = '[empty response]'
   }
-  return { message: assistantMsg, newSessionId: isNewSession ? sessionId : null }
+  return { message: responseMessage, newSessionId: isNewSession ? sessionId : null }
 }
 
 async function respondToClarify(
@@ -892,7 +957,7 @@ function settleInterruptedTurn(runtimeId: string): void {
   turnStartedAt.value = null
   lastStreamActivityAt.value = null
   clearInFlightTurn(turn.storedSessionId)
-  turn.resolve({ content, interrupted: true })
+  turn.resolve({ content, interrupted: true, assistantMessage: currentTranscriptMessage(turn.assistantMessage) })
 }
 
 async function interruptSession(sessionId: string): Promise<void> {
@@ -958,7 +1023,7 @@ async function regenerateLastMessage(
     }, TURN_TIMEOUT)
 
     unscopedStreamSessionId = null
-    activeTurn = { sessionId: runtimeId, storedSessionId: sessionId, resolve, reject, timer }
+    activeTurn = { sessionId: runtimeId, storedSessionId: sessionId, assistantMessage: assistantMsg, resolve, reject, timer }
     persistInFlightTurn(sessionId, messages.value)
 
     const id = ++nextId
@@ -980,13 +1045,14 @@ async function regenerateLastMessage(
     })
   })
 
-  assistantMsg.content = turnResult.content
+  const responseMessage = turnResult.assistantMessage
+  responseMessage.content = turnResult.content
   if (turnResult.interrupted) {
-    messages.value = finalizeInterruptedMessages(messages.value, messages.value.indexOf(assistantMsg))
-  } else if (!assistantMsg.content) {
-    assistantMsg.content = '[empty response]'
+    messages.value = finalizeInterruptedMessages(messages.value, messages.value.indexOf(responseMessage))
+  } else if (!responseMessage.content) {
+    responseMessage.content = '[empty response]'
   }
-  return assistantMsg
+  return responseMessage
   } catch (err) {
     messages.value = originalMessages
     throw err
@@ -1042,7 +1108,7 @@ async function restoreMessage(
     }, TURN_TIMEOUT)
 
     unscopedStreamSessionId = null
-    activeTurn = { sessionId: runtimeId, storedSessionId: sessionId, resolve, reject, timer }
+    activeTurn = { sessionId: runtimeId, storedSessionId: sessionId, assistantMessage: assistantMsg, resolve, reject, timer }
     persistInFlightTurn(sessionId, messages.value)
 
     const id = ++nextId
@@ -1064,13 +1130,14 @@ async function restoreMessage(
     })
   })
 
-  assistantMsg.content = turnResult.content
+  const responseMessage = turnResult.assistantMessage
+  responseMessage.content = turnResult.content
   if (turnResult.interrupted) {
-    messages.value = finalizeInterruptedMessages(messages.value, messages.value.indexOf(assistantMsg))
-  } else if (!assistantMsg.content) {
-    assistantMsg.content = '[empty response]'
+    messages.value = finalizeInterruptedMessages(messages.value, messages.value.indexOf(responseMessage))
+  } else if (!responseMessage.content) {
+    responseMessage.content = '[empty response]'
   }
-  return assistantMsg
+  return responseMessage
   } catch (err) {
     messages.value = originalMessages
     throw err
@@ -1131,7 +1198,7 @@ async function editMessage(
       }, TURN_TIMEOUT)
 
       unscopedStreamSessionId = null
-      activeTurn = { sessionId: runtimeId, storedSessionId: sessionId, resolve, reject, timer }
+      activeTurn = { sessionId: runtimeId, storedSessionId: sessionId, assistantMessage: assistantMsg, resolve, reject, timer }
       persistInFlightTurn(sessionId, messages.value)
 
       const id = ++nextId
@@ -1154,13 +1221,14 @@ async function editMessage(
       })
     })
 
-    assistantMsg.content = turnResult.content
+    const responseMessage = turnResult.assistantMessage
+    responseMessage.content = turnResult.content
     if (turnResult.interrupted) {
-      messages.value = finalizeInterruptedMessages(messages.value, messages.value.indexOf(assistantMsg))
-    } else if (!assistantMsg.content) {
-      assistantMsg.content = '[empty response]'
+      messages.value = finalizeInterruptedMessages(messages.value, messages.value.indexOf(responseMessage))
+    } else if (!responseMessage.content) {
+      responseMessage.content = '[empty response]'
     }
-    return assistantMsg
+    return responseMessage
   } catch (err) {
     messages.value = originalMessages
     throw err

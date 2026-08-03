@@ -1397,7 +1397,7 @@ function formatTime(ts: number): string {
           </template>
         </div>
 
-        <div v-if="!isActivityMessage(msg) && !processNoteFor(msg)" class="flex items-center gap-2 px-1" :class="msg.role === 'user' ? 'self-end' : 'self-start'">
+        <div v-if="!isActivityMessage(msg) && !processNoteFor(msg) && !msg.interim" class="flex items-center gap-2 px-1" :class="msg.role === 'user' ? 'self-end' : 'self-start'">
           <span v-if="msg.timestamp" class="text-[11px] text-app-muted">{{ formatTime(msg.timestamp) }}</span>
           <button
             class="flex cursor-pointer items-center justify-center rounded border-0 bg-transparent px-1 py-0.5 text-app-muted opacity-60 transition-opacity hover:opacity-100 focus-visible:opacity-100"

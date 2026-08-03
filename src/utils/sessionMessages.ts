@@ -30,6 +30,8 @@ export interface SessionMessage {
   role: MessageRole
   content: string
   timestamp: number
+  /** A streamed assistant segment sealed before the turn's final reply. */
+  interim?: boolean
   reasoning?: string
   toolName?: string
   toolCallId?: string
@@ -38,6 +40,53 @@ export interface SessionMessage {
   activityThoughts?: ActivityThought[]
   imageAttachments?: ImageAttachment[]
   error?: boolean
+}
+
+export interface InterimAssistantBoundary {
+  messages: SessionMessage[]
+  activeMessage: SessionMessage
+}
+
+/**
+ * Desktop seals `message.interim` commentary into its own assistant bubble,
+ * then starts a fresh bubble for the final response. Keeping that boundary in
+ * the local transcript prevents the final completion from overwriting useful
+ * progress text that the gateway already showed to the reader.
+ */
+export function sealInterimAssistantMessage(
+  messages: readonly SessionMessage[],
+  activeMessage: SessionMessage | null | undefined,
+  text: string,
+  timestamp: number,
+): InterimAssistantBoundary | null {
+  if (!activeMessage || activeMessage.role !== 'assistant') return null
+
+  const index = messages.indexOf(activeMessage)
+  if (index < 0) return null
+
+  const content = text.trim() || activeMessage.content.trim()
+  if (!content) return null
+
+  const sealedMessage: SessionMessage = {
+    ...activeMessage,
+    content,
+    interim: true,
+  }
+  const nextMessage: SessionMessage = {
+    role: 'assistant',
+    content: '',
+    timestamp,
+  }
+
+  return {
+    messages: [
+      ...messages.slice(0, index),
+      sealedMessage,
+      nextMessage,
+      ...messages.slice(index + 1),
+    ],
+    activeMessage: nextMessage,
+  }
 }
 
 export interface CompletionFailure {

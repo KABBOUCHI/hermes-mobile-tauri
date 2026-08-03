@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyEditedUserTurn, branchableMessageHistory, branchableMessageHistoryThrough, finalizeInterruptedMessages, markLatestAssistantFailure, normalizeSessionMessages, processNotification, rewindToMessage, userOrdinalAtMessageIndex } from './sessionMessages'
+import { applyEditedUserTurn, branchableMessageHistory, branchableMessageHistoryThrough, finalizeInterruptedMessages, markLatestAssistantFailure, normalizeSessionMessages, processNotification, rewindToMessage, sealInterimAssistantMessage, userOrdinalAtMessageIndex } from './sessionMessages'
 
 describe('processNotification', () => {
   it('parses desktop background notices into a compact headline and output', () => {
@@ -12,6 +12,36 @@ describe('processNotification', () => {
   it('rejects ordinary user messages and malformed notices', () => {
     expect(processNotification('Background process 123 finished')).toBeNull()
     expect(processNotification('[IMPORTANT: Something else]')).toBeNull()
+  })
+})
+
+describe('sealInterimAssistantMessage', () => {
+  it('seals streamed commentary and creates a fresh final-response target', () => {
+    const user = { role: 'user' as const, content: 'Check the files', timestamp: 1 }
+    const assistant = { role: 'assistant' as const, content: 'I am checking them.', timestamp: 2 }
+
+    const boundary = sealInterimAssistantMessage([user, assistant], assistant, 'I am checking them.', 3)
+
+    expect(boundary?.messages).toEqual([
+      user,
+      { ...assistant, interim: true },
+      { role: 'assistant', content: '', timestamp: 3 },
+    ])
+    expect(boundary?.activeMessage).toBe(boundary?.messages[2])
+  })
+
+  it('uses already streamed content when the interim payload is empty', () => {
+    const assistant = { role: 'assistant' as const, content: 'Partial progress', timestamp: 2 }
+    const boundary = sealInterimAssistantMessage([assistant], assistant, '  ', 3)
+
+    expect(boundary?.messages[0]).toMatchObject({ content: 'Partial progress', interim: true })
+  })
+
+  it('ignores an empty or detached streaming message', () => {
+    const assistant = { role: 'assistant' as const, content: '', timestamp: 2 }
+
+    expect(sealInterimAssistantMessage([assistant], assistant, '', 3)).toBeNull()
+    expect(sealInterimAssistantMessage([], assistant, 'text', 3)).toBeNull()
   })
 })
 

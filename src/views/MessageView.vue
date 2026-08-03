@@ -12,6 +12,7 @@ import { browseBackward, browseForward, deriveUserHistory, isBrowsingComposerHis
 import { writeClipboardText } from '../utils/clipboard'
 import { formatElapsedSeconds } from '../utils/elapsedTime'
 import { createSessionExport } from '../utils/sessionExport'
+import { compactTokenCount, contextUsagePercent as getContextUsagePercent, contextUsageSummary as formatContextUsageSummary, type ContextUsage } from '../utils/contextUsage'
 import { messageLoadErrorState } from '../utils/messageLoadState'
 import { shouldOfferMessageExpansion } from '../utils/messageDisplay'
 import { isStreamStalled, STREAM_STALL_THRESHOLD_MS } from '../utils/streamStall'
@@ -26,7 +27,7 @@ import { sessionListTitle, sessionPreview } from '../utils/sessionTitle'
 import { attachmentError, attachmentKind, MAX_ATTACHMENTS, type PendingAttachment } from '../utils/composerAttachments'
 import { isBackSwipe, SWIPE_BACK_EDGE_PX, type SwipeBackGesture } from '../utils/swipeBack'
 import { openUrl } from '@tauri-apps/plugin-opener'
-import { ArrowDown, ArrowLeft, Check, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Copy, EllipsisVertical, FileImage, FileText, GitFork, History, MessageCircle, MoreHorizontal, Paperclip, Pencil, RotateCcw, Search, Send, Share, Square, Terminal, Volume2, VolumeX, X } from '@lucide/vue'
+import { ArrowDown, ArrowLeft, BarChart3, Check, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Copy, EllipsisVertical, FileImage, FileText, GitFork, History, MessageCircle, MoreHorizontal, Paperclip, Pencil, RotateCcw, Search, Send, Share, Square, Terminal, Volume2, VolumeX, X } from '@lucide/vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -49,6 +50,62 @@ const currentModel = ref('')
 const currentProvider = ref('')
 const modelLoading = ref(false)
 const switchingModel = ref(false)
+
+// Desktop exposes a context-usage status item for the focused session. Keep the
+// mobile equivalent on demand so opening a chat does not add another gateway RPC.
+const contextUsageOpen = ref(false)
+const contextUsageLoading = ref(false)
+const contextUsageData = ref<ContextUsage | null>(null)
+const contextUsageError = ref('')
+let contextUsageGeneration = 0
+
+const contextUsageLabel = computed(() => {
+  const usage = contextUsageData.value
+  return usage ? formatContextUsageSummary(usage) : 'Tokens'
+})
+
+const contextUsagePercentLabel = computed(() => {
+  const usage = contextUsageData.value
+  return usage ? `${getContextUsagePercent(usage)}% full` : ''
+})
+
+async function loadContextUsage() {
+  const sessionId = selectedSessionId.value
+  if (!sessionId || contextUsageLoading.value) return
+
+  const generation = ++contextUsageGeneration
+  contextUsageLoading.value = true
+  contextUsageError.value = ''
+  try {
+    const usage = await gw.fetchContextUsage(auth.gatewayUrl.value, sessionId)
+    if (generation !== contextUsageGeneration || sessionId !== selectedSessionId.value) return
+    contextUsageData.value = usage
+    if (!usage) contextUsageError.value = 'Context usage is unavailable for this session.'
+  } finally {
+    if (generation === contextUsageGeneration) contextUsageLoading.value = false
+  }
+}
+
+function closeContextUsage() {
+  contextUsageGeneration += 1
+  contextUsageOpen.value = false
+  contextUsageLoading.value = false
+}
+
+function toggleContextUsage() {
+  if (!selectedSessionId.value) return
+  if (contextUsageOpen.value) {
+    closeContextUsage()
+    return
+  }
+  contextUsageOpen.value = true
+  void loadContextUsage()
+}
+
+async function retryContextUsage() {
+  contextUsageData.value = null
+  await loadContextUsage()
+}
 
 async function loadModels() {
   modelLoading.value = true
@@ -259,6 +316,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  closeContextUsage()
   stopSpeech()
   speakingMessageId.value = ''
   if (window.visualViewport) {
@@ -437,6 +495,9 @@ watch(() => route.params.id, async (newId) => {
   pendingAttachments.value = []
   closeActionSheet()
   closeSessionPicker()
+  closeContextUsage()
+  contextUsageData.value = null
+  contextUsageError.value = ''
   matchIndices.value = []
   currentMatchIdx.value = -1
   shouldFollowMessages.value = true
@@ -1305,6 +1366,13 @@ watch(() => gw.turnStartedAt.value, (val) => {
   }
 }, { immediate: true })
 
+watch(() => gw.turnStartedAt.value, (val, previous) => {
+  if (previous && val === null && contextUsageOpen.value) {
+    contextUsageData.value = null
+    void nextTick().then(() => loadContextUsage())
+  }
+})
+
 // Keep following only while the reader is already at the newest messages.
 // This mirrors the desktop thread: a new streamed turn must not pull someone
 // reading older context back to the composer.
@@ -1438,6 +1506,18 @@ function formatTime(ts: number): string {
       >
         <span class="min-w-0 flex-1 truncate">{{ selectedSessionTitle }}</span>
         <ChevronDown class="shrink-0 text-app-muted" :size="14" :stroke-width="2" />
+      </button>
+      <button
+        v-if="selectedSessionId"
+        class="flex max-w-[104px] shrink-0 cursor-pointer items-center gap-1 rounded-md border border-app-border bg-app-surface-2 px-2 py-1 text-xs font-medium text-app-muted transition-all hover:border-app-accent hover:bg-app-accent/10 hover:text-app-accent"
+        type="button"
+        :class="{ 'border-app-accent/40 bg-app-accent/10 text-app-accent': contextUsageOpen }"
+        aria-label="Show token usage"
+        title="Show token usage"
+        @click="toggleContextUsage"
+      >
+        <BarChart3 class="shrink-0" :size="13" :stroke-width="2" />
+        <span class="truncate">{{ contextUsageLabel }}</span>
       </button>
       <button class="flex max-w-[120px] shrink-0 cursor-pointer items-center gap-1 rounded-md border border-app-border bg-app-surface-2 px-2 py-1 text-xs font-medium text-app-muted transition-all hover:border-app-accent hover:bg-app-accent/10 hover:text-app-accent" @click="toggleModelPicker" :class="{ active: modelPickerOpen }">
         <span class="truncate">{{ currentModelShort }}</span>
@@ -1882,6 +1962,53 @@ function formatTime(ts: number): string {
               </span>
               <Check v-if="session.id === selectedSessionId" class="shrink-0 text-app-accent" :size="16" :stroke-width="2.5" />
             </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- Context usage -->
+    <Teleport to="body">
+      <div v-if="contextUsageOpen" class="fixed inset-0 z-[1050] flex items-end justify-center bg-black/50" @click="closeContextUsage">
+        <div class="flex max-h-[72vh] w-full max-w-[400px] flex-col overflow-hidden rounded-t-2xl border border-b-0 border-app-border bg-app-surface" @click.stop>
+          <div class="flex items-center justify-between border-b border-app-border px-4 py-3.5">
+            <div class="min-w-0">
+              <div class="text-[15px] font-semibold tracking-[-0.02em]">Context usage</div>
+              <div v-if="contextUsageData?.model" class="truncate text-[11px] text-app-muted">{{ gw.modelShort(contextUsageData.model) }}</div>
+            </div>
+            <button class="flex cursor-pointer items-center justify-center rounded-md border-0 bg-transparent px-2 py-1 text-app-muted transition-colors hover:text-app-error" type="button" @click="closeContextUsage" aria-label="Close context usage"><X :size="16" :stroke-width="2" /></button>
+          </div>
+          <div v-if="contextUsageLoading" class="flex items-center justify-center gap-2 px-4 py-8 text-[13px] text-app-muted">
+            <span class="inline-block size-3.5 animate-spin rounded-full border-2 border-app-border border-t-app-accent" />
+            <span>Loading token usage…</span>
+          </div>
+          <div v-else-if="contextUsageData" class="flex flex-col gap-4 overflow-y-auto p-4">
+            <div class="flex items-baseline justify-between gap-3">
+              <span class="text-[13px] text-app-muted">Context window</span>
+              <span class="text-sm font-semibold tabular-nums text-app-text">
+                {{ compactTokenCount(contextUsageData.contextUsed) }}<span v-if="contextUsageData.contextMax"> / {{ compactTokenCount(contextUsageData.contextMax) }}</span> tokens
+              </span>
+            </div>
+            <div class="flex flex-col gap-1.5">
+              <div class="h-2 overflow-hidden rounded-full bg-app-surface-3">
+                <div class="h-full rounded-full bg-app-accent transition-[width]" :style="{ width: `${getContextUsagePercent(contextUsageData)}%` }" />
+              </div>
+              <div class="flex justify-between text-[11px] text-app-muted">
+                <span>{{ contextUsagePercentLabel }}</span>
+                <span v-if="contextUsageData.estimatedTotal">~{{ compactTokenCount(contextUsageData.estimatedTotal) }} estimated total</span>
+              </div>
+            </div>
+            <ul v-if="contextUsageData.categories.length" class="flex flex-col gap-2 border-t border-app-border pt-3">
+              <li v-for="category in contextUsageData.categories" :key="category.id" class="flex items-center justify-between gap-2 text-xs">
+                <span class="flex min-w-0 items-center gap-2 text-app-muted"><span class="size-2 shrink-0 rounded-[2px]" :style="{ background: category.color }" /><span class="truncate">{{ category.label }}</span></span>
+                <span class="shrink-0 tabular-nums text-app-text">{{ compactTokenCount(category.tokens) }}</span>
+              </li>
+            </ul>
+            <div v-else class="text-[11px] text-app-muted">No context breakdown was returned.</div>
+          </div>
+          <div v-else class="flex flex-col items-center gap-3 px-4 py-8 text-center">
+            <span class="text-[13px] text-app-muted">{{ contextUsageError || 'Context usage is unavailable.' }}</span>
+            <button class="h-9 cursor-pointer rounded-lg border border-app-border bg-transparent px-4 text-[13px] font-medium text-app-text transition-colors hover:border-app-accent hover:bg-app-accent/10" type="button" @click="retryContextUsage">Retry</button>
           </div>
         </div>
       </div>

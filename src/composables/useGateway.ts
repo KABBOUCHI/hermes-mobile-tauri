@@ -9,6 +9,7 @@ import { clearInFlightTurn, persistInFlightTurn, recoverInFlightTurn } from '../
 import { buildSessionListKeepIds } from '../utils/sessionKeep'
 import { base64FromDataUrl, buildAttachmentPrompt, type PendingAttachment } from '../utils/composerAttachments'
 import { runtimeIdForStoredSession } from '../utils/sessionRename'
+import { normalizeContextUsage, type ContextUsage } from '../utils/contextUsage'
 
 const FETCH_TIMEOUT = 12000
 // A session transcript can contain hundreds of durable tool records. On a
@@ -539,6 +540,31 @@ async function fetchMediaDataUrl(url: string, path: string): Promise<string | nu
     const data = await resp.json()
     return typeof data?.data_url === 'string' && /^data:image\//i.test(data.data_url) ? data.data_url : null
   } catch {
+    return null
+  }
+}
+
+/** Fetch the same per-session context breakdown shown by Desktop's status bar. */
+async function fetchContextUsage(_url: string, storedSessionId: string): Promise<ContextUsage | null> {
+  if (!storedSessionId || !ws || wsState.value !== 'open') return null
+
+  try {
+    let runtimeId = activeTurn?.storedSessionId === storedSessionId ? activeTurn.sessionId : ''
+    if (!runtimeId) {
+      for (const [candidateRuntimeId, candidateStoredId] of runtimeToStoredSession) {
+        if (candidateStoredId === storedSessionId) {
+          runtimeId = candidateRuntimeId
+          break
+        }
+      }
+    }
+    if (!runtimeId) runtimeId = await resumeSession(storedSessionId)
+
+    const result = await rpcCall('session.context_breakdown', { session_id: runtimeId })
+    return normalizeContextUsage(result)
+  } catch {
+    // Context usage is an optional read-only enhancement. A backend without the
+    // breakdown RPC must not turn a usable transcript into a failed chat.
     return null
   }
 }
@@ -1548,6 +1574,7 @@ export function useGateway() {
     hasMoreArchivedSessions,
     fetchMessages,
     fetchMediaDataUrl,
+    fetchContextUsage,
     deleteSession,
     archiveSession,
     unarchiveSession,

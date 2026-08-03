@@ -20,8 +20,9 @@ import { useGateway, type ModelProvider } from '../composables/useGateway'
 import { useLastSession } from '../composables/useLastSession'
 import { useToast } from '../composables/useToast'
 import { sessionMatchesStoredId } from '../utils/sessionList'
+import { attachmentError, attachmentKind, MAX_ATTACHMENTS, type PendingAttachment } from '../utils/composerAttachments'
 import { openUrl } from '@tauri-apps/plugin-opener'
-import { ArrowDown, ArrowLeft, Check, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Copy, EllipsisVertical, FileImage, GitFork, History, MessageCircle, MoreHorizontal, Pencil, RotateCcw, Search, Send, Share, Square, Terminal, Volume2, VolumeX, X } from '@lucide/vue'
+import { ArrowDown, ArrowLeft, Check, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Copy, EllipsisVertical, FileImage, FileText, GitFork, History, MessageCircle, MoreHorizontal, Paperclip, Pencil, RotateCcw, Search, Send, Share, Square, Terminal, Volume2, VolumeX, X } from '@lucide/vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -152,6 +153,8 @@ function onViewportResize() {
 const input = ref('')
 const scrollEl = ref<HTMLElement | null>(null)
 const inputEl = ref<HTMLTextAreaElement | null>(null)
+const fileInputEl = ref<HTMLInputElement | null>(null)
+const pendingAttachments = ref<PendingAttachment[]>([])
 const composerEl = ref<HTMLElement | null>(null)
 const composerHeight = ref(56)
 const streamStalled = ref(false)
@@ -302,6 +305,7 @@ watch(() => route.params.id, async (newId) => {
   editingIdx.value = null
   editText.value = ''
   expandedMessageIds.value = new Set()
+  pendingAttachments.value = []
   closeActionSheet()
   matchIndices.value = []
   currentMatchIdx.value = -1
@@ -412,11 +416,15 @@ function goBack() {
 
 function handleSend() {
   const text = input.value.trim()
-  if (!text || sending.value) return
+  if ((!text && pendingAttachments.value.length === 0) || sending.value) return
   sendText(text)
 }
 
-function sendText(text: string, preserveUserMessage = false) {
+function sendText(
+  text: string,
+  preserveUserMessage = false,
+  attachments: readonly PendingAttachment[] = pendingAttachments.value,
+) {
   sending.value = true
   shouldFollowMessages.value = true
 
@@ -428,10 +436,16 @@ function sendText(text: string, preserveUserMessage = false) {
   // A failed turn already has its user message in the thread. Preserve that
   // record when retrying so the chat does not display the same prompt twice.
   if (!preserveUserMessage) {
+    const attachmentLabels = attachments.map(attachment => `Attached: ${attachment.name}`)
+    const displayText = [text, ...attachmentLabels].filter(Boolean).join('\n')
+    const imageAttachments = attachments
+      .filter(attachment => attachment.kind === 'image')
+      .map(attachment => ({ label: attachment.name, src: attachment.dataUrl }))
     gw.messages.value.push({
       role: 'user',
-      content: text,
+      content: displayText,
       timestamp: Date.now() / 1000,
+      ...(imageAttachments.length ? { imageAttachments } : {}),
     })
   }
 
@@ -440,8 +454,9 @@ function sendText(text: string, preserveUserMessage = false) {
     inputEl.value.style.height = 'auto'
   }
 
-  gw.sendMessage(auth.gatewayUrl.value, selectedSessionId.value, text, isNewSession.value)
+  gw.sendMessage(auth.gatewayUrl.value, selectedSessionId.value, text, isNewSession.value, attachments)
     .then((result) => {
+      pendingAttachments.value = pendingAttachments.value.filter(attachment => !attachments.includes(attachment))
       if (result?.newSessionId) {
         selectedSessionId.value = result.newSessionId
         isNewSession.value = false
@@ -476,6 +491,9 @@ function retryFailed(failedMsgIdx: number) {
   for (let i = failedMsgIdx - 1; i >= 0; i--) {
     if (gw.messages.value[i].role === 'user') {
       const userText = gw.messages.value[i].content
+        .split('\n')
+        .filter(line => !line.startsWith('Attached: '))
+        .join('\n')
       // Keep the original user message and replace only its failed response.
       gw.messages.value.splice(failedMsgIdx, 1)
       sendText(userText, true)
@@ -559,6 +577,62 @@ function autoResize() {
   if (!inputEl.value) return
   inputEl.value.style.height = 'auto'
   inputEl.value.style.height = Math.min(inputEl.value.scrollHeight, 120) + 'px'
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '')
+    reader.onerror = () => reject(reader.error || new Error(`Could not read ${file.name}`))
+    reader.readAsDataURL(file)
+  })
+}
+
+function openAttachmentPicker() {
+  if (!sending.value) fileInputEl.value?.click()
+}
+
+async function handleAttachmentPick(event: Event) {
+  const inputElement = event.target as HTMLInputElement
+  const files = Array.from(inputElement.files || [])
+  inputElement.value = ''
+  if (!files.length) return
+
+  let count = pendingAttachments.value.length
+  for (const file of files) {
+    const error = attachmentError(file.name, file.size, count)
+    if (error) {
+      toast.show(error, 'error')
+      continue
+    }
+
+    try {
+      pendingAttachments.value = [
+        ...pendingAttachments.value,
+        {
+          id: crypto.randomUUID(),
+          kind: attachmentKind(file.name, file.type),
+          name: file.name || 'attachment',
+          mimeType: file.type || 'application/octet-stream',
+          dataUrl: await readFileAsDataUrl(file),
+          size: file.size,
+        },
+      ]
+      count++
+    } catch (err: any) {
+      toast.show(err?.message || `Could not read ${file.name}`, 'error')
+    }
+  }
+}
+
+function removePendingAttachment(id: string) {
+  pendingAttachments.value = pendingAttachments.value.filter(attachment => attachment.id !== id)
+}
+
+function formatAttachmentSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
 function render(content: string): string {
@@ -1457,7 +1531,21 @@ function formatTime(ts: number): string {
     </div>
 
     <!-- Input -->
-    <div class="relative flex shrink-0 items-end gap-2 border-t border-app-border bg-app-surface px-3 py-2 pb-[max(8px,env(safe-area-inset-bottom))]">
+    <div class="relative flex shrink-0 flex-col border-t border-app-border bg-app-surface px-3 py-2 pb-[max(8px,env(safe-area-inset-bottom))]">
+      <div v-if="pendingAttachments.length" class="mb-2 flex flex-wrap items-center gap-1.5">
+        <div
+          v-for="attachment in pendingAttachments"
+          :key="attachment.id"
+          class="flex max-w-full items-center gap-1.5 rounded-md border border-app-border bg-app-surface-2 px-2 py-1 text-xs text-app-muted"
+        >
+          <img v-if="attachment.kind === 'image'" class="size-6 rounded object-cover" :src="attachment.dataUrl" :alt="attachment.name" />
+          <FileText v-else :size="14" :stroke-width="2" />
+          <span class="max-w-40 truncate">{{ attachment.name }}</span>
+          <span class="shrink-0 text-[10px] opacity-60">{{ formatAttachmentSize(attachment.size) }}</span>
+          <button class="flex size-5 shrink-0 cursor-pointer items-center justify-center rounded border-0 bg-transparent text-app-muted hover:text-app-error" type="button" :aria-label="`Remove ${attachment.name}`" @click="removePendingAttachment(attachment.id)"><X :size="13" :stroke-width="2" /></button>
+        </div>
+        <span class="text-[10px] text-app-muted">{{ pendingAttachments.length }}/{{ MAX_ATTACHMENTS }}</span>
+      </div>
       <div v-if="sending && elapsedDisplay" class="absolute left-3.5 bottom-full mb-1.5 flex items-center gap-1.5 rounded-md border border-app-border bg-app-surface-2 px-2.5 py-1">
         <span class="size-1.5 rounded-full bg-app-accent"></span>
         <span class="text-xs tabular-nums text-app-muted">{{ elapsedDisplay }}</span>
@@ -1469,22 +1557,35 @@ function formatTime(ts: number): string {
         </button>
       </div>
       <template v-else>
-        <textarea
-          ref="inputEl"
-          v-model="input"
-          placeholder="Message…"
-          rows="1"
-          @keydown="handleKeydown"
-          @input="autoResize"
-          class="min-h-9 max-h-32 min-w-0 flex-1 resize-none rounded-[10px] border border-app-border bg-app-bg px-3 py-2 text-sm leading-5 text-app-text outline-none transition-colors placeholder:text-app-muted focus:border-app-accent"
-        ></textarea>
-        <button
-          class="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-[10px] border-0 bg-app-accent text-white transition-colors hover:not-disabled:bg-app-accent-hover disabled:cursor-default disabled:opacity-40"
-          :disabled="!input.trim()"
-          @click="handleSend"
-        >
-          <Send :size="18" :stroke-width="2" />
-        </button>
+        <input ref="fileInputEl" class="hidden" type="file" multiple @change="handleAttachmentPick" />
+        <div class="flex min-w-0 items-end gap-2">
+          <button
+            class="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-[10px] border border-app-border bg-transparent text-app-muted transition-colors hover:border-app-accent hover:bg-app-accent/10 hover:text-app-accent disabled:cursor-default disabled:opacity-40"
+            type="button"
+            :disabled="pendingAttachments.length >= MAX_ATTACHMENTS"
+            aria-label="Attach files"
+            title="Attach files"
+            @click="openAttachmentPicker"
+          >
+            <Paperclip :size="18" :stroke-width="2" />
+          </button>
+          <textarea
+            ref="inputEl"
+            v-model="input"
+            placeholder="Message…"
+            rows="1"
+            @keydown="handleKeydown"
+            @input="autoResize"
+            class="min-h-9 max-h-32 min-w-0 flex-1 resize-none rounded-[10px] border border-app-border bg-app-bg px-3 py-2 text-sm leading-5 text-app-text outline-none transition-colors placeholder:text-app-muted focus:border-app-accent"
+          ></textarea>
+          <button
+            class="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-[10px] border-0 bg-app-accent text-white transition-colors hover:not-disabled:bg-app-accent-hover disabled:cursor-default disabled:opacity-40"
+            :disabled="!input.trim() && pendingAttachments.length === 0"
+            @click="handleSend"
+          >
+            <Send :size="18" :stroke-width="2" />
+          </button>
+        </div>
       </template>
     </div>
     </div>

@@ -7,6 +7,7 @@ import { resolveGatewayEventSessionId } from '../utils/gatewayEvents'
 import { normalizeClarifyRequest, type ClarifyRequest } from '../utils/clarify'
 import { clearInFlightTurn, persistInFlightTurn, recoverInFlightTurn } from '../utils/inflightTurnJournal'
 import { buildSessionListKeepIds } from '../utils/sessionKeep'
+import { base64FromDataUrl, buildAttachmentPrompt, type PendingAttachment } from '../utils/composerAttachments'
 
 const FETCH_TIMEOUT = 12000
 // A session transcript can contain hundreds of durable tool records. On a
@@ -844,11 +845,62 @@ async function branchSession(parentSessionId: string, sourceMessages: readonly P
   return storedSessionId
 }
 
+/** Stage mobile-picked files using the same gateway RPCs as Desktop. */
+async function attachPendingFiles(
+  runtimeId: string,
+  attachments: readonly PendingAttachment[],
+  text: string,
+): Promise<string> {
+  const fileRefs: string[] = []
+  let imageCount = 0
+
+  for (const attachment of attachments) {
+    if (attachment.attachedRuntimeId === runtimeId) {
+      if (attachment.refText) fileRefs.push(attachment.refText)
+      else imageCount++
+      continue
+    }
+
+    const payload = base64FromDataUrl(attachment.dataUrl)
+    if (!payload) throw new Error(`Could not read ${attachment.name}`)
+
+    if (attachment.kind === 'image') {
+      const result = await rpcCall('image.attach_bytes', {
+        session_id: runtimeId,
+        content_base64: payload,
+        filename: attachment.name,
+      })
+      if (!result?.attached) {
+        throw new Error(result?.message || `Could not attach ${attachment.name}`)
+      }
+      attachment.attachedRuntimeId = runtimeId
+      imageCount++
+      continue
+    }
+
+    const result = await rpcCall('file.attach', {
+      name: attachment.name,
+      path: '',
+      session_id: runtimeId,
+      data_url: attachment.dataUrl,
+    })
+    if (!result?.attached || typeof result.ref_text !== 'string' || !result.ref_text.trim()) {
+      throw new Error(result?.message || `Could not attach ${attachment.name}`)
+    }
+    fileRefs.push(result.ref_text.trim())
+    attachment.attachedRuntimeId = runtimeId
+    attachment.refText = result.ref_text.trim()
+  }
+
+  return buildAttachmentPrompt(text, fileRefs, imageCount)
+}
+
 async function sendMessage(
   _url: string,
   sessionId: string,
   text: string,
   isNewSession: boolean = false,
+  attachments: readonly PendingAttachment[] = [],
 ): Promise<{ message: Message; newSessionId: string | null } | null> {
   if (!ws || wsState.value !== 'open') {
     throw new Error('WebSocket not connected')
@@ -866,6 +918,10 @@ async function sendMessage(
   } else {
     runtimeId = await resumeSession(sessionId)
   }
+
+  const promptText = attachments.length > 0
+    ? await attachPendingFiles(runtimeId, attachments, text)
+    : text
 
   const assistantMsg: Message = {
     role: 'assistant',
@@ -897,7 +953,7 @@ async function sendMessage(
       jsonrpc: '2.0',
       id,
       method: 'prompt.submit',
-      params: { session_id: runtimeId, text },
+      params: { session_id: runtimeId, text: promptText },
     })).catch((err: any) => {
       clearTimeout(timer)
       activeTurn = null

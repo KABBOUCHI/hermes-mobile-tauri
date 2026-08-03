@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { sessionActivityState } from './sessionActivity'
 
 describe('sessionActivityState', () => {
+  it('prioritises a clarification prompt above every other session state', () => {
+    expect(sessionActivityState({ isActive: true, isCurrentTurn: true, isUnread: true, needsInput: true })).toBe('needs-input')
+  })
+
   it('prioritises the local turn over background and unread markers', () => {
     expect(sessionActivityState({ isActive: true, isCurrentTurn: true, isUnread: true })).toBe('working')
   })

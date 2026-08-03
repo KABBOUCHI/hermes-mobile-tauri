@@ -590,11 +590,13 @@ function sessionStatus(session: Session): SessionActivityState {
     isActive: session.is_active,
     isCurrentTurn: gw.activeStoredSessionId.value === session.id,
     isUnread: unreadIds.value.has(session.id),
+    needsInput: Boolean(gw.clarifyRequests.value[session.id]),
   })
 }
 
 function sessionStatusClass(session: Session): string {
   const state = sessionStatus(session)
+  if (state === 'needs-input') return 'size-2 shrink-0 rounded-full bg-app-accent shadow-[0_0_7px_rgba(94,106,210,0.6)]'
   if (state === 'working') return 'size-2 shrink-0 animate-pulse rounded-full bg-app-accent shadow-[0_0_7px_rgba(94,106,210,0.6)]'
   if (state === 'background') return 'size-2 shrink-0 animate-pulse rounded-full bg-app-muted'
   if (state === 'unread') return 'size-2 shrink-0 rounded-full bg-app-success shadow-[0_0_6px_rgba(34,197,94,0.5)]'
@@ -603,6 +605,7 @@ function sessionStatusClass(session: Session): string {
 
 function sessionStatusLabel(session: Session): string {
   const state = sessionStatus(session)
+  if (state === 'needs-input') return 'Waiting for your answer'
   if (state === 'working') return 'Session running'
   if (state === 'background') return 'Background task running'
   if (state === 'unread') return 'Finished — unread'

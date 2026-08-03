@@ -8,6 +8,7 @@ import { branchableMessageHistoryThrough, markLatestAssistantFailure, processNot
 import { summarizeToolActivity, thoughtActivityLabel, toolDiffFromResult } from '../utils/activitySummary'
 import PatchDiff from '../components/PatchDiff.vue'
 import { isNearChatBottom, jumpToBottomOffset } from '../utils/chatScroll'
+import { browseBackward, browseForward, deriveUserHistory, isBrowsingComposerHistory, resetComposerBrowse } from '../utils/composerInputHistory'
 import { writeClipboardText } from '../utils/clipboard'
 import { formatElapsedSeconds } from '../utils/elapsedTime'
 import { createSessionExport } from '../utils/sessionExport'
@@ -289,6 +290,7 @@ function autoResizeEdit() {
 watch(() => route.params.id, async (newId) => {
   stopSpeech()
   speakingMessageId.value = ''
+  resetComposerBrowse(selectedSessionId.value)
   selectedSessionId.value = (newId as string) || ''
   isNewSession.value = !selectedSessionId.value
   if (selectedSessionId.value) {
@@ -494,6 +496,7 @@ function sendText(
   if (!selectedSessionId.value) {
     selectedSessionId.value = crypto.randomUUID()
   }
+  resetComposerBrowse(selectedSessionId.value)
 
   // A failed turn already has its user message in the thread. Preserve that
   // record when retrying so the chat does not display the same prompt twice.
@@ -579,6 +582,39 @@ function dismissFailed(failedMsgIdx: number) {
 }
 
 function handleKeydown(e: KeyboardEvent) {
+  if (e.key === 'ArrowUp') {
+    // Match Desktop: an ordinary typed draft keeps its keyboard behavior. Once
+    // browsing has started, further ArrowUp presses move through older prompts.
+    if (input.value.trim() && !isBrowsingComposerHistory(selectedSessionId.value)) return
+
+    const entry = browseBackward(
+      selectedSessionId.value,
+      input.value,
+      deriveUserHistory(gw.messages.value, message => message.content),
+    )
+    if (entry !== null) {
+      e.preventDefault()
+      input.value = entry
+      nextTick(autoResize)
+    }
+    return
+  }
+
+  if (e.key === 'ArrowDown') {
+    if (!isBrowsingComposerHistory(selectedSessionId.value)) return
+
+    e.preventDefault()
+    const result = browseForward(
+      selectedSessionId.value,
+      deriveUserHistory(gw.messages.value, message => message.content),
+    )
+    if (result) {
+      input.value = result.text
+      nextTick(autoResize)
+    }
+    return
+  }
+
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault()
     handleSend()

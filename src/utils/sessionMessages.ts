@@ -89,6 +89,27 @@ export function rewindToMessage<T>(messages: readonly T[], messageIndex: number)
 }
 
 /**
+ * Desktop drops an empty streaming placeholder when a user stops generation,
+ * but keeps any partial assistant output already received. A stale index or a
+ * structural assistant row is left untouched so stop cannot erase history.
+ */
+export function finalizeInterruptedMessages(messages: SessionMessage[], streamIndex: number): SessionMessage[] {
+  if (!Number.isInteger(streamIndex) || streamIndex < 0 || streamIndex >= messages.length) return messages
+
+  const stream = messages[streamIndex]
+  if (
+    stream.role !== 'assistant'
+    || stream.content.trim()
+    || stream.reasoning
+    || stream.toolCalls?.length
+  ) {
+    return messages
+  }
+
+  return messages.filter((_message, index) => index !== streamIndex)
+}
+
+/**
  * Branches are durable conversational history, not a replay of transport
  * activity. Match desktop's `toBranchMessages`: carry only visible user and
  * assistant prose, and never seed a child session with tool rows or blanks.

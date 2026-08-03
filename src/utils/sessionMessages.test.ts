@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyEditedUserTurn, branchableMessageHistory, branchableMessageHistoryThrough, markLatestAssistantFailure, normalizeSessionMessages, rewindToMessage, userOrdinalAtMessageIndex } from './sessionMessages'
+import { applyEditedUserTurn, branchableMessageHistory, branchableMessageHistoryThrough, finalizeInterruptedMessages, markLatestAssistantFailure, normalizeSessionMessages, rewindToMessage, userOrdinalAtMessageIndex } from './sessionMessages'
 
 describe('normalizeSessionMessages', () => {
   it('retains text, tools, and separate reasoning in server order', () => {
@@ -194,6 +194,29 @@ describe('normalizeSessionMessages', () => {
       content: 'I started the implementation.',
       error: true,
     })
+  })
+
+  it('keeps partial output but removes an empty assistant placeholder after stop', () => {
+    const partial = [
+      { role: 'user' as const, content: 'Build it', timestamp: 1 },
+      { role: 'assistant' as const, content: 'Partial output', timestamp: 2 },
+    ]
+    const empty = [
+      { role: 'user' as const, content: 'Build it', timestamp: 1 },
+      { role: 'assistant' as const, content: '', timestamp: 2 },
+    ]
+
+    expect(finalizeInterruptedMessages(partial, 1)).toEqual(partial)
+    expect(finalizeInterruptedMessages(empty, 1)).toEqual([empty[0]])
+  })
+
+  it('does not remove a non-assistant row when the stream index is stale', () => {
+    const messages = [
+      { role: 'user' as const, content: 'Build it', timestamp: 1 },
+      { role: 'tool' as const, content: '', timestamp: 2 },
+    ]
+
+    expect(finalizeInterruptedMessages(messages, 1)).toEqual(messages)
   })
 
   it('marks a completed gateway turn as failed while keeping its partial response', async () => {

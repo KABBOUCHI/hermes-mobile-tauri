@@ -1,7 +1,7 @@
 import { ref, computed } from 'vue'
 import { fetch } from '@tauri-apps/plugin-http'
 import WebSocket from '@tauri-apps/plugin-websocket'
-import { normalizeSessionMessages, branchableMessageHistory, completionFailure, truncateBeforeUserParams, userOrdinalAtMessageIndex, applyEditedUserTurn, rewindToMessage, type SessionMessage } from '../utils/sessionMessages'
+import { normalizeSessionMessages, branchableMessageHistory, completionFailure, finalizeInterruptedMessages, truncateBeforeUserParams, userOrdinalAtMessageIndex, applyEditedUserTurn, rewindToMessage, type SessionMessage } from '../utils/sessionMessages'
 import { mergeSessionPage, optimisticSessionForSend, mergeSessionsById } from '../utils/sessionList'
 import { resolveGatewayEventSessionId } from '../utils/gatewayEvents'
 import { normalizeClarifyRequest, type ClarifyRequest } from '../utils/clarify'
@@ -162,7 +162,12 @@ let pendingRequests = new Map<number, { resolve: Function; reject: Function; tim
 let nextId = 0
 
 // Streaming turn state
-let activeTurn: { sessionId: string; storedSessionId: string; resolve: (content: string) => void; reject: (err: Error) => void; timer: ReturnType<typeof setTimeout> } | null = null
+interface TurnResult {
+  content: string
+  interrupted: boolean
+}
+
+let activeTurn: { sessionId: string; storedSessionId: string; resolve: (result: TurnResult) => void; reject: (err: Error) => void; timer: ReturnType<typeof setTimeout> } | null = null
 let streamingContent = ''
 // Some gateway stream frames are intentionally unscoped. Keep them attached
 // to the runtime that received message.start so switching chats mid-turn cannot
@@ -606,7 +611,7 @@ function handleGatewayEvent(event: any) {
     if (failure) {
       reject(new Error(failure.message))
     } else {
-      resolve(content)
+      resolve({ content, interrupted: false })
     }
   }
 
@@ -780,7 +785,7 @@ async function sendMessage(
   turnStartedAt.value = Date.now()
   lastStreamActivityAt.value = turnStartedAt.value
 
-  const content = await new Promise<string>((resolve, reject) => {
+  const turnResult = await new Promise<TurnResult>((resolve, reject) => {
     const TURN_TIMEOUT = 1_800_000
     const timer = setTimeout(() => {
       activeTurn = null
@@ -809,7 +814,13 @@ async function sendMessage(
     })
   })
 
-  assistantMsg.content = content || '[empty response]'
+  assistantMsg.content = turnResult.content
+  if (turnResult.interrupted) {
+    const streamIndex = messages.value.indexOf(assistantMsg)
+    messages.value = finalizeInterruptedMessages(messages.value, streamIndex)
+  } else if (!assistantMsg.content) {
+    assistantMsg.content = '[empty response]'
+  }
   return { message: assistantMsg, newSessionId: isNewSession ? sessionId : null }
 }
 
@@ -833,7 +844,30 @@ async function respondToClarify(
   clearClarifyRequest(sessionId, requestId)
 }
 
+/**
+ * Stop is a terminal local transition, not merely a best-effort RPC. Desktop
+ * clears stream ownership before asking the gateway to interrupt so the next
+ * prompt cannot inherit the previous turn's promise or route late frames into
+ * it. The send promise resolves with the partial text, allowing the view to
+ * preserve it without displaying a retryable error.
+ */
+function settleInterruptedTurn(runtimeId: string): void {
+  if (!activeTurn || activeTurn.sessionId !== runtimeId) return
+
+  const turn = activeTurn
+  const content = streamingContent
+  clearTimeout(turn.timer)
+  activeTurn = null
+  streamingContent = ''
+  unscopedStreamSessionId = null
+  turnStartedAt.value = null
+  lastStreamActivityAt.value = null
+  clearInFlightTurn(turn.storedSessionId)
+  turn.resolve({ content, interrupted: true })
+}
+
 async function interruptSession(sessionId: string): Promise<void> {
+  settleInterruptedTurn(sessionId)
   try {
     await rpcCall('session.interrupt', { session_id: sessionId })
   } catch {
@@ -884,7 +918,7 @@ async function regenerateLastMessage(
   turnStartedAt.value = Date.now()
   lastStreamActivityAt.value = turnStartedAt.value
 
-  const content = await new Promise<string>((resolve, reject) => {
+  const turnResult = await new Promise<TurnResult>((resolve, reject) => {
     const TURN_TIMEOUT = 1_800_000
     const timer = setTimeout(() => {
       activeTurn = null
@@ -917,7 +951,12 @@ async function regenerateLastMessage(
     })
   })
 
-  assistantMsg.content = content || '[empty response]'
+  assistantMsg.content = turnResult.content
+  if (turnResult.interrupted) {
+    messages.value = finalizeInterruptedMessages(messages.value, messages.value.indexOf(assistantMsg))
+  } else if (!assistantMsg.content) {
+    assistantMsg.content = '[empty response]'
+  }
   return assistantMsg
   } catch (err) {
     messages.value = originalMessages
@@ -963,7 +1002,7 @@ async function restoreMessage(
   turnStartedAt.value = Date.now()
   lastStreamActivityAt.value = turnStartedAt.value
 
-  const content = await new Promise<string>((resolve, reject) => {
+  const turnResult = await new Promise<TurnResult>((resolve, reject) => {
     const TURN_TIMEOUT = 1_800_000
     const timer = setTimeout(() => {
       activeTurn = null
@@ -996,7 +1035,12 @@ async function restoreMessage(
     })
   })
 
-  assistantMsg.content = content || '[empty response]'
+  assistantMsg.content = turnResult.content
+  if (turnResult.interrupted) {
+    messages.value = finalizeInterruptedMessages(messages.value, messages.value.indexOf(assistantMsg))
+  } else if (!assistantMsg.content) {
+    assistantMsg.content = '[empty response]'
+  }
   return assistantMsg
   } catch (err) {
     messages.value = originalMessages
@@ -1047,7 +1091,7 @@ async function editMessage(
     turnStartedAt.value = Date.now()
     lastStreamActivityAt.value = turnStartedAt.value
 
-    const content = await new Promise<string>((resolve, reject) => {
+    const turnResult = await new Promise<TurnResult>((resolve, reject) => {
       const TURN_TIMEOUT = 1_800_000
       const timer = setTimeout(() => {
         activeTurn = null
@@ -1081,7 +1125,12 @@ async function editMessage(
       })
     })
 
-    assistantMsg.content = content || '[empty response]'
+    assistantMsg.content = turnResult.content
+    if (turnResult.interrupted) {
+      messages.value = finalizeInterruptedMessages(messages.value, messages.value.indexOf(assistantMsg))
+    } else if (!assistantMsg.content) {
+      assistantMsg.content = '[empty response]'
+    }
     return assistantMsg
   } catch (err) {
     messages.value = originalMessages

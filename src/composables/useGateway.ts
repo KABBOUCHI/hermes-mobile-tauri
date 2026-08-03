@@ -8,6 +8,7 @@ import { normalizeClarifyRequest, type ClarifyRequest } from '../utils/clarify'
 import { clearInFlightTurn, persistInFlightTurn, recoverInFlightTurn } from '../utils/inflightTurnJournal'
 import { buildSessionListKeepIds } from '../utils/sessionKeep'
 import { base64FromDataUrl, buildAttachmentPrompt, type PendingAttachment } from '../utils/composerAttachments'
+import { runtimeIdForStoredSession } from '../utils/sessionRename'
 
 const FETCH_TIMEOUT = 12000
 // A session transcript can contain hundreds of durable tool records. On a
@@ -842,6 +843,7 @@ async function branchSession(parentSessionId: string, sourceMessages: readonly P
   })
   const storedSessionId = result?.stored_session_id ?? result?.session_id
   if (!storedSessionId) throw new Error('session.create returned no stored session id')
+  if (result?.session_id) runtimeToStoredSession.set(result.session_id, storedSessionId)
   return storedSessionId
 }
 
@@ -1292,18 +1294,36 @@ async function editMessage(
 }
 
 async function renameSession(sessionId: string, title: string): Promise<boolean> {
+  const nextTitle = title.trim()
+  const runtimeId = runtimeIdForStoredSession(sessionId, activeTurn, runtimeToStoredSession)
+
+  // Desktop uses session.title for active/runtime-only rows. A freshly branched
+  // session may not have a persisted state.db row yet, so REST PATCH would 404
+  // even though the gateway can rename and persist the live session directly.
+  if (nextTitle && runtimeId && wsState.value === 'open') {
+    try {
+      const result = await rpcCall('session.title', { session_id: runtimeId, title: nextTitle })
+      const session = sessions.value.find(item => item.id === sessionId)
+      if (session) session.title = typeof result?.title === 'string' ? result.title : nextTitle
+      return true
+    } catch {
+      // The runtime may have expired during reconnect. Fall through to REST for
+      // persisted sessions; its error remains authoritative if that also fails.
+    }
+  }
+
   try {
     const base = baseUrl.replace(/\/$/, '')
     const headers: Record<string, string> = { 'Content-Type': 'application/json' }
     if (cookie) headers['Cookie'] = cookie
     const resp = await fetchWithTimeout(
       `${base}/api/sessions/${encodeURIComponent(sessionId)}`,
-      { method: 'PATCH', headers, credentials: 'same-origin', body: JSON.stringify({ title }) },
+      { method: 'PATCH', headers, credentials: 'same-origin', body: JSON.stringify({ title: nextTitle }) },
       FETCH_TIMEOUT
     )
     if (!resp.ok) throw new Error('HTTP ' + resp.status)
     const s = sessions.value.find(s => s.id === sessionId)
-    if (s) s.title = title
+    if (s) s.title = nextTitle
     return true
   } catch (err: any) {
     error.value = err.message || 'Failed to rename session'

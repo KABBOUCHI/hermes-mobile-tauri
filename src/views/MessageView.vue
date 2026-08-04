@@ -28,6 +28,7 @@ import { sessionListTitle, sessionPreview } from '../utils/sessionTitle'
 import { linkifySessionRefs, parseSessionRefValue, sessionRefFallbackLabel, sessionRefFromMarkdownHref } from '../utils/sessionRefs'
 import { previewName, previewTargetFromMarkdownHref } from '../utils/previewTargets'
 import { attachmentError, attachmentKind, MAX_ATTACHMENTS, type PendingAttachment } from '../utils/composerAttachments'
+import { gatewayImageKey, pendingGatewayImageRequests, type GatewayImageRequest } from '../utils/gatewayImageLoading'
 import { isBackSwipe, SWIPE_BACK_EDGE_PX, type SwipeBackGesture } from '../utils/swipeBack'
 import { openUrl } from '@tauri-apps/plugin-opener'
 import { ArrowDown, ArrowLeft, BarChart3, Check, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Copy, EllipsisVertical, FileImage, FileText, GitFork, History, MessageCircle, MoreHorizontal, Paperclip, Pencil, RotateCcw, Search, Send, Share, Square, Terminal, Volume2, VolumeX, X } from '@lucide/vue'
@@ -323,6 +324,10 @@ watch(
 
 // Load messages when entering with an existing session
 onMounted(async () => {
+  gatewayImageViewMounted = true
+  ensureGatewayImageObserver()
+  void resolveGatewayImageAttachments()
+
   if (selectedSessionId.value) {
     void lastSession.setLastSessionId(auth.gatewayUrl.value, selectedSessionId.value)
     try {
@@ -343,6 +348,10 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  gatewayImageViewMounted = false
+  gatewayImageObserver?.disconnect()
+  gatewayImageObserver = null
+  gatewayImageElements.clear()
   closeContextUsage()
   stopSpeech()
   speakingMessageId.value = ''
@@ -984,13 +993,16 @@ function openAttachmentPreview(src: string, label: string) {
 
 const resolvedGatewayImages = ref<Record<string, string>>({})
 const resolvingGatewayImages = new Set<string>()
+const gatewayImageElements = new Map<Element, GatewayImageRequest>()
+let gatewayImageObserver: IntersectionObserver | null = null
+let gatewayImageViewMounted = false
 
 function imageAttachmentKey(
   message: { id?: string; timestamp: number },
   attachment: { src?: string; gatewayPath?: string },
   index: number,
 ): string {
-  return `${selectedSessionId.value}:${message.id || message.timestamp}:${attachment.gatewayPath || attachment.src || index}`
+  return gatewayImageKey(selectedSessionId.value, message, attachment, index)
 }
 
 function imageAttachmentSrc(
@@ -1001,26 +1013,87 @@ function imageAttachmentSrc(
   return attachment.src || resolvedGatewayImages.value[imageAttachmentKey(message, attachment, index)] || ''
 }
 
-async function resolveGatewayImageAttachments() {
-  const requests = gw.messages.value.flatMap(message => {
-    if (message.role !== 'user') return []
-    return (message.imageAttachments || []).flatMap((attachment, attachmentIndex) => {
-      if (!attachment.gatewayPath) return []
-      const key = imageAttachmentKey(message, attachment, attachmentIndex)
-      if (resolvedGatewayImages.value[key] || resolvingGatewayImages.has(key)) return []
-      return [{ key, path: attachment.gatewayPath }]
-    })
+function pendingGatewayImages(): GatewayImageRequest[] {
+  return pendingGatewayImageRequests(
+    gw.messages.value,
+    selectedSessionId.value,
+    new Set(Object.keys(resolvedGatewayImages.value)),
+    resolvingGatewayImages,
+  )
+}
+
+async function resolveGatewayImage(request: GatewayImageRequest): Promise<void> {
+  if (resolvedGatewayImages.value[request.key] || resolvingGatewayImages.has(request.key)) return
+
+  resolvingGatewayImages.add(request.key)
+  try {
+    const src = await gw.fetchMediaDataUrl(auth.gatewayUrl.value, request.path)
+    if (src) resolvedGatewayImages.value = { ...resolvedGatewayImages.value, [request.key]: src }
+  } finally {
+    resolvingGatewayImages.delete(request.key)
+  }
+}
+
+function detachGatewayImageElement(element: Element): void {
+  gatewayImageObserver?.unobserve(element)
+  gatewayImageElements.delete(element)
+}
+
+function observeGatewayImage(
+  message: { id?: string; timestamp: number },
+  attachment: { src?: string; gatewayPath?: string },
+  index: number,
+  value: Element | { $el: Element } | null,
+): void {
+  const element = value instanceof Element ? value : value?.$el
+  const path = attachment.gatewayPath?.trim()
+  const key = imageAttachmentKey(message, attachment, index)
+
+  if (!element || !path) {
+    for (const [candidate, request] of gatewayImageElements) {
+      if (request.key === key) detachGatewayImageElement(candidate)
+    }
+    return
+  }
+
+  gatewayImageElements.set(element, { key, path })
+  if (gatewayImageObserver && !resolvedGatewayImages.value[key] && !resolvingGatewayImages.has(key)) {
+    gatewayImageObserver.observe(element)
+  }
+}
+
+function ensureGatewayImageObserver(): void {
+  if (gatewayImageObserver || typeof IntersectionObserver === 'undefined') return
+
+  gatewayImageObserver = new IntersectionObserver(entries => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting) continue
+      const request = gatewayImageElements.get(entry.target)
+      if (!request) continue
+      gatewayImageObserver?.unobserve(entry.target)
+      void resolveGatewayImage(request)
+    }
+  }, {
+    root: scrollEl.value,
+    rootMargin: '200px',
   })
 
-  await Promise.all(requests.map(async request => {
-    resolvingGatewayImages.add(request.key)
-    try {
-      const src = await gw.fetchMediaDataUrl(auth.gatewayUrl.value, request.path)
-      if (src) resolvedGatewayImages.value = { ...resolvedGatewayImages.value, [request.key]: src }
-    } finally {
-      resolvingGatewayImages.delete(request.key)
-    }
-  }))
+  for (const element of gatewayImageElements.keys()) {
+    gatewayImageObserver.observe(element)
+  }
+}
+
+async function resolveGatewayImageAttachments(): Promise<void> {
+  if (!gatewayImageViewMounted) return
+
+  // Tauri's supported webviews provide IntersectionObserver, but keep the old
+  // eager behaviour as a compatibility path for older embedded runtimes.
+  if (typeof IntersectionObserver !== 'undefined') {
+    ensureGatewayImageObserver()
+    return
+  }
+
+  await Promise.all(pendingGatewayImages().map(resolveGatewayImage))
 }
 
 const imageAttachmentSignature = computed(() => gw.messages.value
@@ -1807,8 +1880,13 @@ function formatTime(ts: number): string {
                     :aria-label="`Preview ${attachment.label}`"
                     @click.stop="openAttachmentPreview(imageAttachmentSrc(msg, attachment, attachmentIdx), attachment.label)"
                   >
-                    <img class="size-full object-cover" :src="imageAttachmentSrc(msg, attachment, attachmentIdx)" :alt="attachment.label" />
+                    <img class="size-full object-cover" loading="lazy" decoding="async" :src="imageAttachmentSrc(msg, attachment, attachmentIdx)" :alt="attachment.label" />
                   </button>
+                  <span
+                    v-else-if="attachment.gatewayPath"
+                    :ref="el => observeGatewayImage(msg, attachment, attachmentIdx, el)"
+                    class="inline-flex min-h-7 items-center gap-1 rounded-[7px] border border-app-border px-2.5 text-xs text-app-muted"
+                  ><FileImage :size="14" :stroke-width="2" /> Loading {{ attachment.label }}…</span>
                   <span v-else class="inline-flex min-h-7 items-center gap-1 rounded-[7px] border border-app-border px-2.5 text-xs text-app-muted"><FileImage :size="14" :stroke-width="2" /> {{ attachment.label }}</span>
                 </template>
               </div>

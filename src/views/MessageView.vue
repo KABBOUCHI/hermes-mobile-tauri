@@ -21,6 +21,7 @@ import { useAuth } from '../composables/useAuth'
 import { useGateway, type ModelProvider, type Session } from '../composables/useGateway'
 import { useLastSession } from '../composables/useLastSession'
 import { useToast } from '../composables/useToast'
+import { useUnreads } from '../composables/useUnreads'
 import { sessionMatchesStoredId } from '../utils/sessionList'
 import { sessionMatchesSearch } from '../utils/sessionSearch'
 import { sessionListTitle, sessionPreview } from '../utils/sessionTitle'
@@ -37,6 +38,7 @@ const auth = useAuth()
 const toast = useToast()
 const gw = useGateway()
 const lastSession = useLastSession()
+const unreads = useUnreads()
 
 const sending = ref(false)
 const selectedSessionId = ref((route.params.id as string) || '')
@@ -296,6 +298,28 @@ function selectSessionFromPicker(id: string) {
     router.push({ name: 'chat', params: { id } })
   }
 }
+
+async function markCurrentSessionRead() {
+  const sessionId = selectedSessionId.value
+  if (!sessionId) return
+
+  const session = gw.sessions.value.find(item => item.id === sessionId)
+  if (!session) return
+
+  // Sessions can be entered through boot restoration, a deep link, or the
+  // in-chat picker rather than SessionsView.openSession. Keep the unread marker
+  // aligned with the desktop contract: the focused session is considered read.
+  await unreads.markSessionRead(session.id, session.message_count, session._lineage_root_id)
+}
+
+watch(
+  () => {
+    const session = gw.sessions.value.find(item => item.id === selectedSessionId.value)
+    return `${selectedSessionId.value}:${session?.message_count ?? ''}:${session?._lineage_root_id ?? ''}`
+  },
+  () => { void markCurrentSessionRead() },
+  { immediate: true },
+)
 
 // Load messages when entering with an existing session
 onMounted(async () => {

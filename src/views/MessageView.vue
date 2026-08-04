@@ -1656,12 +1656,19 @@ async function actionShare() {
   closeActionSheet()
 }
 
-async function actionRestore() {
-  const idx = actionSheetMsgIdx.value
-  const msg = actionSheetMsg.value
-  closeActionSheet()
+function canRestoreMessage(message: Message | null | undefined, idx: number): boolean {
+  return Boolean(
+    selectedSessionId.value
+    && !sending.value
+    && editingIdx.value !== idx
+    && message?.role === 'user'
+    && message.content.trim(),
+  )
+}
 
-  if (sending.value || !selectedSessionId.value || !msg || msg.role !== 'user') return
+async function restoreMessageAt(idx: number) {
+  const message = gw.messages.value[idx]
+  if (!canRestoreMessage(message, idx)) return
   if (!window.confirm('Restore from this message? Messages after it will be replaced.')) return
 
   const originalMessages = [...gw.messages.value]
@@ -1677,6 +1684,12 @@ async function actionRestore() {
   } finally {
     sending.value = false
   }
+}
+
+async function actionRestore() {
+  const idx = actionSheetMsgIdx.value
+  closeActionSheet()
+  await restoreMessageAt(idx)
 }
 
 function isThinking(content: string): boolean {
@@ -2248,6 +2261,15 @@ function formatTime(ts: number): string {
 
         <div v-if="!isActivityMessage(msg) && !processNoteFor(msg) && !msg.interim" class="flex items-center gap-2 px-1" :class="msg.role === 'user' ? 'self-end' : 'self-start'">
           <span v-if="msg.timestamp" class="text-[11px] text-app-muted">{{ formatTime(msg.timestamp) }}</span>
+          <button
+            v-if="canRestoreMessage(msg, idx)"
+            class="flex cursor-pointer items-center justify-center rounded border-0 bg-transparent px-1 py-0.5 text-app-muted opacity-60 transition-opacity hover:opacity-100 focus-visible:opacity-100"
+            aria-label="Restore from here"
+            title="Restore from here"
+            @click.stop="restoreMessageAt(idx)"
+          >
+            <History :size="14" :stroke-width="2" />
+          </button>
           <button
             class="flex cursor-pointer items-center justify-center rounded border-0 bg-transparent px-1 py-0.5 text-app-muted opacity-60 transition-opacity hover:opacity-100 focus-visible:opacity-100"
             @click.stop="openActionSheet(idx)"

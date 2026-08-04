@@ -24,6 +24,7 @@ import { useToast } from '../composables/useToast'
 import { sessionMatchesStoredId } from '../utils/sessionList'
 import { sessionMatchesSearch } from '../utils/sessionSearch'
 import { sessionListTitle, sessionPreview } from '../utils/sessionTitle'
+import { linkifySessionRefs, parseSessionRefValue, sessionRefFallbackLabel, sessionRefFromMarkdownHref } from '../utils/sessionRefs'
 import { attachmentError, attachmentKind, MAX_ATTACHMENTS, type PendingAttachment } from '../utils/composerAttachments'
 import { isBackSwipe, SWIPE_BACK_EDGE_PX, type SwipeBackGesture } from '../utils/swipeBack'
 import { openUrl } from '@tauri-apps/plugin-opener'
@@ -578,7 +579,7 @@ function scrollToMatch(msgIndex: number) {
 }
 
 function highlightText(content: string, query: string): string {
-  return highlightRenderedHtml(renderMarkdown(content), query)
+  return highlightRenderedHtml(renderMarkdown(linkifySessionRefs(content, sessionReferenceLabel)), query)
 }
 
 function isMatch(idx: number): boolean {
@@ -931,8 +932,14 @@ function formatAttachmentSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
+function sessionReferenceLabel(value: string): string {
+  const { sessionId } = parseSessionRefValue(value)
+  const session = gw.sessions.value.find(item => item.id === sessionId || item._lineage_root_id === sessionId)
+  return session?.title?.trim() || session?.preview?.trim() || sessionRefFallbackLabel(value)
+}
+
 function render(content: string): string {
-  return renderMarkdown(content)
+  return renderMarkdown(linkifySessionRefs(content, sessionReferenceLabel))
 }
 
 // Desktop opens rendered images in a dedicated zoomable viewer. Keep the mobile
@@ -1016,6 +1023,25 @@ function handleMessagesClick(e: Event) {
   if (clickedLink) {
     e.preventDefault()
     e.stopPropagation()
+
+    const sessionValue = sessionRefFromMarkdownHref(clickedLink.getAttribute('href') || '')
+    if (sessionValue) {
+      const { sessionId } = parseSessionRefValue(sessionValue)
+      if (!sessionId) {
+        toast.show('Invalid session reference', 'error')
+        return
+      }
+
+      // A compressed session may be referenced by its lineage root. Prefer the
+      // currently visible durable row when available, otherwise use the ID from
+      // the reference and let normal history hydration report a missing session.
+      const matchingSession = gw.sessions.value.find(item => item.id === sessionId || item._lineage_root_id === sessionId)
+      const targetSessionId = matchingSession?.id || sessionId
+      void lastSession.setLastSessionId(auth.gatewayUrl.value, targetSessionId)
+      void router.push({ name: 'chat', params: { id: targetSessionId } })
+      return
+    }
+
     try {
       const url = new URL(clickedLink.href)
       if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new Error('Unsupported link')

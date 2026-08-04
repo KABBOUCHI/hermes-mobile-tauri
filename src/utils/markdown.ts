@@ -3,6 +3,7 @@
  * Uses highlight.js for syntax highlighting of fenced code blocks.
  */
 import hljs from 'highlight.js/lib/core'
+import { linkifySessionRefs } from './sessionRefs'
 
 // Register common languages (lightweight subset)
 import javascript from 'highlight.js/lib/languages/javascript'
@@ -136,19 +137,42 @@ function autoLinkRawUrls(text: string): string {
 }
 
 function renderInline(text: string): string {
-  let out = escapeHtml(text)
+  // Protect inline code before rewriting session references. A reference inside
+  // code is source text, not a navigation affordance.
+  const inlineCode: string[] = []
+  const protectedText = text.replace(/`([^`\n]+?)`/g, (_match, code: string) => {
+    const index = inlineCode.push(code) - 1
+    return `__HERMES_INLINE_CODE_${index}__`
+  })
+
+  let out = escapeHtml(linkifySessionRefs(protectedText))
 
   // Inline code (must be before other inline rules)
-  out = out.replace(/`([^`\\n]+?)`/g, '<code class="md-inline">$1</code>')
+  out = out.replace(/__HERMES_INLINE_CODE_(\d+)__/g, (_match, index: string) => (
+    `<code class="md-inline">${escapeHtml(inlineCode[Number(index)] || '')}</code>`
+  ))
 
   // Images
   out = out.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img class="md-img" src="$2" alt="$1" loading="lazy" />')
 
-  // Markdown links [text](url)
-  out = out.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a class="md-link" href="$2" target="_blank" rel="noopener">$1</a>')
+  // Markdown links [text](url). Internal session links retain the normal link
+  // styling but carry a dedicated class for the delegated mobile navigation.
+  out = out.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, label: string, href: string) => {
+    const className = href.trim().startsWith('#session/') ? 'md-link md-session-link' : 'md-link'
+    return `<a class="${className}" href="${href}" target="_blank" rel="noopener">${label}</a>`
+  })
 
   // Auto-link bare URLs (before bold/italic so they don't break URLs with underscores)
   out = autoLinkRawUrls(out)
+
+  // Keep URL attributes opaque while applying text emphasis. Session IDs often
+  // contain underscores, which are perfectly valid in an href but meaningful to
+  // the Markdown emphasis pass.
+  const protectedHrefAttributes: string[] = []
+  out = out.replace(/\bhref="[^"]*"/g, attribute => {
+    const index = protectedHrefAttributes.push(attribute) - 1
+    return `HERMESHREF${index}END`
+  })
 
   // Bold
   out = out.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
@@ -160,6 +184,10 @@ function renderInline(text: string): string {
 
   // Strikethrough
   out = out.replace(/~~(.+?)~~/g, '<del>$1</del>')
+
+  out = out.replace(/HERMESHREF(\d+)END/g, (_match, index: string) => (
+    protectedHrefAttributes[Number(index)] || ''
+  ))
 
   return out
 }

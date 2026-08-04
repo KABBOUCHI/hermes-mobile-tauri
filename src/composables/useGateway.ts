@@ -330,6 +330,31 @@ export function sessionPickerPath(): string {
   return sessionListPath(SESSION_PICKER_LIMIT, 0, 'exclude')
 }
 
+/**
+ * Build the same branch request Desktop sends: preserve the parent's workspace
+ * while copying only conversational prose into the child session.
+ */
+export function branchSessionParams(
+  parentSessionId: string,
+  sourceMessages: readonly Pick<SessionMessage, 'role' | 'content'>[],
+  cwd: string | null | undefined = '',
+) {
+  const parentId = parentSessionId.trim()
+  const messages = branchableMessageHistory(sourceMessages)
+  if (!parentId || !messages.length) {
+    throw new Error('Nothing to branch')
+  }
+
+  const workspaceCwd = typeof cwd === 'string' ? cwd.trim() : ''
+  return {
+    cols: 96,
+    source: 'desktop',
+    ...(workspaceCwd ? { cwd: workspaceCwd } : {}),
+    parent_session_id: parentId,
+    messages,
+  }
+}
+
 /** Set durable rows that must survive the gateway's recency-window refresh. */
 function setSessionListKeepIds(ids: readonly string[]): void {
   sessionListPinnedIds = new Set(ids)
@@ -960,18 +985,12 @@ async function createSession(cwd = ''): Promise<{ runtimeId: string; storedSessi
  * seeds a branch through `session.create` and keeps only conversational prose;
  * the returned stored identity is what mobile routes and history fetches use.
  */
-async function branchSession(parentSessionId: string, sourceMessages: readonly Pick<Message, 'role' | 'content'>[]): Promise<string> {
-  const messagesForBranch = branchableMessageHistory(sourceMessages)
-  if (!parentSessionId || !messagesForBranch.length) {
-    throw new Error('Nothing to branch')
-  }
-
-  const result = await rpcCall('session.create', {
-    cols: 96,
-    source: 'desktop',
-    parent_session_id: parentSessionId,
-    messages: messagesForBranch,
-  })
+async function branchSession(
+  parentSessionId: string,
+  sourceMessages: readonly Pick<Message, 'role' | 'content'>[],
+  cwd?: string | null,
+): Promise<string> {
+  const result = await rpcCall('session.create', branchSessionParams(parentSessionId, sourceMessages, cwd))
   const storedSessionId = result?.stored_session_id ?? result?.session_id
   if (!storedSessionId) throw new Error('session.create returned no stored session id')
   if (result?.session_id) runtimeToStoredSession.set(result.session_id, storedSessionId)

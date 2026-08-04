@@ -1501,6 +1501,7 @@ async function actionRegenerate() {
 async function actionBranch() {
   const msg = actionSheetMsg.value
   const messageIndex = actionSheetMsgIdx.value
+  const session = gw.sessions.value.find(item => sessionMatchesStoredId(item, selectedSessionId.value))
   closeActionSheet()
   if (sending.value || !selectedSessionId.value || !msg || msg.role !== 'assistant' || !msg.content.trim()) return
 
@@ -1508,7 +1509,7 @@ async function actionBranch() {
   if (!branchMessages.length) return
 
   try {
-    const branchSessionId = await gw.branchSession(selectedSessionId.value, branchMessages)
+    const branchSessionId = await gw.branchSession(selectedSessionId.value, branchMessages, session?.cwd)
     await router.push({ name: 'chat', params: { id: branchSessionId } })
   } catch (err: any) {
     toast.show(err?.message || 'Unable to branch this message', 'error')

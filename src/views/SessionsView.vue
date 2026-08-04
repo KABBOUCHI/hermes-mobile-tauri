@@ -624,6 +624,7 @@ async function handleDelete() {
 // so hydrate the authoritative transcript before creating the branch.
 async function handleBranch() {
   const id = contextMenuSessionId.value
+  const session = findSession(id)
   closeContextMenu()
   if (!id || branchingId.value) return
 
@@ -631,7 +632,7 @@ async function handleBranch() {
   try {
     const history = await gw.fetchMessages(auth.gatewayUrl.value, id)
     if (!history.length) throw new Error('This session has no messages to branch')
-    const branchId = await gw.branchSession(id, history)
+    const branchId = await gw.branchSession(id, history, session?.cwd)
     await lastSession.setLastSessionId(auth.gatewayUrl.value, branchId)
     await router.push({ name: 'chat', params: { id: branchId } })
   } catch (err: any) {

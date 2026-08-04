@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MESSAGE_FETCH_TIMEOUT, SESSION_PICKER_LIMIT, SESSION_REFRESH_DEBOUNCE_MS, sessionListPath, sessionPickerPath, shouldInterruptBeforeRewind, shouldRefreshSessionsForEvent } from './useGateway'
+import { branchSessionParams, MESSAGE_FETCH_TIMEOUT, SESSION_PICKER_LIMIT, SESSION_REFRESH_DEBOUNCE_MS, sessionListPath, sessionPickerPath, shouldInterruptBeforeRewind, shouldRefreshSessionsForEvent } from './useGateway'
 
 
 describe('session list request policy', () => {
@@ -24,6 +24,29 @@ describe('session list request policy', () => {
 describe('message history fetch policy', () => {
   it('allows long mobile transcript downloads more time than lightweight gateway calls', () => {
     expect(MESSAGE_FETCH_TIMEOUT).toBeGreaterThanOrEqual(60_000)
+  })
+})
+
+describe('branch request policy', () => {
+  it('preserves the parent workspace while matching the desktop request shape', () => {
+    expect(branchSessionParams(' parent ', [
+      { role: 'user', content: 'Inspect the repo' },
+      { role: 'tool', content: 'ignored activity' },
+      { role: 'assistant', content: 'I found the workspace.' },
+    ], '  /work/hermes  ')).toEqual({
+      cols: 96,
+      source: 'desktop',
+      cwd: '/work/hermes',
+      parent_session_id: 'parent',
+      messages: [
+        { role: 'user', content: 'Inspect the repo' },
+        { role: 'assistant', content: 'I found the workspace.' },
+      ],
+    })
+  })
+
+  it('omits an unavailable workspace without sending an empty cwd', () => {
+    expect(branchSessionParams('parent', [{ role: 'user', content: 'Continue' }], '   ')).not.toHaveProperty('cwd')
   })
 })
 

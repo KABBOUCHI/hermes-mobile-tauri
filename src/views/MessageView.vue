@@ -25,6 +25,7 @@ import { sessionMatchesStoredId } from '../utils/sessionList'
 import { sessionMatchesSearch } from '../utils/sessionSearch'
 import { sessionListTitle, sessionPreview } from '../utils/sessionTitle'
 import { linkifySessionRefs, parseSessionRefValue, sessionRefFallbackLabel, sessionRefFromMarkdownHref } from '../utils/sessionRefs'
+import { previewName, previewTargetFromMarkdownHref } from '../utils/previewTargets'
 import { attachmentError, attachmentKind, MAX_ATTACHMENTS, type PendingAttachment } from '../utils/composerAttachments'
 import { isBackSwipe, SWIPE_BACK_EDGE_PX, type SwipeBackGesture } from '../utils/swipeBack'
 import { openUrl } from '@tauri-apps/plugin-opener'
@@ -1010,12 +1011,43 @@ function closeImagePreview() {
   imagePreview.value = null
 }
 
+function openPreviewTarget(href: string) {
+  const target = previewTargetFromMarkdownHref(href)
+  if (!target) {
+    toast.show('Invalid preview target', 'error')
+    return
+  }
+
+  let url: URL
+  try {
+    url = new URL(target)
+  } catch {
+    toast.show(`Local preview unavailable on mobile: ${previewName(target)}`, 'info')
+    return
+  }
+
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+    toast.show(`Local preview unavailable on mobile: ${previewName(target)}`, 'info')
+    return
+  }
+
+  openUrl(url.href).catch(() => toast.show('Unable to open preview', 'error'))
+}
+
 function handleMessagesClick(e: Event) {
   const clickedImage = (e.target as HTMLElement).closest('img.md-img') as HTMLImageElement | null
   if (clickedImage) {
     e.preventDefault()
     e.stopPropagation()
     openImagePreview(clickedImage)
+    return
+  }
+
+  const clickedPreview = (e.target as HTMLElement).closest('a.md-preview-link') as HTMLAnchorElement | null
+  if (clickedPreview) {
+    e.preventDefault()
+    e.stopPropagation()
+    openPreviewTarget(clickedPreview.getAttribute('href') || '')
     return
   }
 

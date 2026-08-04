@@ -18,6 +18,13 @@ describe('renderMarkdown links', () => {
     expect(html.match(/class="md-link"/g)).toHaveLength(1)
   })
 
+  it('marks desktop preview actions for mobile click handling', () => {
+    const html = renderMarkdown('[Preview: guide](#preview/https%3A%2F%2Fexample.com%2Fguide)')
+
+    expect(html).toContain('class="md-link md-preview-link"')
+    expect(html).toContain('href="#preview/https%3A%2F%2Fexample.com%2Fguide"')
+  })
+
   it('renders session references as internal links without touching inline code', () => {
     const html = renderMarkdown('Open @session:work/20260729_120000_abc123, but keep `@session:work/abc` as code.')
 

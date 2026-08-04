@@ -5,6 +5,10 @@
 import hljs from 'highlight.js/lib/core'
 import { linkifySessionRefs } from './sessionRefs'
 
+function isPreviewHref(href: string): boolean {
+  return href.trim().startsWith('#preview:') || href.trim().startsWith('#preview/')
+}
+
 // Register common languages (lightweight subset)
 import javascript from 'highlight.js/lib/languages/javascript'
 import typescript from 'highlight.js/lib/languages/typescript'
@@ -155,11 +159,17 @@ function renderInline(text: string): string {
   // Images
   out = out.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img class="md-img" src="$2" alt="$1" loading="lazy" />')
 
-  // Markdown links [text](url). Internal session links retain the normal link
-  // styling but carry a dedicated class for the delegated mobile navigation.
+  // Markdown links [text](url). Internal session and desktop preview links
+  // retain dedicated classes for delegated mobile navigation. Preview links
+  // are actions, not ordinary external URLs.
   out = out.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, label: string, href: string) => {
-    const className = href.trim().startsWith('#session/') ? 'md-link md-session-link' : 'md-link'
-    return `<a class="${className}" href="${href}" target="_blank" rel="noopener">${label}</a>`
+    const trimmedHref = href.trim()
+    const className = isPreviewHref(trimmedHref)
+      ? 'md-link md-preview-link'
+      : trimmedHref.startsWith('#session/')
+        ? 'md-link md-session-link'
+        : 'md-link'
+    return `<a class="${className}" href="${trimmedHref}" target="_blank" rel="noopener">${label}</a>`
   })
 
   // Auto-link bare URLs (before bold/italic so they don't break URLs with underscores)

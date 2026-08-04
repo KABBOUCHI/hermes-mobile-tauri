@@ -18,6 +18,19 @@ const FETCH_TIMEOUT = 12000
 // mobile connection it must not inherit the short deadline intended for small
 // status and session-list requests.
 export const MESSAGE_FETCH_TIMEOUT = 60000
+// Desktop allows remote TTS synthesis and base64 encoding several minutes for
+// long replies instead of using the short timeout for ordinary API calls.
+export const AUDIO_SPEAK_MIN_REQUEST_TIMEOUT_MS = 180000
+export const AUDIO_SPEAK_MAX_REQUEST_TIMEOUT_MS = 600000
+const AUDIO_SPEAK_TIMEOUT_MS_PER_CHAR = 35
+
+export function audioSpeakRequestTimeoutMs(text: string): number {
+  const estimated = Math.max(
+    AUDIO_SPEAK_MIN_REQUEST_TIMEOUT_MS,
+    Math.ceil(String(text || '').length * AUDIO_SPEAK_TIMEOUT_MS_PER_CHAR),
+  )
+  return Math.min(estimated, AUDIO_SPEAK_MAX_REQUEST_TIMEOUT_MS)
+}
 // Desktop refreshes the sidebar shortly after a turn completes. Coalescing
 // nearby completions avoids a request burst when multiple background sessions
 // finish together while still making new sessions and previews appear quickly.
@@ -101,6 +114,13 @@ export interface SessionSearchResult {
 }
 
 export type Message = SessionMessage
+
+export interface AudioSpeakResponse {
+  ok: boolean
+  data_url: string
+  mime_type: string
+  provider?: string
+}
 
 type ConnectionState = 'idle' | 'connecting' | 'open' | 'closed' | 'error'
 
@@ -619,6 +639,39 @@ async function fetchMediaDataUrl(url: string, path: string): Promise<string | nu
     return typeof data?.data_url === 'string' && /^data:image\//i.test(data.data_url) ? data.data_url : null
   } catch {
     return null
+  }
+}
+
+/** Request Desktop-compatible gateway TTS audio without exposing transport in the view. */
+async function speakText(url: string, text: string): Promise<AudioSpeakResponse> {
+  const trimmedText = text.trim()
+  if (!trimmedText) throw new Error('Text is required for read aloud')
+
+  const base = url.replace(/\/$/, '')
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (cookie) headers['Cookie'] = cookie
+  const resp = await fetchWithTimeout(
+    `${base}/api/audio/speak`,
+    {
+      method: 'POST',
+      headers,
+      credentials: 'same-origin',
+      body: JSON.stringify({ text: trimmedText }),
+    },
+    audioSpeakRequestTimeoutMs(trimmedText),
+  )
+  if (!resp.ok) throw new Error('HTTP ' + resp.status)
+
+  const data = await resp.json()
+  if (data?.ok !== true || typeof data?.data_url !== 'string' || !/^data:audio\//i.test(data.data_url)) {
+    throw new Error('Gateway returned an invalid audio response')
+  }
+
+  return {
+    ok: true,
+    data_url: data.data_url,
+    mime_type: typeof data.mime_type === 'string' ? data.mime_type : 'audio/mpeg',
+    provider: typeof data.provider === 'string' ? data.provider : undefined,
   }
 }
 
@@ -1739,6 +1792,7 @@ export function useGateway() {
     fetchMessages,
     fetchMessagesForExport,
     fetchMediaDataUrl,
+    speakText,
     fetchContextUsage,
     deleteSession,
     archiveSession,

@@ -23,54 +23,57 @@ export function sanitizeTextForSpeech(text: string): string {
     .trim()
 }
 
-export interface SpeechUtterance {
-  text: string
-  onend: (() => void) | null
+export interface AudioPlayer {
+  play: () => Promise<void>
+  pause: () => void
+  load: () => void
+  onended: (() => void) | null
   onerror: (() => void) | null
 }
 
-export interface SpeechEngine {
-  createUtterance: (text: string) => SpeechUtterance
-  speak: (utterance: SpeechUtterance) => void
-  cancel: () => void
-}
+export type AudioPlayerFactory = (dataUrl: string) => AudioPlayer
 
-function browserSpeechEngine(): SpeechEngine | null {
-  if (typeof window === 'undefined' || !window.speechSynthesis || typeof SpeechSynthesisUtterance === 'undefined') {
-    return null
-  }
-
-  return {
-    createUtterance: (text: string) => {
-      const utterance = new SpeechSynthesisUtterance(text)
-      return utterance as unknown as SpeechUtterance
-    },
-    speak: utterance => window.speechSynthesis.speak(utterance as SpeechSynthesisUtterance),
-    cancel: () => window.speechSynthesis.cancel(),
-  }
+function browserAudioPlayer(dataUrl: string): AudioPlayer {
+  return new Audio(dataUrl) as unknown as AudioPlayer
 }
 
 let requestId = 0
-let activeEngine: SpeechEngine | null = null
+let activePlayer: AudioPlayer | null = null
 let settleActive: ((spoken: boolean) => void) | null = null
 
 /** Stop the current message, if any. Starting another message also stops it. */
 export function stopSpeech(): void {
   requestId += 1
-  activeEngine?.cancel()
-  activeEngine = null
+  activePlayer?.pause()
+  activePlayer?.load()
+  activePlayer = null
   settleActive?.(false)
   settleActive = null
 }
 
-/** Speak one complete assistant message using the device's built-in voice. */
-export function speakText(text: string, engine: SpeechEngine | null = browserSpeechEngine()): Promise<boolean> {
+/** Start a new gateway-backed speech request and return its cancellation token. */
+export function beginSpeech(): number {
   stopSpeech()
-  const spokenText = sanitizeTextForSpeech(text)
-  if (!spokenText || !engine) return Promise.resolve(false)
+  return requestId
+}
 
-  const ownRequest = requestId
-  activeEngine = engine
+/** Play one complete assistant reply returned by the gateway as a data URL. */
+export function playSpeechDataUrl(
+  dataUrl: string,
+  expectedRequest = requestId,
+  createPlayer: AudioPlayerFactory = browserAudioPlayer,
+): Promise<boolean> {
+  if (expectedRequest !== requestId || !/^data:audio\//i.test(dataUrl)) return Promise.resolve(false)
+
+  let player: AudioPlayer
+  try {
+    player = createPlayer(dataUrl)
+  } catch {
+    return Promise.resolve(false)
+  }
+
+  const ownRequest = expectedRequest
+  activePlayer = player
 
   return new Promise(resolve => {
     let settled = false
@@ -78,19 +81,18 @@ export function speakText(text: string, engine: SpeechEngine | null = browserSpe
       if (settled) return
       settled = true
       if (ownRequest === requestId) {
-        activeEngine = null
+        activePlayer = null
         settleActive = null
       }
       resolve(ownRequest === requestId && spoken)
     }
 
     settleActive = finish
-    const utterance = engine.createUtterance(spokenText)
-    utterance.onend = () => finish(true)
-    utterance.onerror = () => finish(false)
+    player.onended = () => finish(true)
+    player.onerror = () => finish(false)
 
     try {
-      engine.speak(utterance)
+      void player.play().catch(() => finish(false))
     } catch {
       finish(false)
     }

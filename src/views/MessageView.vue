@@ -16,7 +16,7 @@ import { compactTokenCount, contextUsagePercent as getContextUsagePercent, conte
 import { messageLoadErrorState } from '../utils/messageLoadState'
 import { shouldOfferMessageExpansion } from '../utils/messageDisplay'
 import { isStreamStalled, STREAM_STALL_THRESHOLD_MS } from '../utils/streamStall'
-import { speakText, stopSpeech } from '../utils/speech'
+import { beginSpeech, playSpeechDataUrl, sanitizeTextForSpeech, stopSpeech } from '../utils/speech'
 import { useAuth } from '../composables/useAuth'
 import { useGateway, type Message, type ModelProvider, type Session } from '../composables/useGateway'
 import { useLastSession } from '../composables/useLastSession'
@@ -1593,13 +1593,22 @@ function actionReadAloud() {
     return
   }
 
-  stopSpeech()
+  const requestId = beginSpeech()
   speakingMessageId.value = id
-  void speakText(message.content).then(spoken => {
-    if (speakingMessageId.value !== id) return
-    speakingMessageId.value = ''
-    if (!spoken) toast.show('Read aloud is unavailable on this device', 'error')
-  })
+  void (async () => {
+    try {
+      const spokenText = sanitizeTextForSpeech(message.content)
+      const response = await gw.speakText(auth.gatewayUrl.value, spokenText)
+      const spoken = await playSpeechDataUrl(response.data_url, requestId)
+      if (speakingMessageId.value !== id) return
+      speakingMessageId.value = ''
+      if (!spoken) toast.show('Unable to play read aloud audio', 'error')
+    } catch {
+      if (speakingMessageId.value !== id) return
+      speakingMessageId.value = ''
+      toast.show('Unable to read this message aloud', 'error')
+    }
+  })()
 }
 
 function actionEdit() {

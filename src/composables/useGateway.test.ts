@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { branchSessionParams, MESSAGE_FETCH_TIMEOUT, SESSION_PICKER_LIMIT, SESSION_REFRESH_DEBOUNCE_MS, sessionListPath, sessionPickerPath, sessionRedirectParams, sessionRedirectResult, shouldInterruptBeforeRewind, shouldRefreshSessionsForEvent } from './useGateway'
+import { AUDIO_SPEAK_MAX_REQUEST_TIMEOUT_MS, AUDIO_SPEAK_MIN_REQUEST_TIMEOUT_MS, audioSpeakRequestTimeoutMs, branchSessionParams, MESSAGE_FETCH_TIMEOUT, SESSION_PICKER_LIMIT, SESSION_REFRESH_DEBOUNCE_MS, sessionListPath, sessionPickerPath, sessionRedirectParams, sessionRedirectResult, shouldInterruptBeforeRewind, shouldRefreshSessionsForEvent } from './useGateway'
 
+
+describe('audio speech request policy', () => {
+  it('matches Desktop timeout bounds for gateway TTS synthesis', () => {
+    expect(audioSpeakRequestTimeoutMs('short message')).toBe(AUDIO_SPEAK_MIN_REQUEST_TIMEOUT_MS)
+    expect(audioSpeakRequestTimeoutMs('x'.repeat(8_000))).toBe(280_000)
+    expect(audioSpeakRequestTimeoutMs('x'.repeat(100_000))).toBe(AUDIO_SPEAK_MAX_REQUEST_TIMEOUT_MS)
+  })
+})
 
 describe('session list request policy', () => {
   it('matches desktop’s unscoped list path so sessions from every source remain visible', () => {

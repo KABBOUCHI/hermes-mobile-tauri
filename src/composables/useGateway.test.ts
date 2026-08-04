@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MESSAGE_FETCH_TIMEOUT, SESSION_PICKER_LIMIT, SESSION_REFRESH_DEBOUNCE_MS, sessionListPath, sessionPickerPath, shouldRefreshSessionsForEvent } from './useGateway'
+import { MESSAGE_FETCH_TIMEOUT, SESSION_PICKER_LIMIT, SESSION_REFRESH_DEBOUNCE_MS, sessionListPath, sessionPickerPath, shouldInterruptBeforeRewind, shouldRefreshSessionsForEvent } from './useGateway'
 
 
 describe('session list request policy', () => {
@@ -24,6 +24,17 @@ describe('session list request policy', () => {
 describe('message history fetch policy', () => {
   it('allows long mobile transcript downloads more time than lightweight gateway calls', () => {
     expect(MESSAGE_FETCH_TIMEOUT).toBeGreaterThanOrEqual(60_000)
+  })
+})
+
+describe('rewind interruption policy', () => {
+  it('does not interrupt an idle session before a regenerate or restore submit', () => {
+    expect(shouldInterruptBeforeRewind(null, 'runtime-1')).toBe(false)
+  })
+
+  it('interrupts only the active runtime before replacing its turn', () => {
+    expect(shouldInterruptBeforeRewind('runtime-1', 'runtime-1')).toBe(true)
+    expect(shouldInterruptBeforeRewind('runtime-1', 'runtime-2')).toBe(false)
   })
 })
 

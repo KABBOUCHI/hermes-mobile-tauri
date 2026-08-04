@@ -32,6 +32,15 @@ export function shouldRefreshSessionsForEvent(type: string, sessionId: unknown):
   return type === 'message.complete' && typeof sessionId === 'string' && sessionId.trim().length > 0
 }
 
+/**
+ * Desktop submits an idle rewind directly. Interrupting an idle runtime first
+ * can leave a stale interrupt flag that cancels the replacement prompt. Only
+ * interrupt when this client still owns the same live runtime.
+ */
+export function shouldInterruptBeforeRewind(activeRuntimeId: string | null, resumedRuntimeId: string): boolean {
+  return Boolean(activeRuntimeId && resumedRuntimeId && activeRuntimeId === resumedRuntimeId)
+}
+
 const RECONNECT_BASE_MS = 1000
 const RECONNECT_MAX_MS = 15000
 
@@ -1148,6 +1157,12 @@ async function interruptSession(sessionId: string): Promise<void> {
   }
 }
 
+async function interruptBeforeRewind(runtimeId: string): Promise<void> {
+  if (shouldInterruptBeforeRewind(activeTurn?.sessionId ?? null, runtimeId)) {
+    await interruptSession(runtimeId)
+  }
+}
+
 async function regenerateLastMessage(
   _url: string,
   sessionId: string,
@@ -1178,7 +1193,7 @@ async function regenerateLastMessage(
     // the response branch. The gateway truncates and re-submits this same turn.
     messages.value = rewindToMessage(originalMessages, lastUserEntry.idx)
 
-    await interruptSession(runtimeId)
+    await interruptBeforeRewind(runtimeId)
 
   const assistantMsg: Message = {
     role: 'assistant',
@@ -1262,7 +1277,7 @@ async function restoreMessage(
     const runtimeId = await resumeSession(sessionId)
     messages.value = rewindToMessage(originalMessages, msgIndex)
 
-    await interruptSession(runtimeId)
+    await interruptBeforeRewind(runtimeId)
 
   const assistantMsg: Message = {
     role: 'assistant',
@@ -1351,7 +1366,7 @@ async function editMessage(
     // replacement response starts streaming.
     messages.value = applyEditedUserTurn(originalMessages, msgIndex, newText)
 
-    await interruptSession(runtimeId)
+    await interruptBeforeRewind(runtimeId)
 
     const assistantMsg: Message = {
       role: 'assistant',

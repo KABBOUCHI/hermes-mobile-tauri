@@ -29,6 +29,19 @@ import { sessionPickerRowsForDisplay } from '../utils/sessionPicker'
 import { linkifySessionRefs, parseSessionRefValue, sessionRefFallbackLabel, sessionRefFromMarkdownHref } from '../utils/sessionRefs'
 import { previewName, previewTargetFromMarkdownHref } from '../utils/previewTargets'
 import { attachmentError, attachmentKind, MAX_ATTACHMENTS, type PendingAttachment } from '../utils/composerAttachments'
+import {
+  appendQueuedMessage,
+  clearQueuedMessages,
+  dequeueQueuedMessage,
+  getQueuedMessages,
+  isQueuePaused,
+  migrateQueuedMessages,
+  pauseQueuedMessages,
+  removeQueuedMessage,
+  resumeQueuedMessages,
+  setQueuedMessages,
+  type QueuedMessage,
+} from '../utils/composerQueue'
 import { gatewayImageKey, pendingGatewayImageRequests, type GatewayImageRequest } from '../utils/gatewayImageLoading'
 import { isBackSwipe, SWIPE_BACK_EDGE_PX, type SwipeBackGesture } from '../utils/swipeBack'
 import { openUrl } from '@tauri-apps/plugin-opener'
@@ -332,6 +345,7 @@ onMounted(async () => {
   gatewayImageViewMounted = true
   ensureGatewayImageObserver()
   void resolveGatewayImageAttachments()
+  syncQueuedMessages(selectedSessionId.value)
 
   if (selectedSessionId.value) {
     void lastSession.setLastSessionId(auth.gatewayUrl.value, selectedSessionId.value)
@@ -382,6 +396,9 @@ const scrollEl = ref<HTMLElement | null>(null)
 const inputEl = ref<HTMLTextAreaElement | null>(null)
 const fileInputEl = ref<HTMLInputElement | null>(null)
 const pendingAttachments = ref<PendingAttachment[]>([])
+const queuedMessages = ref<QueuedMessage[]>([])
+const queuePaused = ref(false)
+let queueDrainLock = false
 const composerEl = ref<HTMLElement | null>(null)
 const composerHeight = ref(56)
 const streamStalled = ref(false)
@@ -519,6 +536,7 @@ watch([() => route.params.id, () => route.query.cwd], async ([newId, cwd]) => {
   selectedSessionId.value = (newId as string) || ''
   isNewSession.value = !selectedSessionId.value
   newSessionCwd.value = typeof cwd === 'string' ? cwd.trim() : ''
+  syncQueuedMessages(selectedSessionId.value)
   if (selectedSessionId.value) {
     void lastSession.setLastSessionId(auth.gatewayUrl.value, selectedSessionId.value)
   }
@@ -708,25 +726,114 @@ function handleSwipeBackCancel() {
   swipeBackHandled.value = false
 }
 
-function handleSend() {
-  const text = input.value.trim()
-  if ((!text && pendingAttachments.value.length === 0) || sending.value) return
-  sendText(text)
+function syncQueuedMessages(sessionId = selectedSessionId.value) {
+  const id = sessionId.trim()
+  queuedMessages.value = id ? getQueuedMessages(id) : []
+  queuePaused.value = id ? isQueuePaused(id) : false
 }
 
-function sendText(
+function queueCurrentMessage(text: string): void {
+  const sessionId = selectedSessionId.value.trim()
+  const trimmed = text.trim()
+  if (!sessionId || !trimmed) return
+
+  const result = appendQueuedMessage(getQueuedMessages(sessionId), trimmed, [])
+  setQueuedMessages(sessionId, result.queue)
+  resumeQueuedMessages(sessionId)
+  queuedMessages.value = result.queue
+  queuePaused.value = false
+  input.value = ''
+  if (inputEl.value) inputEl.value.style.height = 'auto'
+  toast.show('Message queued', 'info')
+}
+
+function removeQueued(id: string): void {
+  const sessionId = selectedSessionId.value
+  if (!sessionId) return
+  const next = removeQueuedMessage(getQueuedMessages(sessionId), id)
+  setQueuedMessages(sessionId, next)
+  queuedMessages.value = next
+  queuePaused.value = isQueuePaused(sessionId)
+}
+
+function clearCurrentQueue(): void {
+  const sessionId = selectedSessionId.value
+  if (!sessionId) return
+  clearQueuedMessages(sessionId)
+  queuedMessages.value = []
+  queuePaused.value = false
+}
+
+function resumeQueue(): void {
+  const sessionId = selectedSessionId.value
+  if (!sessionId) return
+  resumeQueuedMessages(sessionId)
+  queuePaused.value = false
+  void drainQueuedMessages(sessionId)
+}
+
+async function drainQueuedMessages(sessionId: string): Promise<void> {
+  if (
+    !sessionId
+    || queueDrainLock
+    || sending.value
+    || selectedSessionId.value !== sessionId
+    || isQueuePaused(sessionId)
+  ) return
+
+  const current = getQueuedMessages(sessionId)
+  queuedMessages.value = current
+  const { entry } = dequeueQueuedMessage(current)
+  if (!entry) return
+
+  queueDrainLock = true
+  let sent = false
+  try {
+    sent = await sendText(entry.text, false, entry.attachments, true, sessionId)
+  } finally {
+    queueDrainLock = false
+  }
+
+  if (!sent) return
+
+  const next = removeQueuedMessage(getQueuedMessages(sessionId), entry.id)
+  setQueuedMessages(sessionId, next)
+  if (selectedSessionId.value === sessionId) {
+    queuedMessages.value = next
+    queuePaused.value = isQueuePaused(sessionId)
+    void drainQueuedMessages(sessionId)
+  }
+}
+
+function handleSend() {
+  const text = input.value.trim()
+  if (sending.value) {
+    if (text) queueCurrentMessage(text)
+    return
+  }
+  if (!text && pendingAttachments.value.length === 0) return
+  void sendText(text)
+}
+
+async function sendText(
   text: string,
   preserveUserMessage = false,
   attachments: readonly PendingAttachment[] = pendingAttachments.value,
-) {
+  fromQueue = false,
+  queueSessionId?: string,
+): Promise<boolean> {
   sending.value = true
   shouldFollowMessages.value = true
 
-  // Generate session ID for new sessions
+  // Generate session ID for new sessions. Queue entries created while this
+  // first turn is running are migrated when the gateway assigns the stored id.
   if (!selectedSessionId.value) {
     selectedSessionId.value = crypto.randomUUID()
   }
-  resetComposerBrowse(selectedSessionId.value)
+  let activeQueueSessionId = queueSessionId || selectedSessionId.value
+  const requestSessionId = selectedSessionId.value
+  const requestIsNewSession = isNewSession.value
+  resetComposerBrowse(requestSessionId)
 
   // A failed turn already has its user message in the thread. Preserve that
   // record when retrying so the chat does not display the same prompt twice.
@@ -745,40 +852,53 @@ function sendText(
   }
 
   input.value = ''
-  if (inputEl.value) {
-    inputEl.value.style.height = 'auto'
-  }
+  if (inputEl.value) inputEl.value.style.height = 'auto'
 
-  gw.sendMessage(auth.gatewayUrl.value, selectedSessionId.value, text, isNewSession.value, attachments, newSessionCwd.value)
-    .then((result) => {
-      pendingAttachments.value = pendingAttachments.value.filter(attachment => !attachments.includes(attachment))
-      if (result?.newSessionId) {
-        selectedSessionId.value = result.newSessionId
-        isNewSession.value = false
-        void lastSession.setLastSessionId(auth.gatewayUrl.value, result.newSessionId)
-      }
-    })
-    .catch((err: any) => {
-      const message = err.message || 'Unknown error'
-      // sendMessage adds an assistant bubble before submitting. Retain any
-      // streamed partial response and make that same bubble retryable instead
-      // of appending a duplicate error after it.
-      const last = gw.messages.value[gw.messages.value.length - 1]
-      if (last?.role === 'assistant') {
-        markLatestAssistantFailure(gw.messages.value, message)
-      } else {
-        gw.messages.value.push({
-          role: 'assistant',
-          content: message,
-          timestamp: Date.now() / 1000,
-          error: true,
-        })
-      }
-    })
-    .finally(() => {
-      sending.value = false
-    })
+  let succeeded = false
+  try {
+    const result = await gw.sendMessage(auth.gatewayUrl.value, requestSessionId, text, requestIsNewSession, attachments, newSessionCwd.value)
+    pendingAttachments.value = pendingAttachments.value.filter(attachment => !attachments.includes(attachment))
+    if (result?.newSessionId) {
+      migrateQueuedMessages(activeQueueSessionId, result.newSessionId)
+      activeQueueSessionId = result.newSessionId
+      selectedSessionId.value = result.newSessionId
+      isNewSession.value = false
+      syncQueuedMessages(result.newSessionId)
+      void lastSession.setLastSessionId(auth.gatewayUrl.value, result.newSessionId)
+    }
+    succeeded = true
+    return true
+  } catch (err: any) {
+    const message = err.message || 'Unknown error'
+    pauseQueuedMessages(activeQueueSessionId)
+    if (selectedSessionId.value === activeQueueSessionId) queuePaused.value = true
+    // sendMessage adds an assistant bubble before submitting. Retain any
+    // streamed partial response and make that same bubble retryable instead
+    // of appending a duplicate error after it.
+    const last = gw.messages.value[gw.messages.value.length - 1]
+    if (last?.role === 'assistant') {
+      markLatestAssistantFailure(gw.messages.value, message)
+    } else {
+      gw.messages.value.push({
+        role: 'assistant',
+        content: message,
+        timestamp: Date.now() / 1000,
+        error: true,
+      })
+    }
+    return false
+  } finally {
+    sending.value = false
+    // Explicit Stop and failed turns pause the queue. A successful ordinary
+    // turn drains its FIFO head; queued turns drain one-by-one through their
+    // own `fromQueue` calls.
+    if (succeeded && !fromQueue && !isQueuePaused(activeQueueSessionId)) {
+      syncQueuedMessages(activeQueueSessionId)
+      void drainQueuedMessages(activeQueueSessionId)
+    }
+  }
 }
+
 
 function retryFailed(failedMsgIdx: number) {
   if (sending.value) return
@@ -1619,6 +1739,10 @@ async function handleStop() {
     sending.value = false
     return
   }
+  if (selectedSessionId.value && queuedMessages.value.length > 0) {
+    pauseQueuedMessages(selectedSessionId.value)
+    queuePaused.value = true
+  }
   try {
     await gw.interruptSession(runtimeId)
   } catch {
@@ -2013,11 +2137,42 @@ function formatTime(ts: number): string {
         </div>
         <span class="text-[10px] text-app-muted">{{ pendingAttachments.length }}/{{ MAX_ATTACHMENTS }}</span>
       </div>
+      <div v-if="queuedMessages.length" class="mb-2 rounded-lg border border-app-border bg-app-surface-2/70 px-2.5 py-2">
+        <div class="mb-1.5 flex items-center gap-2 text-[11px] font-medium text-app-muted">
+          <span>{{ queuedMessages.length }} queued {{ queuedMessages.length === 1 ? 'message' : 'messages' }}<span v-if="queuePaused"> · paused</span></span>
+          <button v-if="queuePaused && !sending" class="ml-auto cursor-pointer border-0 bg-transparent px-1 text-app-accent hover:text-app-accent-hover" type="button" @click="resumeQueue">Resume</button>
+          <button class="cursor-pointer border-0 bg-transparent px-1 text-app-muted hover:text-app-error" type="button" @click="clearCurrentQueue">Clear</button>
+        </div>
+        <div v-for="entry in queuedMessages" :key="entry.id" class="flex min-w-0 items-center gap-2 border-t border-app-border/60 py-1.5 first:border-t-0">
+          <span class="min-w-0 flex-1 line-clamp-2 text-xs leading-[1.35] text-app-text">{{ entry.text }}</span>
+          <button class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded border-0 bg-transparent text-app-muted hover:text-app-error" type="button" :aria-label="`Remove queued message: ${entry.text}`" @click="removeQueued(entry.id)"><X :size="14" :stroke-width="2" /></button>
+        </div>
+      </div>
       <div v-if="sending && elapsedDisplay" class="absolute left-3.5 bottom-full mb-1.5 flex items-center gap-1.5 rounded-md border border-app-border bg-app-surface-2 px-2.5 py-1">
         <span class="size-1.5 rounded-full bg-app-accent"></span>
         <span class="text-xs tabular-nums text-app-muted">{{ elapsedDisplay }}</span>
       </div>
-      <div v-if="sending" class="flex flex-1 items-center justify-center">
+      <div v-if="sending" class="flex flex-col gap-2">
+        <div class="flex min-w-0 items-end gap-2">
+          <textarea
+            ref="inputEl"
+            v-model="input"
+            placeholder="Queue a message…"
+            rows="1"
+            @keydown="handleKeydown"
+            @input="autoResize"
+            class="min-h-9 max-h-32 min-w-0 flex-1 resize-none rounded-[10px] border border-app-border bg-app-bg px-3 py-2 text-sm leading-5 text-app-text outline-none transition-colors placeholder:text-app-muted focus:border-app-accent"
+          ></textarea>
+          <button
+            class="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-[10px] border-0 bg-app-accent text-white transition-colors hover:not-disabled:bg-app-accent-hover disabled:cursor-default disabled:opacity-40"
+            :disabled="!input.trim()"
+            aria-label="Queue message"
+            title="Queue message"
+            @click="handleSend"
+          >
+            <Send :size="18" :stroke-width="2" />
+          </button>
+        </div>
         <button class="flex w-full cursor-pointer items-center justify-center gap-2 rounded-[10px] border border-app-error/30 bg-app-error/[.08] px-5 py-2.5 text-[13px] font-medium text-app-error transition-all hover:border-app-error/50 hover:bg-app-error/15 active:scale-[.98]" @click="handleStop">
           <Square :size="16" fill="currentColor" :stroke-width="2" />
           <span>Stop generating</span>

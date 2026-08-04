@@ -5,6 +5,17 @@ export interface GatewayImageRequest {
   path: string
 }
 
+/**
+ * Markdown image URLs from Desktop can be filesystem paths on the gateway host.
+ * Portable URLs should be left to the webview; only absolute paths are safe to
+ * hand to the authenticated media endpoint.
+ */
+export function gatewayImagePathFromMarkdownSrc(src: string): string | null {
+  const trimmed = src.trim()
+  if (!trimmed || !trimmed.startsWith('/') || trimmed.startsWith('//')) return null
+  return trimmed
+}
+
 type GatewayImageMessage = Pick<SessionMessage, 'id' | 'role' | 'timestamp' | 'imageAttachments'>
 type GatewayImageAttachment = Pick<NonNullable<GatewayImageMessage['imageAttachments']>[number], 'src' | 'gatewayPath'>
 

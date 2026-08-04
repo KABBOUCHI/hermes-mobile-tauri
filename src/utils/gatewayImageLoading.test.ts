@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { gatewayImageKey, pendingGatewayImageRequests } from './gatewayImageLoading'
+import { gatewayImageKey, gatewayImagePathFromMarkdownSrc, pendingGatewayImageRequests } from './gatewayImageLoading'
+
+describe('gatewayImagePathFromMarkdownSrc', () => {
+  it('accepts absolute gateway paths while leaving portable image sources alone', () => {
+    expect(gatewayImagePathFromMarkdownSrc('/home/user/project/preview.png')).toBe('/home/user/project/preview.png')
+    expect(gatewayImagePathFromMarkdownSrc('https://example.com/preview.png')).toBeNull()
+    expect(gatewayImagePathFromMarkdownSrc('//example.com/preview.png')).toBeNull()
+    expect(gatewayImagePathFromMarkdownSrc('data:image/png;base64,pixels')).toBeNull()
+  })
+})
 
 describe('pendingGatewayImageRequests', () => {
   it('returns only unresolved gateway-backed images and deduplicates requests', () => {

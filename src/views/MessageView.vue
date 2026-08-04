@@ -42,7 +42,7 @@ import {
   setQueuedMessages,
   type QueuedMessage,
 } from '../utils/composerQueue'
-import { gatewayImageKey, pendingGatewayImageRequests, type GatewayImageRequest } from '../utils/gatewayImageLoading'
+import { gatewayImageKey, gatewayImagePathFromMarkdownSrc, pendingGatewayImageRequests, type GatewayImageRequest } from '../utils/gatewayImageLoading'
 import { isBackSwipe, SWIPE_BACK_EDGE_PX, type SwipeBackGesture } from '../utils/swipeBack'
 import { openUrl } from '@tauri-apps/plugin-opener'
 import { ArrowDown, ArrowLeft, BarChart3, Check, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Copy, EllipsisVertical, FileImage, FileText, GitFork, History, MessageCircle, MoreHorizontal, Paperclip, Pencil, RotateCcw, Search, Send, Share, Square, Terminal, Volume2, VolumeX, X } from '@lucide/vue'
@@ -1116,6 +1116,59 @@ function openAttachmentPreview(src: string, label: string) {
   imagePreview.value = { src, alt: label }
 }
 
+// Desktop's Markdown renderer resolves absolute image paths through the gateway
+// media API. A mobile webview cannot read those host paths directly, so retry
+// failed Markdown images through the authenticated endpoint instead of leaving a
+// broken thumbnail in the transcript.
+const markdownImageDataUrls = new Map<string, string>()
+const markdownImageRequests = new Map<string, Promise<string | null>>()
+
+function markdownImageCacheKey(path: string): string {
+  return `${auth.gatewayUrl.value}\u0000${path}`
+}
+
+async function resolveMarkdownImage(path: string): Promise<string | null> {
+  const key = markdownImageCacheKey(path)
+  const cached = markdownImageDataUrls.get(key)
+  if (cached) return cached
+
+  const existing = markdownImageRequests.get(key)
+  if (existing) return existing
+
+  const request = gw.fetchMediaDataUrl(auth.gatewayUrl.value, path)
+    .then(dataUrl => {
+      if (dataUrl) markdownImageDataUrls.set(key, dataUrl)
+      return dataUrl
+    })
+    .catch(() => null)
+    .finally(() => {
+      markdownImageRequests.delete(key)
+    })
+  markdownImageRequests.set(key, request)
+  return request
+}
+
+async function handleMarkdownImageError(e: Event) {
+  const image = e.target instanceof HTMLImageElement ? e.target : null
+  if (!image || !image.classList.contains('md-img')) return
+
+  const path = gatewayImagePathFromMarkdownSrc(image.getAttribute('src') || '')
+  if (!path || image.dataset.gatewayImageState) return
+
+  image.dataset.gatewayImagePath = path
+  image.dataset.gatewayImageState = 'loading'
+  const dataUrl = await resolveMarkdownImage(path)
+  if (image.dataset.gatewayImagePath !== path) return
+
+  if (dataUrl) {
+    image.dataset.gatewayImageState = 'resolved'
+    image.src = dataUrl
+  } else {
+    image.dataset.gatewayImageState = 'failed'
+    image.title = `Unable to load ${image.alt || 'image'}`
+  }
+}
+
 const resolvedGatewayImages = ref<Record<string, string>>({})
 const resolvingGatewayImages = new Set<string>()
 const gatewayImageElements = new Map<Element, GatewayImageRequest>()
@@ -1824,7 +1877,7 @@ function formatTime(ts: number): string {
     </div>
 
     <!-- Messages -->
-    <div class="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-x-hidden overflow-y-auto overscroll-contain px-3 py-3" ref="scrollEl" @scroll="onScroll" @click="handleMessagesClick" @touchstart.capture="handleSwipeBackStart" @touchmove.capture="handleSwipeBackMove" @touchend.capture="handleSwipeBackEnd" @touchcancel.capture="handleSwipeBackCancel" @touchstart="onChatTouchStart" @touchmove="onChatTouchMove" @touchend="onChatTouchEnd">
+    <div class="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-x-hidden overflow-y-auto overscroll-contain px-3 py-3" ref="scrollEl" @scroll="onScroll" @error.capture="handleMarkdownImageError" @click="handleMessagesClick" @touchstart.capture="handleSwipeBackStart" @touchmove.capture="handleSwipeBackMove" @touchend.capture="handleSwipeBackEnd" @touchcancel.capture="handleSwipeBackCancel" @touchstart="onChatTouchStart" @touchmove="onChatTouchMove" @touchend="onChatTouchEnd">
       <!-- Pull-to-refresh indicator -->
       <div
         v-if="pullDelta > 0"

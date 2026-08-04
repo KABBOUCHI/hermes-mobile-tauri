@@ -87,11 +87,27 @@ hljs.registerLanguage('graphql', graphql)
 hljs.registerLanguage('gql', graphql)
 hljs.registerLanguage('http', http)
 
+// Markdown info strings commonly use display names that differ from the
+// highlight.js registration. Keep the wire label intact for the reader, but
+// resolve the common aliases before asking highlight.js for a grammar.
+const LANGUAGE_ALIASES: Record<string, string> = {
+  'c++': 'cpp',
+  'c#': 'csharp',
+  console: 'shell',
+  'shell-session': 'shell',
+}
+
+const FENCE_START_RE = /^ {0,3}(`{3,}|~{3,})(.*)$/
+const FENCE_CLOSE_RE = /^ {0,3}(`{3,}|~{3,})[ \t]*$/
+
 /** Try to highlight code with highlight.js, fall back to plain text */
 function highlightCode(code: string, lang: string): string {
-  if (lang && hljs.getLanguage(lang)) {
+  const normalizedLang = lang.trim().toLowerCase()
+  const highlightLang = LANGUAGE_ALIASES[normalizedLang] || normalizedLang
+
+  if (highlightLang && hljs.getLanguage(highlightLang)) {
     try {
-      return hljs.highlight(code, { language: lang, ignoreIllegals: true }).value
+      return hljs.highlight(code, { language: highlightLang, ignoreIllegals: true }).value
     } catch { /* fall through */ }
   }
   // Auto-detect if no language specified
@@ -272,16 +288,30 @@ export function renderMarkdown(text: string): string {
     }
 
     // Fenced code block
-    const fenceMatch = line.match(/^```(\w*)/)
+    const fenceMatch = line.match(FENCE_START_RE)
     if (fenceMatch) {
-      const lang = fenceMatch[1] || ''
+      const fence = fenceMatch[1]
+      const info = fenceMatch[2].trim()
+      // The first token is the language; additional info-string tokens (for
+      // example `title="app.ts"`) are valid Markdown and need not affect the
+      // code renderer.
+      const lang = info.split(/\s+/)[0] || ''
       const codeLines: string[] = []
       i++
-      while (i < lines.length && !lines[i].startsWith('```')) {
+      while (i < lines.length) {
+        const closingFence = lines[i].match(FENCE_CLOSE_RE)
+        if (
+          closingFence
+          && closingFence[1][0] === fence[0]
+          && closingFence[1].length >= fence.length
+        ) {
+          i++
+          break
+        }
+
         codeLines.push(lines[i])
         i++
       }
-      i++ // skip closing ```
       const rawCode = codeLines.join('\n')
       const highlighted = highlightCode(rawCode, lang)
       const langLabel = lang ? `<span class="md-code-lang">${escapeHtml(lang)}</span>` : ''
@@ -364,7 +394,7 @@ export function renderMarkdown(text: string): string {
 
     // Paragraph (collect consecutive non-empty lines)
     const paraLines: string[] = []
-    while (i < lines.length && lines[i].trim() !== '' && !lines[i].match(/^(#{1,6}\s|```|>\s|[-*_]{3,}\s*$)/) && !lines[i].match(/^%%THINKING_BLOCK_/)) {
+    while (i < lines.length && lines[i].trim() !== '' && !lines[i].match(/^(#{1,6}\s|>\s|[-*_]{3,}\s*$)/) && !FENCE_START_RE.test(lines[i]) && !lines[i].match(/^%%THINKING_BLOCK_/)) {
       paraLines.push(lines[i])
       i++
     }

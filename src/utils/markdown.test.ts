@@ -45,4 +45,26 @@ describe('renderMarkdown links', () => {
       '<p class="md-p">--- Attached Context ---</p>',
     )
   })
+
+  it('supports tilde fences and info-string metadata', () => {
+    const html = renderMarkdown('~~~typescript title="app.ts"\nconst value = 1\n~~~')
+
+    expect(html).toContain('<span class="md-code-lang">typescript</span>')
+    expect(html).toContain('<span class="hljs-keyword">const</span>')
+    expect(html).not.toContain('<p class="md-p">~~~')
+  })
+
+  it('accepts punctuation-heavy language names through highlight aliases', () => {
+    const html = renderMarkdown('```c++\nstd::vector<int> values;\n```')
+
+    expect(html).toContain('<span class="md-code-lang">c++</span>')
+    expect(html).toContain('<span class="hljs-type">int</span>')
+  })
+
+  it('does not close a longer fence on an inner shorter fence', () => {
+    const html = renderMarkdown('````text\n```\ninside\n```\n````')
+
+    expect(html.match(/class="md-code-wrap"/g)).toHaveLength(1)
+    expect(html).toContain('inside')
+  })
 })

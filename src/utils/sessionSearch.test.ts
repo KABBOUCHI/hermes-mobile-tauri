@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { sessionMatchesSearch } from './sessionSearch'
+import { isCurrentSessionSearchGeneration, sessionMatchesSearch } from './sessionSearch'
 
 const session = {
   id: '20260729_120000_abc123',
@@ -36,6 +36,11 @@ describe('sessionMatchesSearch', () => {
     expect(sessionMatchesSearch(projectSession, 'lineage-root-123')).toBe(true)
     expect(sessionMatchesSearch(projectSession, 'hermes-mobile-tauri')).toBe(true)
     expect(sessionMatchesSearch(projectSession, 'feature/session-search')).toBe(true)
+  })
+
+  it('only settles the search state for the latest debounced request', () => {
+    expect(isCurrentSessionSearchGeneration(4, 4)).toBe(true)
+    expect(isCurrentSessionSearchGeneration(3, 4)).toBe(false)
   })
 
   it('does not match unrelated search text', () => {

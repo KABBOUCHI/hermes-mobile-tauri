@@ -48,6 +48,11 @@ const SOURCE_ALIASES: Record<string, string[]> = {
   whatsapp: ['wa'],
 }
 
+/** Ignore a finished search when a newer query has already taken ownership. */
+export function isCurrentSessionSearchGeneration(requestGeneration: number, currentGeneration: number): boolean {
+  return requestGeneration === currentGeneration
+}
+
 function sourceSearchTerms(source: string | null | undefined): string[] {
   const id = source?.trim().toLowerCase() || ''
   if (!id) return []

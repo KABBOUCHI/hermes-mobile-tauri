@@ -8,7 +8,7 @@ import { usePins } from '../composables/usePins'
 import { useUnreads } from '../composables/useUnreads'
 import { useLastSession } from '../composables/useLastSession'
 import { useToast } from '../composables/useToast'
-import { sessionMatchesSearch } from '../utils/sessionSearch'
+import { isCurrentSessionSearchGeneration, sessionMatchesSearch } from '../utils/sessionSearch'
 import { flattenSessionsWithBranches, orderSessionsByIds, sessionIsPinned, sessionMatchesStoredId, sessionPinId, type SessionBranchEntry } from '../utils/sessionList'
 import { filterSessionsBySource } from '../utils/sessionSource'
 import { sessionActivityState, type SessionActivityState } from '../utils/sessionActivity'
@@ -408,10 +408,17 @@ watch(search, query => {
 
   searchPending.value = true
   searchTimer = setTimeout(async () => {
-    const results = await gw.searchSessions(auth.gatewayUrl.value, q)
-    if (generation === searchGeneration) {
-      serverSearchResults.value = results
-      searchPending.value = false
+    try {
+      const results = await gw.searchSessions(auth.gatewayUrl.value, q)
+      if (isCurrentSessionSearchGeneration(generation, searchGeneration)) {
+        serverSearchResults.value = results
+      }
+    } finally {
+      // Desktop clears its pending state even when the full-text index is
+      // unavailable. Loaded rows remain searchable; only the spinner settles.
+      if (isCurrentSessionSearchGeneration(generation, searchGeneration)) {
+        searchPending.value = false
+      }
     }
   }, 200)
 })

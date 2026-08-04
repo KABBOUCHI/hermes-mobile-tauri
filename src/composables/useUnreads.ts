@@ -1,5 +1,5 @@
 import { load } from '@tauri-apps/plugin-store'
-import { sessionUnreadKey, unreadSessionIds, type UnreadSession } from '../utils/sessionUnread'
+import { seedUnreadCounts, sessionUnreadKey, unreadSessionIds, type UnreadSession } from '../utils/sessionUnread'
 
 let storeInstance: Awaited<ReturnType<typeof load>> | null = null
 
@@ -49,7 +49,14 @@ export function useUnreads() {
 
   async function getUnreadIds(sessions: UnreadSession[]): Promise<Set<string>> {
     const counts = await getLastSeenCounts()
-    return unreadSessionIds(sessions, counts)
+    const seededCounts = seedUnreadCounts(sessions, counts)
+    if (Object.keys(seededCounts).length !== Object.keys(counts).length) {
+      try {
+        const s = await initStore()
+        await s.set(STORAGE_KEY, seededCounts)
+      } catch {}
+    }
+    return unreadSessionIds(sessions, seededCounts)
   }
 
   return {

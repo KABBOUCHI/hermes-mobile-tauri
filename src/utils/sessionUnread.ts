@@ -41,3 +41,22 @@ export function unreadSessionIds(
   }
   return unread
 }
+
+/**
+ * Establish a read baseline for sessions first seen by this device. Without a
+ * baseline, a later message-count refresh cannot distinguish a new background
+ * completion from a session that was simply never opened here.
+ */
+export function seedUnreadCounts(
+  sessions: readonly UnreadSession[],
+  counts: Readonly<Record<string, number>>,
+): Record<string, number> {
+  const seeded = { ...counts }
+  for (const session of sessions) {
+    const durableKey = sessionUnreadKey(session)
+    // Preserve both the current durable marker and the legacy live-id marker.
+    if (seeded[durableKey] !== undefined || seeded[session.id] !== undefined) continue
+    seeded[durableKey] = session.message_count
+  }
+  return seeded
+}

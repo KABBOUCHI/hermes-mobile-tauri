@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { unreadSessionIds, sessionUnreadKey } from './sessionUnread'
+import { seedUnreadCounts, unreadSessionIds, sessionUnreadKey } from './sessionUnread'
 
 describe('session unread identity', () => {
   it('uses the durable lineage root as the unread storage key', () => {
@@ -21,5 +21,27 @@ describe('session unread identity', () => {
     ]
 
     expect(unreadSessionIds(sessions, { root: 1, other: 4 })).toEqual(new Set(['tip']))
+  })
+
+  it('seeds first-seen sessions so later count changes become unread', () => {
+    const sessions = [
+      { id: 'desktop-1', message_count: 4 },
+      { id: 'tip', _lineage_root_id: 'root', message_count: 7 },
+    ]
+
+    const baseline = seedUnreadCounts(sessions, { existing: 2 })
+    expect(baseline).toEqual({
+      existing: 2,
+      'desktop-1': 4,
+      root: 7,
+    })
+    expect(seedUnreadCounts(sessions, { tip: 6 })).toEqual({
+      tip: 6,
+      'desktop-1': 4,
+    })
+    expect(unreadSessionIds([
+      { id: 'desktop-1', message_count: 5 },
+      { id: 'tip', _lineage_root_id: 'root', message_count: 7 },
+    ], baseline)).toEqual(new Set(['desktop-1']))
   })
 })

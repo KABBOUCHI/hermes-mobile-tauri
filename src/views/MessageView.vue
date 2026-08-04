@@ -43,9 +43,10 @@ import {
   type QueuedMessage,
 } from '../utils/composerQueue'
 import { gatewayImageKey, gatewayImagePathFromMarkdownSrc, pendingGatewayImageRequests, type GatewayImageRequest } from '../utils/gatewayImageLoading'
+import { imagePan, imageZoom, resetImageTransform, type ImageTransform } from '../utils/imageZoom'
 import { isBackSwipe, SWIPE_BACK_EDGE_PX, type SwipeBackGesture } from '../utils/swipeBack'
 import { openUrl } from '@tauri-apps/plugin-opener'
-import { ArrowDown, ArrowLeft, BarChart3, Check, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Compass, Copy, EllipsisVertical, FileImage, FileText, GitFork, History, Layers3, MessageCircle, MoreHorizontal, Paperclip, Pencil, RotateCcw, Search, Send, Square, Terminal, Volume2, VolumeX, X } from '@lucide/vue'
+import { ArrowDown, ArrowLeft, BarChart3, Check, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Compass, Copy, EllipsisVertical, FileImage, FileText, GitFork, History, Layers3, MessageCircle, MoreHorizontal, Paperclip, Pencil, RefreshCw, RotateCcw, Search, Send, Square, Terminal, Volume2, VolumeX, X, ZoomIn, ZoomOut } from '@lucide/vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -1155,17 +1156,79 @@ function render(content: string): string {
 
 // Desktop opens rendered images in a dedicated zoomable viewer. Keep the mobile
 // equivalent local to the message surface so the markdown renderer stays pure.
-const imagePreview = ref<{ src: string; alt: string } | null>(null)
+interface ImagePreviewState {
+  src: string
+  alt: string
+  transform: ImageTransform
+}
+
+const imagePreview = ref<ImagePreviewState | null>(null)
+const imagePreviewDrag = ref<{ pointerId: number; x: number; y: number } | null>(null)
+
+const imagePreviewStyle = computed(() => {
+  const transform = imagePreview.value?.transform
+  if (!transform) return undefined
+  return {
+    transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
+  }
+})
 
 function openImagePreview(image: HTMLImageElement) {
   const src = image.currentSrc || image.src
   if (!src) return
-  imagePreview.value = { src, alt: image.alt || 'Image preview' }
+  imagePreview.value = { src, alt: image.alt || 'Image preview', transform: resetImageTransform() }
 }
 
 function openAttachmentPreview(src: string, label: string) {
   if (!src) return
-  imagePreview.value = { src, alt: label }
+  imagePreview.value = { src, alt: label, transform: resetImageTransform() }
+}
+
+function zoomImagePreview(factor: number, originX = 0, originY = 0) {
+  const preview = imagePreview.value
+  if (!preview) return
+  imagePreview.value = { ...preview, transform: imageZoom(preview.transform, factor, originX, originY) }
+}
+
+function resetImagePreview() {
+  if (!imagePreview.value) return
+  imagePreview.value = { ...imagePreview.value, transform: resetImageTransform() }
+}
+
+function handleImagePreviewPointerDown(e: PointerEvent) {
+  const preview = imagePreview.value
+  const target = e.currentTarget
+  if (!preview || !(target instanceof HTMLElement)) return
+  target.setPointerCapture(e.pointerId)
+  imagePreviewDrag.value = {
+    pointerId: e.pointerId,
+    x: e.clientX,
+    y: e.clientY,
+  }
+}
+
+function handleImagePreviewPointerMove(e: PointerEvent) {
+  const drag = imagePreviewDrag.value
+  if (!drag || drag.pointerId !== e.pointerId || !imagePreview.value) return
+  imagePreview.value = {
+    ...imagePreview.value,
+    transform: imagePan(imagePreview.value.transform, e.clientX - drag.x, e.clientY - drag.y),
+  }
+  drag.x = e.clientX
+  drag.y = e.clientY
+}
+
+function handleImagePreviewPointerEnd(e: PointerEvent) {
+  if (imagePreviewDrag.value?.pointerId === e.pointerId) imagePreviewDrag.value = null
+}
+
+function handleImagePreviewWheel(e: WheelEvent) {
+  const target = e.currentTarget
+  if (!(target instanceof HTMLElement)) return
+  const rect = target.getBoundingClientRect()
+  const originX = e.clientX - rect.left - rect.width / 2
+  const originY = e.clientY - rect.top - rect.height / 2
+  zoomImagePreview(e.deltaY < 0 ? 1.1 : 1 / 1.1, originX, originY)
 }
 
 // Desktop's Markdown renderer resolves absolute image paths through the gateway
@@ -1335,6 +1398,7 @@ watch(imageAttachmentSignature, () => {
 }, { immediate: true })
 
 function closeImagePreview() {
+  imagePreviewDrag.value = null
   imagePreview.value = null
 }
 
@@ -2472,14 +2536,26 @@ function formatTime(ts: number): string {
     <!-- Image preview -->
     <Teleport to="body">
       <Transition name="image-preview-fade">
-        <div v-if="imagePreview" class="fixed inset-0 z-[2100] grid place-items-center bg-black/[.82] p-6 pt-[max(24px,env(safe-area-inset-top,0px))] pb-[max(24px,env(safe-area-inset-bottom,0px))]" @click="closeImagePreview">
-          <button class="absolute top-[max(12px,env(safe-area-inset-top,0px))] right-3 flex size-9 cursor-pointer items-center justify-center rounded-full border border-app-border bg-app-surface text-app-text" aria-label="Close image preview" @click="closeImagePreview"><X :size="18" :stroke-width="2" /></button>
-          <img
-            class="block max-h-full max-w-full cursor-zoom-out rounded-lg object-contain"
-            :src="imagePreview.src"
-            :alt="imagePreview.alt"
+        <div v-if="imagePreview" class="fixed inset-0 z-[2100] flex flex-col bg-black/[.82] p-6 pt-[max(24px,env(safe-area-inset-top,0px))] pb-[max(24px,env(safe-area-inset-bottom,0px))]" @click="closeImagePreview">
+          <button class="absolute top-[max(12px,env(safe-area-inset-top,0px))] right-3 z-10 flex size-9 cursor-pointer items-center justify-center rounded-full border border-app-border bg-app-surface text-app-text" aria-label="Close image preview" @click.stop="closeImagePreview"><X :size="18" :stroke-width="2" /></button>
+          <div
+            class="relative flex min-h-0 min-w-0 flex-1 touch-none select-none items-center justify-center overflow-hidden"
             @click.stop
-          />
+            @pointerdown.stop="handleImagePreviewPointerDown"
+            @pointermove.stop="handleImagePreviewPointerMove"
+            @pointerup.stop="handleImagePreviewPointerEnd"
+            @pointercancel.stop="handleImagePreviewPointerEnd"
+            @wheel.prevent.stop="handleImagePreviewWheel"
+          >
+            <div class="origin-center" :style="imagePreviewStyle">
+              <img class="block max-h-full max-w-full cursor-grab rounded-lg object-contain" :src="imagePreview.src" :alt="imagePreview.alt" @click.stop />
+            </div>
+          </div>
+          <div class="flex shrink-0 items-center justify-center gap-1 pt-3">
+            <button class="flex size-9 cursor-pointer items-center justify-center rounded-full border border-app-border bg-app-surface text-app-muted transition-colors hover:bg-app-surface-2 hover:text-app-text" aria-label="Zoom out" title="Zoom out" @click.stop="zoomImagePreview(1 / 1.25)"><ZoomOut :size="17" :stroke-width="2" /></button>
+            <button class="flex size-9 cursor-pointer items-center justify-center rounded-full border border-app-border bg-app-surface text-app-muted transition-colors hover:bg-app-surface-2 hover:text-app-text" aria-label="Reset image zoom" title="Reset zoom" @click.stop="resetImagePreview"><RefreshCw :size="16" :stroke-width="2" /></button>
+            <button class="flex size-9 cursor-pointer items-center justify-center rounded-full border border-app-border bg-app-surface text-app-muted transition-colors hover:bg-app-surface-2 hover:text-app-text" aria-label="Zoom in" title="Zoom in" @click.stop="zoomImagePreview(1.25)"><ZoomIn :size="17" :stroke-width="2" /></button>
+          </div>
         </div>
       </Transition>
     </Teleport>

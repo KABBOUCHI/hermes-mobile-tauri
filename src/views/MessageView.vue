@@ -18,7 +18,7 @@ import { shouldOfferMessageExpansion } from '../utils/messageDisplay'
 import { isStreamStalled, STREAM_STALL_THRESHOLD_MS } from '../utils/streamStall'
 import { speakText, stopSpeech } from '../utils/speech'
 import { useAuth } from '../composables/useAuth'
-import { useGateway, type ModelProvider, type Session } from '../composables/useGateway'
+import { useGateway, type Message, type ModelProvider, type Session } from '../composables/useGateway'
 import { useLastSession } from '../composables/useLastSession'
 import { useToast } from '../composables/useToast'
 import { useUnreads } from '../composables/useUnreads'
@@ -45,7 +45,7 @@ import {
 import { gatewayImageKey, gatewayImagePathFromMarkdownSrc, pendingGatewayImageRequests, type GatewayImageRequest } from '../utils/gatewayImageLoading'
 import { isBackSwipe, SWIPE_BACK_EDGE_PX, type SwipeBackGesture } from '../utils/swipeBack'
 import { openUrl } from '@tauri-apps/plugin-opener'
-import { ArrowDown, ArrowLeft, BarChart3, Check, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Copy, EllipsisVertical, FileImage, FileText, GitFork, History, MessageCircle, MoreHorizontal, Paperclip, Pencil, RotateCcw, Search, Send, Share, Square, Terminal, Volume2, VolumeX, X } from '@lucide/vue'
+import { ArrowDown, ArrowLeft, BarChart3, Check, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Compass, Copy, EllipsisVertical, FileImage, FileText, GitFork, History, Layers3, MessageCircle, MoreHorizontal, Paperclip, Pencil, RotateCcw, Search, Send, Square, Terminal, Volume2, VolumeX, X } from '@lucide/vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -398,6 +398,7 @@ const fileInputEl = ref<HTMLInputElement | null>(null)
 const pendingAttachments = ref<PendingAttachment[]>([])
 const queuedMessages = ref<QueuedMessage[]>([])
 const queuePaused = ref(false)
+const steering = ref(false)
 let queueDrainLock = false
 const composerEl = ref<HTMLElement | null>(null)
 const composerHeight = ref(56)
@@ -808,11 +809,62 @@ async function drainQueuedMessages(sessionId: string): Promise<void> {
 function handleSend() {
   const text = input.value.trim()
   if (sending.value) {
-    if (text) queueCurrentMessage(text)
+    if (text) void handleSteer()
     return
   }
   if (!text && pendingAttachments.value.length === 0) return
   void sendText(text)
+}
+
+function insertSteeringMessage(text: string): Message {
+  const message: Message = {
+    id: `steer-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    role: 'user',
+    content: text,
+    timestamp: Date.now() / 1000,
+  }
+  const activeReplyIndex = [...gw.messages.value].map(item => item.role).lastIndexOf('assistant')
+  if (activeReplyIndex >= 0) {
+    gw.messages.value.splice(activeReplyIndex, 0, message)
+  } else {
+    gw.messages.value.push(message)
+  }
+  return message
+}
+
+async function handleSteer() {
+  const text = input.value.trim()
+  const sessionId = selectedSessionId.value
+  const runtimeId = gw.activeRuntimeId.value
+  if (!text || !sessionId || !sending.value || steering.value) return
+  if (!runtimeId) {
+    queueCurrentMessage(text)
+    return
+  }
+
+  const optimisticMessage = insertSteeringMessage(text)
+  input.value = ''
+  if (inputEl.value) inputEl.value.style.height = 'auto'
+  steering.value = true
+
+  try {
+    const result = await gw.redirectSession(sessionId, text)
+    if (selectedSessionId.value !== sessionId) return
+    if (result === 'queued') {
+      const index = gw.messages.value.indexOf(optimisticMessage)
+      if (index >= 0) {
+        gw.messages.value.splice(index, 1)
+        gw.messages.value.push(optimisticMessage)
+      }
+      toast.show('Correction queued', 'info')
+    }
+  } catch {
+    const index = gw.messages.value.indexOf(optimisticMessage)
+    if (index >= 0) gw.messages.value.splice(index, 1)
+    if (selectedSessionId.value === sessionId) queueCurrentMessage(text)
+  } finally {
+    steering.value = false
+  }
 }
 
 async function sendText(
@@ -2211,20 +2263,29 @@ function formatTime(ts: number): string {
           <textarea
             ref="inputEl"
             v-model="input"
-            placeholder="Queue a message…"
+            placeholder="Steer the current run…"
             rows="1"
             @keydown="handleKeydown"
             @input="autoResize"
             class="min-h-9 max-h-32 min-w-0 flex-1 resize-none rounded-[10px] border border-app-border bg-app-bg px-3 py-2 text-sm leading-5 text-app-text outline-none transition-colors placeholder:text-app-muted focus:border-app-accent"
           ></textarea>
           <button
-            class="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-[10px] border-0 bg-app-accent text-white transition-colors hover:not-disabled:bg-app-accent-hover disabled:cursor-default disabled:opacity-40"
-            :disabled="!input.trim()"
+            v-if="input.trim()"
+            class="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-[10px] border border-app-border bg-transparent text-app-muted transition-colors hover:border-app-accent hover:bg-app-accent/10 hover:text-app-accent"
             aria-label="Queue message"
             title="Queue message"
+            @click="queueCurrentMessage(input.trim())"
+          >
+            <Layers3 :size="18" :stroke-width="2" />
+          </button>
+          <button
+            class="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-[10px] border-0 bg-app-accent text-white transition-colors hover:not-disabled:bg-app-accent-hover disabled:cursor-default disabled:opacity-40"
+            :disabled="!input.trim() || steering"
+            aria-label="Steer current run"
+            title="Steer current run"
             @click="handleSend"
           >
-            <Send :size="18" :stroke-width="2" />
+            <Compass :size="18" :stroke-width="2" />
           </button>
         </div>
         <button class="flex w-full cursor-pointer items-center justify-center gap-2 rounded-[10px] border border-app-error/30 bg-app-error/[.08] px-5 py-2.5 text-[13px] font-medium text-app-error transition-all hover:border-app-error/50 hover:bg-app-error/15 active:scale-[.98]" @click="handleStop">

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { branchSessionParams, MESSAGE_FETCH_TIMEOUT, SESSION_PICKER_LIMIT, SESSION_REFRESH_DEBOUNCE_MS, sessionListPath, sessionPickerPath, shouldInterruptBeforeRewind, shouldRefreshSessionsForEvent } from './useGateway'
+import { branchSessionParams, MESSAGE_FETCH_TIMEOUT, SESSION_PICKER_LIMIT, SESSION_REFRESH_DEBOUNCE_MS, sessionListPath, sessionPickerPath, sessionRedirectParams, sessionRedirectResult, shouldInterruptBeforeRewind, shouldRefreshSessionsForEvent } from './useGateway'
 
 
 describe('session list request policy', () => {
@@ -58,6 +58,21 @@ describe('rewind interruption policy', () => {
   it('interrupts only the active runtime before replacing its turn', () => {
     expect(shouldInterruptBeforeRewind('runtime-1', 'runtime-1')).toBe(true)
     expect(shouldInterruptBeforeRewind('runtime-1', 'runtime-2')).toBe(false)
+  })
+})
+
+describe('mid-turn steering policy', () => {
+  it('matches Desktop’s session.redirect request shape', () => {
+    expect(sessionRedirectParams(' runtime-1 ', '  use the smaller patch  ')).toEqual({
+      session_id: 'runtime-1',
+      text: 'use the smaller patch',
+    })
+  })
+
+  it('preserves the gateway distinction between redirected and queued corrections', () => {
+    expect(sessionRedirectResult({ status: 'redirected' })).toBe('redirected')
+    expect(sessionRedirectResult({ status: 'queued' })).toBe('queued')
+    expect(sessionRedirectResult({ status: 'unexpected' })).toBeNull()
   })
 })
 

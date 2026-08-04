@@ -41,6 +41,28 @@ export function shouldInterruptBeforeRewind(activeRuntimeId: string | null, resu
   return Boolean(activeRuntimeId && resumedRuntimeId && activeRuntimeId === resumedRuntimeId)
 }
 
+export type SessionRedirectResult = 'redirected' | 'queued'
+
+/** Match Desktop's mid-turn correction request exactly. */
+export function sessionRedirectParams(runtimeSessionId: string, text: string): { session_id: string; text: string } {
+  return {
+    session_id: runtimeSessionId.trim(),
+    text: text.trim(),
+  }
+}
+
+/** Keep the gateway's two accepted redirect outcomes explicit at the boundary. */
+export function sessionRedirectResult(payload: unknown): SessionRedirectResult | null {
+  if (!payload || typeof payload !== 'object') return null
+  const status = (payload as Record<string, unknown>).status
+  return status === 'redirected' || status === 'queued' ? status : null
+}
+
+function isSessionNotFoundError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err ?? '')
+  return /session not found|\b404\b/i.test(message)
+}
+
 const RECONNECT_BASE_MS = 1000
 const RECONNECT_MAX_MS = 15000
 
@@ -1176,6 +1198,47 @@ async function interruptSession(sessionId: string): Promise<void> {
   }
 }
 
+/**
+ * Send a Desktop-style correction into the active runtime. If the volatile
+ * runtime id was lost during reconnect, rebind the stored session once before
+ * retrying rather than silently turning a correction into a new conversation.
+ */
+async function redirectSession(storedSessionId: string, text: string): Promise<SessionRedirectResult> {
+  const targetStoredId = storedSessionId.trim()
+  const trimmedText = text.trim()
+  if (!targetStoredId || !trimmedText) throw new Error('A steering message is required')
+  if (!ws || wsState.value !== 'open') throw new Error('WebSocket not connected')
+
+  let runtimeId = activeTurn?.storedSessionId === targetStoredId ? activeTurn.sessionId : ''
+  if (!runtimeId) {
+    for (const [candidateRuntimeId, candidateStoredId] of runtimeToStoredSession) {
+      if (candidateStoredId === targetStoredId) {
+        runtimeId = candidateRuntimeId
+        break
+      }
+    }
+  }
+  if (!runtimeId) throw new Error('No active turn to steer')
+
+  const sendRedirect = async (candidateRuntimeId: string): Promise<SessionRedirectResult> => {
+    const result = sessionRedirectResult(await rpcCall('session.redirect', sessionRedirectParams(candidateRuntimeId, trimmedText)))
+    if (!result) throw new Error('Gateway rejected the steering request')
+    return result
+  }
+
+  try {
+    return await sendRedirect(runtimeId)
+  } catch (err) {
+    if (!isSessionNotFoundError(err)) throw err
+
+    const recoveredRuntimeId = await resumeSession(targetStoredId)
+    if (activeTurn?.storedSessionId === targetStoredId) {
+      activeTurn.sessionId = recoveredRuntimeId
+    }
+    return sendRedirect(recoveredRuntimeId)
+  }
+}
+
 async function interruptBeforeRewind(runtimeId: string): Promise<void> {
   if (shouldInterruptBeforeRewind(activeTurn?.sessionId ?? null, runtimeId)) {
     await interruptSession(runtimeId)
@@ -1688,6 +1751,7 @@ export function useGateway() {
     sendMessage,
     respondToClarify,
     interruptSession,
+    redirectSession,
     regenerateLastMessage,
     restoreMessage,
     editMessage,

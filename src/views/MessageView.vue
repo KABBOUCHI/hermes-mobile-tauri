@@ -25,6 +25,7 @@ import { useUnreads } from '../composables/useUnreads'
 import { sessionMatchesStoredId } from '../utils/sessionList'
 import { sessionMatchesSearch } from '../utils/sessionSearch'
 import { sessionListTitle, sessionPreview } from '../utils/sessionTitle'
+import { sessionPickerRowsForDisplay } from '../utils/sessionPicker'
 import { linkifySessionRefs, parseSessionRefValue, sessionRefFallbackLabel, sessionRefFromMarkdownHref } from '../utils/sessionRefs'
 import { previewName, previewTargetFromMarkdownHref } from '../utils/previewTargets'
 import { attachmentError, attachmentKind, MAX_ATTACHMENTS, type PendingAttachment } from '../utils/composerAttachments'
@@ -183,13 +184,16 @@ const sessionPickerOpen = ref(false)
 const sessionPickerQuery = ref('')
 const sessionPickerLoading = ref(false)
 const sessionPickerInputEl = ref<HTMLInputElement | null>(null)
-const sessionPickerRows = ref<Session[]>([])
+// `null` means the auxiliary picker refresh has not produced a result yet.
+// An empty array is authoritative and must remain empty rather than falling
+// back to the sidebar cache.
+const sessionPickerRows = ref<Session[] | null>(null)
 const sessionPickerActiveIndex = ref(0)
 let sessionPickerGeneration = 0
 
 const sessionPickerSessions = computed(() => {
   const query = sessionPickerQuery.value.trim()
-  const rows = sessionPickerRows.value.length > 0 ? sessionPickerRows.value : gw.sessions.value
+  const rows = sessionPickerRowsForDisplay(sessionPickerRows.value, gw.sessions.value)
   return rows.filter(session => sessionMatchesSearch(session, query))
 })
 
@@ -238,11 +242,12 @@ watch(sessionPickerQuery, () => {
 })
 
 watch(sessionPickerRows, rows => {
+  const availableRows = rows || []
   if (sessionPickerQuery.value.trim()) {
     sessionPickerActiveIndex.value = 0
     return
   }
-  const selectedIndex = rows.findIndex(session => session.id === selectedSessionId.value)
+  const selectedIndex = availableRows.findIndex(session => session.id === selectedSessionId.value)
   sessionPickerActiveIndex.value = selectedIndex >= 0 ? selectedIndex : 0
 })
 
@@ -288,7 +293,7 @@ function closeSessionPicker() {
   sessionPickerGeneration += 1
   sessionPickerOpen.value = false
   sessionPickerQuery.value = ''
-  sessionPickerRows.value = []
+  sessionPickerRows.value = null
   sessionPickerActiveIndex.value = 0
   sessionPickerLoading.value = false
 }
@@ -2072,7 +2077,7 @@ function formatTime(ts: number): string {
               @keydown="handleSessionPickerKeydown"
             />
           </div>
-          <div v-if="sessionPickerLoading" class="flex items-center justify-center gap-2 px-4 py-8 text-[13px] text-app-muted">
+          <div v-if="sessionPickerLoading && sessionPickerSessions.length === 0" class="flex items-center justify-center gap-2 px-4 py-8 text-[13px] text-app-muted">
             <span class="inline-block size-3.5 animate-spin rounded-full border-2 border-app-border border-t-app-accent" />
             <span>Loading sessions…</span>
           </div>

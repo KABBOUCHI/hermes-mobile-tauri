@@ -11,6 +11,7 @@ import { base64FromDataUrl, buildAttachmentPrompt, type PendingAttachment } from
 import { runtimeIdForStoredSession } from '../utils/sessionRename'
 import { normalizeContextUsage, type ContextUsage } from '../utils/contextUsage'
 import { normalizeProjectTreePayload, normalizeProjectsPayload, projectCreateParams, projectSessionCreateParams, type Project } from '../utils/projects'
+import { settledTurnActivity } from '../utils/turnActivity'
 
 const FETCH_TIMEOUT = 12000
 // A session transcript can contain hundreds of durable tool records. On a
@@ -206,6 +207,12 @@ let ticketFn: (() => Promise<string>) | null = null
 
 const activeRuntimeId = computed(() => activeTurn?.sessionId ?? null)
 const activeStoredSessionId = computed(() => activeTurn?.storedSessionId ?? null)
+
+function clearTurnActivity(): void {
+  const settled = settledTurnActivity()
+  turnStartedAt.value = settled.turnStartedAt
+  lastStreamActivityAt.value = settled.lastStreamActivityAt
+}
 
 // ── Helpers ────────────────────────────────────────
 
@@ -769,8 +776,7 @@ function handleGatewayEvent(event: any) {
 
     activeTurn = null
     streamingContent = ''
-    turnStartedAt.value = null
-    lastStreamActivityAt.value = null
+    clearTurnActivity()
     clearInFlightTurn(storedSessionId)
     if (failure) {
       reject(new Error(failure.message))
@@ -786,8 +792,7 @@ function handleGatewayEvent(event: any) {
     const storedSessionId = activeTurn.storedSessionId
     activeTurn = null
     streamingContent = ''
-    turnStartedAt.value = null
-    lastStreamActivityAt.value = null
+    clearTurnActivity()
     // An error event is terminal just like a failed message.complete. Leaving
     // its journal behind would resurrect a failed partial reply on a later
     // history refresh, even though the reader has already received the failure.
@@ -837,8 +842,7 @@ function disconnectWs() {
   streamingContent = ''
   unscopedStreamSessionId = null
   recentlySettledSessionIds.clear()
-  turnStartedAt.value = null
-  lastStreamActivityAt.value = null
+  clearTurnActivity()
   wsState.value = 'closed'
 }
 
@@ -1060,8 +1064,7 @@ async function sendMessage(
     const timer = setTimeout(() => {
       activeTurn = null
       streamingContent = ''
-      turnStartedAt.value = null
-      lastStreamActivityAt.value = null
+      clearTurnActivity()
       reject(new Error('Turn timed out'))
     }, TURN_TIMEOUT)
 
@@ -1079,7 +1082,7 @@ async function sendMessage(
       clearTimeout(timer)
       activeTurn = null
       streamingContent = ''
-      lastStreamActivityAt.value = null
+      clearTurnActivity()
       reject(err)
     })
   })
@@ -1131,8 +1134,7 @@ function settleInterruptedTurn(runtimeId: string): void {
   activeTurn = null
   streamingContent = ''
   unscopedStreamSessionId = null
-  turnStartedAt.value = null
-  lastStreamActivityAt.value = null
+  clearTurnActivity()
   clearInFlightTurn(turn.storedSessionId)
   turn.resolve({ content, interrupted: true, assistantMessage: currentTranscriptMessage(turn.assistantMessage) })
 }
@@ -1194,8 +1196,7 @@ async function regenerateLastMessage(
     const timer = setTimeout(() => {
       activeTurn = null
       streamingContent = ''
-      turnStartedAt.value = null
-      lastStreamActivityAt.value = null
+      clearTurnActivity()
       reject(new Error('Turn timed out'))
     }, TURN_TIMEOUT)
 
@@ -1217,7 +1218,7 @@ async function regenerateLastMessage(
       clearTimeout(timer)
       activeTurn = null
       streamingContent = ''
-      lastStreamActivityAt.value = null
+      clearTurnActivity()
       reject(err)
     })
   })
@@ -1279,8 +1280,7 @@ async function restoreMessage(
     const timer = setTimeout(() => {
       activeTurn = null
       streamingContent = ''
-      turnStartedAt.value = null
-      lastStreamActivityAt.value = null
+      clearTurnActivity()
       reject(new Error('Turn timed out'))
     }, TURN_TIMEOUT)
 
@@ -1302,7 +1302,7 @@ async function restoreMessage(
       clearTimeout(timer)
       activeTurn = null
       streamingContent = ''
-      lastStreamActivityAt.value = null
+      clearTurnActivity()
       reject(err)
     })
   })
@@ -1369,8 +1369,7 @@ async function editMessage(
       const timer = setTimeout(() => {
         activeTurn = null
         streamingContent = ''
-        turnStartedAt.value = null
-        lastStreamActivityAt.value = null
+        clearTurnActivity()
         reject(new Error('Turn timed out'))
       }, TURN_TIMEOUT)
 
@@ -1392,8 +1391,7 @@ async function editMessage(
         clearTimeout(timer)
         activeTurn = null
         streamingContent = ''
-        turnStartedAt.value = null
-        lastStreamActivityAt.value = null
+        clearTurnActivity()
         reject(err)
       })
     })

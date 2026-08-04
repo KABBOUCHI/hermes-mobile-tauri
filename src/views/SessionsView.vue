@@ -16,7 +16,7 @@ import { isStreamStalled, STREAM_STALL_THRESHOLD_MS } from '../utils/streamStall
 import { writeClipboardText } from '../utils/clipboard'
 import { createSessionExport, deliverSessionExport } from '../utils/sessionExport'
 import { sessionListTitle, sessionPreview } from '../utils/sessionTitle'
-import { Archive, ArchiveRestore, Atom, Check, CircleX, Copy, Download, GitFork, Inbox, MoreHorizontal, Pencil, Pin, Plus, RefreshCw, Search, Trash2 } from '@lucide/vue'
+import { Archive, ArchiveRestore, Atom, Check, ChevronDown, ChevronUp, CircleX, Copy, Download, GitFork, Inbox, MoreHorizontal, Pencil, Pin, Plus, RefreshCw, Search, Trash2 } from '@lucide/vue'
 
 const router = useRouter()
 const auth = useAuth()
@@ -42,6 +42,7 @@ const longPressTimer = ref<ReturnType<typeof setTimeout> | null>(null)
 const contextMenuSessionId = ref('')
 const contextMenuVisible = ref(false)
 const contextMenuPos = ref({ x: 0, y: 0 })
+const movingPinnedId = ref('')
 const pinnedIds = ref<string[]>([])
 const unreadIds = ref<Set<string>>(new Set())
 const showingArchived = ref(false)
@@ -146,7 +147,7 @@ const menuStyle = computed(() => {
   const maxY = typeof window !== 'undefined' ? window.innerHeight : 800
   return {
     left: Math.min(contextMenuPos.value.x, maxX - 180) + 'px',
-    top: Math.min(contextMenuPos.value.y, maxY - 310) + 'px',
+    top: Math.max(0, Math.min(contextMenuPos.value.y, maxY - 380)) + 'px',
   }
 })
 
@@ -500,6 +501,42 @@ async function clearPinnedIds(ids: readonly string[]) {
 function isPinned(id: string): boolean {
   const session = findSession(id)
   return session ? sessionIsPinned(session, pinnedIds.value) : pinnedIds.value.includes(id)
+}
+
+function canMovePinnedSession(id: string, direction: 'up' | 'down'): boolean {
+  const targetIds = new Set(pinIdsForSession(id))
+  let firstIndex = -1
+  let lastIndex = -1
+  for (let index = 0; index < pinnedIds.value.length; index++) {
+    if (targetIds.has(pinnedIds.value[index])) {
+      if (firstIndex < 0) firstIndex = index
+      lastIndex = index
+    }
+  }
+  if (firstIndex < 0) return false
+
+  if (direction === 'up') {
+    return pinnedIds.value.slice(0, firstIndex).some(pinId => !targetIds.has(pinId))
+  }
+  return pinnedIds.value.slice(lastIndex + 1).some(pinId => !targetIds.has(pinId))
+}
+
+async function movePinnedSession(direction: 'up' | 'down') {
+  const id = contextMenuSessionId.value
+  if (!id || movingPinnedId.value || !canMovePinnedSession(id, direction)) return
+
+  movingPinnedId.value = id
+  try {
+    const next = await pins.movePinnedSession(pinIdsForSession(id), direction)
+    if (!next) {
+      toast.show('Unable to reorder pinned sessions', 'error')
+      return
+    }
+    pinnedIds.value = next
+    closeContextMenu()
+  } finally {
+    movingPinnedId.value = ''
+  }
 }
 
 function handleTouchStart(e: TouchEvent, sessionId: string) {
@@ -995,6 +1032,14 @@ function sessionStatusLabel(session: Session): string {
           <button class="flex w-full cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-3.5 py-2.5 text-left text-sm text-app-text transition-colors hover:bg-app-surface-2" @click="handlePin">
             <Pin :size="16" :stroke-width="2" /> {{ isPinned(contextMenuSessionId) ? 'Unpin' : 'Pin to top' }}
           </button>
+          <template v-if="isPinned(contextMenuSessionId)">
+            <button class="flex w-full cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-3.5 py-2.5 text-left text-sm text-app-text transition-colors hover:bg-app-surface-2 disabled:cursor-default disabled:opacity-40" :disabled="Boolean(movingPinnedId) || !canMovePinnedSession(contextMenuSessionId, 'up')" @click="movePinnedSession('up')">
+              <ChevronUp :size="16" :stroke-width="2" /> Move up
+            </button>
+            <button class="flex w-full cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-3.5 py-2.5 text-left text-sm text-app-text transition-colors hover:bg-app-surface-2 disabled:cursor-default disabled:opacity-40" :disabled="Boolean(movingPinnedId) || !canMovePinnedSession(contextMenuSessionId, 'down')" @click="movePinnedSession('down')">
+              <ChevronDown :size="16" :stroke-width="2" /> Move down
+            </button>
+          </template>
           <button v-if="!showingArchived" class="flex w-full cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-3.5 py-2.5 text-left text-sm text-app-text transition-colors hover:bg-app-surface-2" @click="handleArchive">
             <Archive :size="16" :stroke-width="2" /> Archive
           </button>

@@ -155,6 +155,31 @@ export function orderSessionsByIds<T extends SessionPinIdentity>(sessions: reado
   return ordered
 }
 
+export type SessionOrderDirection = 'up' | 'down'
+
+/** Move one persisted session identity by one slot without losing lineage aliases. */
+export function moveSessionIdInOrder(
+  ids: readonly string[],
+  targetIds: readonly string[],
+  direction: SessionOrderDirection,
+): string[] {
+  const target = new Set(targetIds)
+  const selected = ids.filter(id => target.has(id))
+  if (selected.length === 0) return [...ids]
+
+  const firstSelectedIndex = ids.findIndex(id => target.has(id))
+  const beforeCount = ids.slice(0, firstSelectedIndex).filter(id => !target.has(id)).length
+  const remaining = ids.filter(id => !target.has(id))
+  const nextPosition = beforeCount + (direction === 'up' ? -1 : 1)
+  if (nextPosition < 0 || nextPosition > remaining.length) return [...ids]
+
+  return [
+    ...remaining.slice(0, nextPosition),
+    ...selected,
+    ...remaining.slice(nextPosition),
+  ]
+}
+
 /** Keep pinned rows out of ordinary recents using the durable pin identity. */
 export function excludePinnedSessions<T extends SessionPinIdentity>(sessions: readonly T[], pinnedIds: readonly string[]): T[] {
   return sessions.filter(session => !sessionIsPinned(session, pinnedIds))

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { excludePinnedSessions, flattenSessionsWithBranches, mergeSessionPage, mergeSessionsById, optimisticSessionForSend, orderSessionsByIds, sessionIsPinned, sessionMatchesStoredId, sessionPinId } from './sessionList'
+import { excludePinnedSessions, flattenSessionsWithBranches, mergeSessionPage, mergeSessionsById, moveSessionIdInOrder, optimisticSessionForSend, orderSessionsByIds, sessionIsPinned, sessionMatchesStoredId, sessionPinId } from './sessionList'
 
 describe('mergeSessionsById', () => {
   it('deduplicates overlapping pages while retaining the freshest session data', () => {
@@ -99,6 +99,29 @@ describe('orderSessionsByIds', () => {
       { id: 'older', preview: 'Older pinned session' },
       { id: 'recent', preview: 'Most recently active' },
     ])
+  })
+})
+
+describe('moveSessionIdInOrder', () => {
+  it('moves a pinned session one position while preserving every id', () => {
+    expect(moveSessionIdInOrder(['first', 'second', 'third'], ['second'], 'down')).toEqual([
+      'first',
+      'third',
+      'second',
+    ])
+    expect(moveSessionIdInOrder(['first', 'second', 'third'], ['second'], 'up')).toEqual([
+      'second',
+      'first',
+      'third',
+    ])
+  })
+
+  it('supports lineage-root targets and leaves boundary or unknown moves unchanged', () => {
+    expect(moveSessionIdInOrder(['root', 'other'], ['live-tip', 'root'], 'up')).toEqual(['root', 'other'])
+    expect(moveSessionIdInOrder(['root', 'other'], ['live-tip', 'root'], 'down')).toEqual(['other', 'root'])
+    expect(moveSessionIdInOrder(['root', 'live-tip', 'other'], ['live-tip', 'root'], 'down')).toEqual(['other', 'root', 'live-tip'])
+    expect(moveSessionIdInOrder(['other', 'root', 'live-tip'], ['live-tip', 'root'], 'up')).toEqual(['root', 'live-tip', 'other'])
+    expect(moveSessionIdInOrder(['root', 'other'], ['missing'], 'down')).toEqual(['root', 'other'])
   })
 })
 

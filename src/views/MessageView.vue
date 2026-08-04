@@ -734,19 +734,30 @@ function syncQueuedMessages(sessionId = selectedSessionId.value) {
   queuePaused.value = id ? isQueuePaused(id) : false
 }
 
-function queueCurrentMessage(text: string): void {
-  const sessionId = selectedSessionId.value.trim()
+function queueMessageForSession(sessionId: string, text: string): void {
+  const targetSessionId = sessionId.trim()
   const trimmed = text.trim()
-  if (!sessionId || !trimmed) return
+  if (!targetSessionId || !trimmed) return
 
-  const result = appendQueuedMessage(getQueuedMessages(sessionId), trimmed, [])
-  setQueuedMessages(sessionId, result.queue)
-  resumeQueuedMessages(sessionId)
-  queuedMessages.value = result.queue
-  queuePaused.value = false
-  input.value = ''
-  if (inputEl.value) inputEl.value.style.height = 'auto'
-  toast.show('Message queued', 'info')
+  const result = appendQueuedMessage(getQueuedMessages(targetSessionId), trimmed, [])
+  setQueuedMessages(targetSessionId, result.queue)
+  resumeQueuedMessages(targetSessionId)
+
+  // A redirect can fail after the reader has navigated away. Keep the fallback
+  // attached to the session that was being steered instead of the newly focused
+  // chat, and do not clear the new chat's draft while doing so.
+  const isCurrentSession = selectedSessionId.value === targetSessionId
+  if (isCurrentSession) {
+    queuedMessages.value = result.queue
+    queuePaused.value = false
+    input.value = ''
+    if (inputEl.value) inputEl.value.style.height = 'auto'
+  }
+  toast.show(isCurrentSession ? 'Message queued' : 'Message queued for that session', 'info')
+}
+
+function queueCurrentMessage(text: string): void {
+  queueMessageForSession(selectedSessionId.value, text)
 }
 
 function removeQueued(id: string): void {
@@ -862,7 +873,10 @@ async function handleSteer() {
   } catch {
     const index = gw.messages.value.indexOf(optimisticMessage)
     if (index >= 0) gw.messages.value.splice(index, 1)
-    if (selectedSessionId.value === sessionId) queueCurrentMessage(text)
+    // Preserve a failed redirect against the original target even if the user
+    // changed sessions while the RPC was in flight. The route watcher will
+    // hydrate this per-session queue when they return.
+    queueMessageForSession(sessionId, text)
   } finally {
     steering.value = false
   }

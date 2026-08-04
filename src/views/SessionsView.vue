@@ -9,7 +9,7 @@ import { useUnreads } from '../composables/useUnreads'
 import { useLastSession } from '../composables/useLastSession'
 import { useToast } from '../composables/useToast'
 import { isCurrentSessionSearchGeneration, sessionMatchesSearch } from '../utils/sessionSearch'
-import { flattenSessionsWithBranches, orderSessionsByIds, sessionIsPinned, sessionMatchesStoredId, sessionPinId, type SessionBranchEntry } from '../utils/sessionList'
+import { excludePinnedSessions, flattenSessionsWithBranches, orderSessionsByIds, sessionIsPinned, sessionMatchesStoredId, sessionPinId, type SessionBranchEntry } from '../utils/sessionList'
 import { filterSessionsBySource } from '../utils/sessionSource'
 import { sessionActivityState, type SessionActivityState } from '../utils/sessionActivity'
 import { isStreamStalled, STREAM_STALL_THRESHOLD_MS } from '../utils/streamStall'
@@ -263,7 +263,7 @@ const pinnedSessions = computed(() =>
 )
 
 const unpinnedSessions = computed(() =>
-  filtered.value.filter(s => !pinnedIds.value.includes(s.id))
+  excludePinnedSessions(filtered.value, pinnedIds.value)
 )
 
 const groupedSessions = computed(() => {

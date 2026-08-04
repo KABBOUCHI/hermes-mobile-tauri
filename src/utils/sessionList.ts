@@ -155,6 +155,11 @@ export function orderSessionsByIds<T extends SessionPinIdentity>(sessions: reado
   return ordered
 }
 
+/** Keep pinned rows out of ordinary recents using the durable pin identity. */
+export function excludePinnedSessions<T extends SessionPinIdentity>(sessions: readonly T[], pinnedIds: readonly string[]): T[] {
+  return sessions.filter(session => !sessionIsPinned(session, pinnedIds))
+}
+
 /**
  * Keep forked conversations adjacent to their parent, mirroring the desktop
  * sidebar. A branch group's recency is its newest member, so a fresh fork does

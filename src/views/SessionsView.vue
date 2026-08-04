@@ -16,7 +16,7 @@ import { isStreamStalled, STREAM_STALL_THRESHOLD_MS } from '../utils/streamStall
 import { writeClipboardText } from '../utils/clipboard'
 import { createSessionExport, deliverSessionExport } from '../utils/sessionExport'
 import { sessionListTitle, sessionPreview } from '../utils/sessionTitle'
-import { Archive, ArchiveRestore, Atom, Check, CircleX, Copy, Download, GitFork, Inbox, Pencil, Pin, Plus, RefreshCw, Search, Trash2 } from '@lucide/vue'
+import { Archive, ArchiveRestore, Atom, Check, CircleX, Copy, Download, GitFork, Inbox, MoreHorizontal, Pencil, Pin, Plus, RefreshCw, Search, Trash2 } from '@lucide/vue'
 
 const router = useRouter()
 const auth = useAuth()
@@ -505,9 +505,8 @@ function isPinned(id: string): boolean {
 function handleTouchStart(e: TouchEvent, sessionId: string) {
   const touch = e.touches[0]
   longPressTimer.value = setTimeout(() => {
-    contextMenuSessionId.value = sessionId
-    contextMenuPos.value = { x: touch.clientX, y: touch.clientY }
-    contextMenuVisible.value = true
+    openContextMenu(sessionId, touch.clientX, touch.clientY)
+    longPressTimer.value = null
   }, 500)
 }
 
@@ -523,6 +522,22 @@ function handleTouchEnd() {
     clearTimeout(longPressTimer.value)
     longPressTimer.value = null
   }
+}
+
+function openContextMenu(sessionId: string, x: number, y: number) {
+  contextMenuSessionId.value = sessionId
+  contextMenuPos.value = { x, y }
+  contextMenuVisible.value = true
+}
+
+function handleContextMenu(e: MouseEvent, sessionId: string) {
+  e.preventDefault()
+  openContextMenu(sessionId, e.clientX, e.clientY)
+}
+
+function openSessionActions(e: MouseEvent, sessionId: string) {
+  e.stopPropagation()
+  openContextMenu(sessionId, e.clientX, e.clientY)
 }
 
 function closeContextMenu() {
@@ -847,6 +862,7 @@ function sessionStatusLabel(session: Session): string {
             @touchstart="handleTouchStart($event, row.entry.session.id)"
             @touchmove="handleTouchMove"
             @touchend="handleTouchEnd"
+            @contextmenu="handleContextMenu($event, row.entry.session.id)"
           >
             <div class="mb-1 flex items-center gap-1.5">
               <span v-if="row.entry.branchStem" class="font-mono text-xs tracking-[-2px] text-app-muted" aria-hidden="true">{{ row.entry.branchStem }}</span>
@@ -859,6 +875,14 @@ function sessionStatusLabel(session: Session): string {
                 :aria-label="sessionStatusLabel(row.entry.session)"
                 role="status"
               />
+              <button
+                class="flex size-7 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-app-muted transition-colors hover:bg-app-surface-3 hover:text-app-text"
+                title="Session actions"
+                aria-label="Session actions"
+                @click="openSessionActions($event, row.entry.session.id)"
+              >
+                <MoreHorizontal :size="16" :stroke-width="2" />
+              </button>
               <button
                 class="flex size-7 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-sm text-app-muted transition-colors hover:bg-app-error/10 hover:text-app-error"
                 :class="deletingId === row.entry.session.id && 'bg-app-error/15 text-app-error'"
@@ -893,6 +917,7 @@ function sessionStatusLabel(session: Session): string {
           @touchstart="handleTouchStart($event, entry.session.id)"
           @touchmove="handleTouchMove"
           @touchend="handleTouchEnd"
+          @contextmenu="handleContextMenu($event, entry.session.id)"
         >
         <div class="mb-1 flex items-center gap-1.5">
           <span v-if="entry.branchStem" class="font-mono text-xs tracking-[-2px] text-app-muted" aria-hidden="true">{{ entry.branchStem }}</span>
@@ -905,6 +930,14 @@ function sessionStatusLabel(session: Session): string {
             :aria-label="sessionStatusLabel(entry.session)"
             role="status"
           />
+          <button
+            class="flex size-7 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-app-muted transition-colors hover:bg-app-surface-3 hover:text-app-text"
+            title="Session actions"
+            aria-label="Session actions"
+            @click="openSessionActions($event, entry.session.id)"
+          >
+            <MoreHorizontal :size="16" :stroke-width="2" />
+          </button>
           <button
             class="flex size-7 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-sm text-app-muted transition-colors hover:bg-app-error/10 hover:text-app-error"
             :class="deletingId === entry.session.id && 'bg-app-error/15 text-app-error'"

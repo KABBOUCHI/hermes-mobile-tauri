@@ -11,7 +11,7 @@ import { isNearChatBottom, jumpToBottomOffset } from '../utils/chatScroll'
 import { browseBackward, browseForward, deriveUserHistory, isBrowsingComposerHistory, resetComposerBrowse } from '../utils/composerInputHistory'
 import { writeClipboardText } from '../utils/clipboard'
 import { formatElapsedSeconds } from '../utils/elapsedTime'
-import { createSessionExport } from '../utils/sessionExport'
+import { createSessionExport, deliverSessionExport } from '../utils/sessionExport'
 import { compactTokenCount, contextUsagePercent as getContextUsagePercent, contextUsageSummary as formatContextUsageSummary, type ContextUsage } from '../utils/contextUsage'
 import { messageLoadErrorState } from '../utils/messageLoadState'
 import { shouldOfferMessageExpansion } from '../utils/messageDisplay'
@@ -1446,40 +1446,18 @@ async function exportChat() {
   })
 
   try {
-    const file = new File([serialized], fileName, { type: 'application/json' })
-    if (navigator.share && navigator.canShare?.({ files: [file] })) {
-      await navigator.share({ title, files: [file] })
+    const delivery = await deliverSessionExport({ fileName, serialized }, title)
+    if (delivery === 'file') {
       toast.show('Chat export ready to share', 'success')
-      return
-    }
-
-    // Some Android WebViews cannot share files but can still send text to a
-    // target app. Preserve the complete JSON instead of silently degrading it.
-    if (navigator.share) {
-      await navigator.share({ title, text: serialized })
+    } else if (delivery === 'text') {
       toast.show('Chat JSON ready to share', 'success')
-      return
-    }
-
-    if (navigator.clipboard) {
-      await navigator.clipboard.writeText(serialized)
+    } else if (delivery === 'clipboard') {
       toast.show('Chat JSON copied to clipboard', 'success')
-      return
+    } else if (delivery === 'unavailable') {
+      toast.show('Export not available on this device', 'error')
     }
-
-    toast.show('Export not available on this device', 'error')
   } catch (err: any) {
-    if (err?.name === 'AbortError') return
-    try {
-      if (navigator.clipboard) {
-        await navigator.clipboard.writeText(serialized)
-        toast.show('Chat JSON copied to clipboard', 'success')
-      } else {
-        toast.show(err?.message || 'Export failed', 'error')
-      }
-    } catch {
-      toast.show('Export failed', 'error')
-    }
+    toast.show(err?.message || 'Export failed', 'error')
   }
 }
 

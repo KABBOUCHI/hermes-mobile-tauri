@@ -489,6 +489,21 @@ function hasMoreArchivedSessions(): boolean {
   return archivedSessionsOffset < archivedSessionsTotal
 }
 
+async function requestSessionMessages(url: string, sessionId: string): Promise<Message[]> {
+  const base = url.replace(/\/$/, '')
+  const headers: Record<string, string> = {}
+  if (cookie) headers['Cookie'] = cookie
+  const resp = await fetchWithTimeout(
+    `${base}/api/sessions/${encodeURIComponent(sessionId)}/messages`,
+    { method: 'GET', headers, credentials: 'same-origin' },
+    MESSAGE_FETCH_TIMEOUT,
+  )
+  if (!resp.ok) throw new Error('HTTP ' + resp.status)
+  const data = await resp.json()
+  const raw = attachLiveToolDiffs(sessionId, data.messages || [])
+  return recoverInFlightTurn(sessionId, normalizeSessionMessages(raw))
+}
+
 async function fetchMessages(url: string, sessionId: string): Promise<Message[]> {
   const generation = ++messageFetchGeneration
   const cached = messageCache.get(sessionId)
@@ -499,18 +514,7 @@ async function fetchMessages(url: string, sessionId: string): Promise<Message[]>
   loadingMessages.value = true
   error.value = ''
   try {
-    const base = url.replace(/\/$/, '')
-    const headers: Record<string, string> = {}
-    if (cookie) headers['Cookie'] = cookie
-    const resp = await fetchWithTimeout(
-      `${base}/api/sessions/${sessionId}/messages`,
-      { method: 'GET', headers, credentials: 'same-origin' },
-      MESSAGE_FETCH_TIMEOUT
-    )
-    if (!resp.ok) throw new Error('HTTP ' + resp.status)
-    const data = await resp.json()
-    const raw = attachLiveToolDiffs(sessionId, data.messages || [])
-    const incoming = recoverInFlightTurn(sessionId, normalizeSessionMessages(raw))
+    const incoming = await requestSessionMessages(url, sessionId)
 
     // Navigation may have started a newer fetch while this request was in
     // flight. Preserve the foreground thread in that case.
@@ -528,6 +532,12 @@ async function fetchMessages(url: string, sessionId: string): Promise<Message[]>
       loadingMessages.value = false
     }
   }
+}
+
+/** Fetch a session transcript for export without replacing the foreground chat. */
+async function fetchMessagesForExport(url: string, sessionId: string): Promise<Message[]> {
+  if (!sessionId.trim()) throw new Error('A session is required to export')
+  return requestSessionMessages(url, sessionId)
 }
 
 /** Fetch a gateway-retained image as a portable data URL. */
@@ -1632,6 +1642,7 @@ export function useGateway() {
     hasMoreSessions,
     hasMoreArchivedSessions,
     fetchMessages,
+    fetchMessagesForExport,
     fetchMediaDataUrl,
     fetchContextUsage,
     deleteSession,

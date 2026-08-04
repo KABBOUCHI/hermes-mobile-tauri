@@ -14,8 +14,9 @@ import { filterSessionsBySource } from '../utils/sessionSource'
 import { sessionActivityState, type SessionActivityState } from '../utils/sessionActivity'
 import { isStreamStalled, STREAM_STALL_THRESHOLD_MS } from '../utils/streamStall'
 import { writeClipboardText } from '../utils/clipboard'
+import { createSessionExport, deliverSessionExport } from '../utils/sessionExport'
 import { sessionListTitle, sessionPreview } from '../utils/sessionTitle'
-import { Archive, ArchiveRestore, Atom, Check, CircleX, Copy, GitFork, Inbox, Pencil, Pin, Plus, RefreshCw, Search, Trash2 } from '@lucide/vue'
+import { Archive, ArchiveRestore, Atom, Check, CircleX, Copy, Download, GitFork, Inbox, Pencil, Pin, Plus, RefreshCw, Search, Trash2 } from '@lucide/vue'
 
 const router = useRouter()
 const auth = useAuth()
@@ -36,6 +37,7 @@ const pullDelta = ref(0)
 const listEl = ref<HTMLElement | null>(null)
 const deletingId = ref('')
 const branchingId = ref('')
+const exportingId = ref('')
 const longPressTimer = ref<ReturnType<typeof setTimeout> | null>(null)
 const contextMenuSessionId = ref('')
 const contextMenuVisible = ref(false)
@@ -144,7 +146,7 @@ const menuStyle = computed(() => {
   const maxY = typeof window !== 'undefined' ? window.innerHeight : 800
   return {
     left: Math.min(contextMenuPos.value.x, maxX - 180) + 'px',
-    top: Math.min(contextMenuPos.value.y, maxY - 260) + 'px',
+    top: Math.min(contextMenuPos.value.y, maxY - 310) + 'px',
   }
 })
 
@@ -531,6 +533,44 @@ async function copySessionId() {
   toast.show(copied ? 'Session ID copied' : 'Unable to copy session ID', copied ? 'success' : 'error')
 }
 
+async function exportSessionFromList() {
+  const id = contextMenuSessionId.value
+  const session = findSession(id) || null
+  closeContextMenu()
+  if (!id || exportingId.value) return
+
+  exportingId.value = id
+  try {
+    const messages = await gw.fetchMessagesForExport(auth.gatewayUrl.value, id)
+    if (!messages.length) {
+      toast.show('No messages to export', 'info')
+      return
+    }
+
+    const title = session ? sessionListTitle(session) : 'Hermes Chat'
+    const artifact = createSessionExport({
+      sessionId: id,
+      title,
+      session,
+      messages,
+    })
+    const delivery = await deliverSessionExport(artifact, title)
+    if (delivery === 'file') {
+      toast.show('Session export ready to share', 'success')
+    } else if (delivery === 'text') {
+      toast.show('Session JSON ready to share', 'success')
+    } else if (delivery === 'clipboard') {
+      toast.show('Session JSON copied to clipboard', 'success')
+    } else if (delivery === 'unavailable') {
+      toast.show('Export not available on this device', 'error')
+    }
+  } catch (err: any) {
+    toast.show(err?.message || 'Export failed', 'error')
+  } finally {
+    exportingId.value = ''
+  }
+}
+
 async function handlePin() {
   const id = contextMenuSessionId.value
   const session = findSession(id)
@@ -907,6 +947,9 @@ function sessionStatusLabel(session: Session): string {
           </button>
           <button class="flex w-full cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-3.5 py-2.5 text-left text-sm text-app-text transition-colors hover:bg-app-surface-2 disabled:cursor-default disabled:opacity-50" :disabled="branchingId === contextMenuSessionId" @click="handleBranch">
             <GitFork :size="16" :stroke-width="2" /> {{ branchingId === contextMenuSessionId ? 'Branching…' : 'Branch from here' }}
+          </button>
+          <button class="flex w-full cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-3.5 py-2.5 text-left text-sm text-app-text transition-colors hover:bg-app-surface-2 disabled:cursor-default disabled:opacity-50" :disabled="exportingId === contextMenuSessionId" @click="exportSessionFromList">
+            <Download :size="16" :stroke-width="2" /> {{ exportingId === contextMenuSessionId ? 'Exporting…' : 'Export session' }}
           </button>
           <button class="flex w-full cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-3.5 py-2.5 text-left text-sm text-app-text transition-colors hover:bg-app-surface-2" @click="handlePin">
             <Pin :size="16" :stroke-width="2" /> {{ isPinned(contextMenuSessionId) ? 'Unpin' : 'Pin to top' }}

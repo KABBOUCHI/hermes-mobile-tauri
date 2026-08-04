@@ -39,3 +39,68 @@ describe('createSessionExport', () => {
     })
   })
 })
+
+describe('chooseSessionExportDelivery', () => {
+  it('prefers a shareable file, then text sharing, then clipboard', async () => {
+    const { chooseSessionExportDelivery } = await import('./sessionExport')
+
+    expect(chooseSessionExportDelivery({ canShareFiles: true, canShareText: true, hasClipboard: true })).toBe('file')
+    expect(chooseSessionExportDelivery({ canShareFiles: false, canShareText: true, hasClipboard: true })).toBe('text')
+    expect(chooseSessionExportDelivery({ canShareFiles: false, canShareText: false, hasClipboard: true })).toBe('clipboard')
+    expect(chooseSessionExportDelivery({ canShareFiles: false, canShareText: false, hasClipboard: false })).toBe('unavailable')
+  })
+})
+
+describe('deliverSessionExport', () => {
+  const artifact = { fileName: 'chat-01.json', serialized: '{"messages":[]}' }
+  const makeFile = (serialized: string, fileName: string) => ({ name: fileName, type: `application/json:${serialized}` })
+
+  it('shares the complete JSON file when native file sharing is available', async () => {
+    const { deliverSessionExport } = await import('./sessionExport')
+    let shared: any = null
+
+    const result = await deliverSessionExport(
+      artifact,
+      'Chat',
+      {
+        canShare: () => true,
+        share: async payload => { shared = payload },
+      },
+      makeFile,
+    )
+
+    expect(result).toBe('file')
+    expect(shared).toEqual({ title: 'Chat', files: [{ name: 'chat-01.json', type: 'application/json:{"messages":[]}' }] })
+  })
+
+  it('falls back to the complete JSON clipboard when sharing fails', async () => {
+    const { deliverSessionExport } = await import('./sessionExport')
+    let copied = ''
+
+    const result = await deliverSessionExport(
+      artifact,
+      'Chat',
+      {
+        share: async () => { throw new Error('share unavailable') },
+        clipboard: { writeText: async text => { copied = text } },
+      },
+      makeFile,
+    )
+
+    expect(result).toBe('clipboard')
+    expect(copied).toBe(artifact.serialized)
+  })
+
+  it('does not treat an intentional share cancellation as a failed export', async () => {
+    const { deliverSessionExport } = await import('./sessionExport')
+
+    const result = await deliverSessionExport(
+      artifact,
+      'Chat',
+      { share: async () => { throw Object.assign(new Error('cancelled'), { name: 'AbortError' }) } },
+      makeFile,
+    )
+
+    expect(result).toBe('cancelled')
+  })
+})

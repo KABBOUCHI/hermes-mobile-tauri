@@ -3,19 +3,26 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 
 import { fetch } from '@tauri-apps/plugin-http'
-import { AlarmClock, History, Pause, Play, RefreshCw, Zap } from '@lucide/vue'
+import { AlarmClock, History, Pause, Pencil, Play, Plus, RefreshCw, X, Zap } from '@lucide/vue'
 import { useAuth } from '../composables/useAuth'
+import { useGateway } from '../composables/useGateway'
 import { cronActionUrl, type CronAction } from '../utils/cronActions'
 import { cronRunsUrl } from '../utils/cronRuns'
+import { cronJobUrl, cronPayload, cronProfileForJob, validateCronDraft, type CronDraft } from '../utils/cronEditor'
 
 const auth = useAuth()
+const gw = useGateway()
 const router = useRouter()
 
 interface CronJob {
   id: string
   name: string
-  schedule: { kind: string; display: string }
+  schedule: { kind: string; display: string; expr?: string } | string
   prompt: string
+  profile?: string | null
+  deliver?: string | null
+  script?: string | null
+  no_agent?: boolean
   enabled: boolean
   last_run_at: string | null
   next_run_at: string | null
@@ -42,6 +49,12 @@ const runsByJobId = ref<Record<string, CronRun[] | undefined>>({})
 const runsLoading = ref<Record<string, boolean | undefined>>({})
 const runsErrors = ref<Record<string, string | undefined>>({})
 const expandedRuns = ref<Record<string, boolean | undefined>>({})
+const editorOpen = ref(false)
+const editingJob = ref<CronJob | null>(null)
+const editorDraft = ref<CronDraft>({ name: '', prompt: '', schedule: '', deliver: 'local', script: '', noAgent: false })
+const editorError = ref('')
+const savingEditor = ref(false)
+const defaultProfile = ref('default')
 
 function fetchWithTimeout(url: string, init: RequestInit, ms: number): Promise<Response> {
   const controller = new AbortController()
@@ -75,6 +88,10 @@ function actionPending(jobId: string, action: CronAction): boolean {
   return pendingActions.value[jobId] === action
 }
 
+function profileForJob(job: CronJob): string {
+  return cronProfileForJob(job, defaultProfile.value)
+}
+
 async function runJobAction(job: CronJob, action: CronAction) {
   if (pendingActions.value[job.id]) return
 
@@ -84,7 +101,7 @@ async function runJobAction(job: CronJob, action: CronAction) {
     const headers: Record<string, string> = {}
     if (auth.sessionCookie.value) headers['Cookie'] = auth.sessionCookie.value
     const resp = await fetchWithTimeout(
-      cronActionUrl(auth.gatewayUrl.value, job.id, action),
+      cronActionUrl(auth.gatewayUrl.value, job.id, action, profileForJob(job)),
       { method: 'POST', headers, credentials: 'same-origin' },
       10000,
     )
@@ -169,7 +186,77 @@ function truncate(text: string, max: number): string {
   return text.length > max ? text.slice(0, max) + '…' : text
 }
 
-onMounted(fetchJobs)
+function scheduleExpression(job: CronJob): string {
+  if (typeof job.schedule === 'string') return job.schedule
+  return job.schedule?.expr || job.schedule?.display || ''
+}
+
+function openCreateEditor() {
+  editingJob.value = null
+  editorDraft.value = { name: '', prompt: '', schedule: '', deliver: 'local', script: '', noAgent: false }
+  editorError.value = ''
+  editorOpen.value = true
+}
+
+function openEditEditor(job: CronJob) {
+  editingJob.value = job
+  editorDraft.value = {
+    name: job.name || '',
+    prompt: job.prompt || '',
+    schedule: scheduleExpression(job),
+    deliver: job.deliver || 'local',
+    script: job.script || '',
+    noAgent: job.no_agent === true,
+  }
+  editorError.value = ''
+  editorOpen.value = true
+}
+
+function closeEditor() {
+  if (savingEditor.value) return
+  editorOpen.value = false
+  editorError.value = ''
+}
+
+async function saveEditor() {
+  const validationError = validateCronDraft(editorDraft.value)
+  if (validationError) {
+    editorError.value = validationError
+    return
+  }
+
+  savingEditor.value = true
+  editorError.value = ''
+  try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (auth.sessionCookie.value) headers.Cookie = auth.sessionCookie.value
+    const job = editingJob.value
+    const response = await fetchWithTimeout(
+      cronJobUrl(auth.gatewayUrl.value, job?.id, job ? profileForJob(job) : defaultProfile.value),
+      {
+        method: job ? 'PUT' : 'POST',
+        headers,
+        credentials: 'same-origin',
+        body: JSON.stringify(job ? { updates: cronPayload(editorDraft.value) } : cronPayload(editorDraft.value)),
+      },
+      10_000,
+    )
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    editorOpen.value = false
+    await fetchJobs()
+  } catch (err: any) {
+    editorError.value = err?.message || 'Unable to save cron job'
+  } finally {
+    savingEditor.value = false
+  }
+}
+
+onMounted(async () => {
+  const profiles = await gw.fetchProfiles(auth.gatewayUrl.value)
+  const activeProfile = profiles.find(profile => profile.is_default)
+  if (activeProfile?.name?.trim()) defaultProfile.value = activeProfile.name.trim()
+  await fetchJobs()
+})
 </script>
 
 <template>
@@ -180,7 +267,10 @@ onMounted(fetchJobs)
         <span class="text-[17px] font-semibold tracking-[-0.03em]">Cron jobs</span>
         <div class="mt-0.5 text-[11px] text-app-muted">Automations and schedules</div>
       </div>
-      <button class="flex size-9 cursor-pointer items-center justify-center rounded-lg border border-app-border bg-app-surface text-app-muted transition-colors hover:bg-app-surface-2" @click="fetchJobs" aria-label="Refresh cron jobs"><RefreshCw :size="16" :stroke-width="2" /></button>
+      <div class="flex items-center gap-2">
+        <button class="flex h-9 cursor-pointer items-center gap-1.5 rounded-lg border border-app-accent/35 bg-app-accent/10 px-2.5 text-xs font-semibold text-app-accent transition-colors hover:bg-app-accent/20" @click="openCreateEditor"><Plus :size="15" :stroke-width="2" />New</button>
+        <button class="flex size-9 cursor-pointer items-center justify-center rounded-lg border border-app-border bg-app-surface text-app-muted transition-colors hover:bg-app-surface-2" @click="fetchJobs" aria-label="Refresh cron jobs"><RefreshCw :size="16" :stroke-width="2" /></button>
+      </div>
     </div>
 
     <!-- Loading -->
@@ -198,6 +288,7 @@ onMounted(fetchJobs)
     <div v-else-if="jobs.length === 0" class="flex flex-1 flex-col items-center justify-center gap-3 p-10">
       <AlarmClock :size="40" :stroke-width="1.6" class="text-app-muted" />
       <span class="text-[15px] text-app-muted">No cron jobs</span>
+      <button class="h-9 cursor-pointer rounded-lg border border-app-accent/35 bg-app-accent/10 px-4 text-sm font-semibold text-app-accent transition-colors hover:bg-app-accent/20" @click="openCreateEditor">Create cron job</button>
     </div>
 
     <!-- Jobs list -->
@@ -209,7 +300,7 @@ onMounted(fetchJobs)
           <span v-else-if="job.enabled" class="size-2 shrink-0 rounded-full bg-app-success shadow-[0_0_6px_rgba(34,197,94,0.4)]" />
           <span v-else class="size-2 shrink-0 rounded-full bg-app-muted opacity-50" />
         </div>
-        <span class="font-mono text-[13px] tracking-[0.02em] text-app-accent">{{ job.schedule?.display || job.schedule }}</span>
+        <span class="font-mono text-[13px] tracking-[0.02em] text-app-accent">{{ scheduleExpression(job) }}</span>
         <span v-if="job.prompt" class="text-[13px] leading-[1.4] text-app-muted">{{ truncate(job.prompt, 120) }}</span>
         <div class="mt-0.5 flex items-center gap-1.5">
           <span class="text-xs text-app-muted opacity-70">Last:</span>
@@ -219,6 +310,7 @@ onMounted(fetchJobs)
           <span class="text-xs text-app-muted">{{ job.next_run_at ? relativeTime(new Date(job.next_run_at).getTime() / 1000) : '—' }}</span>
         </div>
         <div class="mt-2 flex flex-wrap items-center gap-2 border-t border-app-border pt-2.5">
+          <button class="flex h-8 cursor-pointer items-center gap-1.5 rounded-md border border-app-border bg-transparent px-2.5 text-xs font-medium text-app-muted transition-colors hover:border-app-accent hover:bg-app-accent/10 hover:text-app-accent" @click="openEditEditor(job)"><Pencil :size="14" :stroke-width="2" />Edit</button>
           <button
             class="flex h-8 cursor-pointer items-center gap-1.5 rounded-md border border-app-border bg-transparent px-2.5 text-xs font-medium text-app-muted transition-colors hover:border-app-accent hover:bg-app-accent/10 hover:text-app-accent disabled:cursor-default disabled:opacity-50"
             :disabled="!!pendingActions[job.id]"
@@ -270,6 +362,66 @@ onMounted(fetchJobs)
           <div v-else class="px-2 py-1 text-xs text-app-muted">No sessions yet</div>
         </div>
       </div>
+    </div>
+
+    <div v-if="editorOpen" class="fixed inset-0 z-50 flex items-end bg-black/65" @click.self="closeEditor">
+      <form class="flex max-h-[min(720px,calc(100dvh-env(safe-area-inset-top))] w-full flex-col rounded-t-app border-x border-t border-app-border bg-app-surface shadow-2xl" @submit.prevent="saveEditor">
+        <div class="flex items-center justify-between border-b border-app-border px-4 py-3.5">
+          <div>
+            <h2 class="text-[16px] font-semibold tracking-[-0.02em]">{{ editingJob ? 'Edit cron job' : 'New cron job' }}</h2>
+            <p class="mt-0.5 text-[11px] text-app-muted">Profile: {{ editingJob ? profileForJob(editingJob) : defaultProfile }}</p>
+          </div>
+          <button type="button" class="flex size-9 cursor-pointer items-center justify-center rounded-lg border border-app-border bg-app-bg text-app-muted transition-colors hover:bg-app-surface-2 disabled:cursor-default disabled:opacity-50" aria-label="Close cron editor" :disabled="savingEditor" @click="closeEditor"><X :size="17" :stroke-width="2" /></button>
+        </div>
+
+        <div class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4">
+          <label class="flex flex-col gap-1.5">
+            <span class="text-xs font-medium text-app-text">Name <span class="font-normal text-app-muted">(optional)</span></span>
+            <input v-model="editorDraft.name" type="text" maxlength="200" autocomplete="off" class="h-10 rounded-lg border border-app-border bg-app-bg px-3 text-sm text-app-text outline-none placeholder:text-app-muted focus:border-app-accent" placeholder="Daily status report" :disabled="savingEditor" />
+          </label>
+
+          <label class="flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-app-border bg-app-bg px-3 py-2.5">
+            <span>
+              <span class="block text-xs font-medium text-app-text">Run a script without an agent</span>
+              <span class="mt-0.5 block text-[11px] leading-4 text-app-muted">Use this for a local script-only job.</span>
+            </span>
+            <input v-model="editorDraft.noAgent" type="checkbox" class="size-4 accent-app-accent" :disabled="savingEditor" />
+          </label>
+
+          <label v-if="editorDraft.noAgent" class="flex flex-col gap-1.5">
+            <span class="text-xs font-medium text-app-text">Script path</span>
+            <input v-model="editorDraft.script" type="text" autocomplete="off" class="h-10 rounded-lg border border-app-border bg-app-bg px-3 font-mono text-sm text-app-text outline-none placeholder:text-app-muted focus:border-app-accent" placeholder="report.sh" :disabled="savingEditor" />
+            <span class="text-[11px] leading-4 text-app-muted">The path is resolved within Hermes’ scripts directory.</span>
+          </label>
+
+          <label v-else class="flex flex-col gap-1.5">
+            <span class="text-xs font-medium text-app-text">Prompt</span>
+            <textarea v-model="editorDraft.prompt" rows="5" class="min-h-28 resize-y rounded-lg border border-app-border bg-app-bg px-3 py-2.5 text-sm leading-5 text-app-text outline-none placeholder:text-app-muted focus:border-app-accent disabled:cursor-default disabled:opacity-50" placeholder="What should Hermes do when this runs?" :disabled="savingEditor" />
+          </label>
+
+          <label class="flex flex-col gap-1.5">
+            <span class="text-xs font-medium text-app-text">Schedule</span>
+            <input v-model="editorDraft.schedule" type="text" autocomplete="off" class="h-10 rounded-lg border border-app-border bg-app-bg px-3 font-mono text-sm text-app-text outline-none placeholder:text-app-muted focus:border-app-accent" placeholder="0 9 * * * or every 1h" :disabled="savingEditor" />
+            <span class="text-[11px] leading-4 text-app-muted">Use a cron expression, interval such as <span class="font-mono">every 1h</span>, or a one-shot ISO timestamp.</span>
+          </label>
+
+          <label class="flex flex-col gap-1.5">
+            <span class="text-xs font-medium text-app-text">Delivery</span>
+            <input v-model="editorDraft.deliver" type="text" autocomplete="off" class="h-10 rounded-lg border border-app-border bg-app-bg px-3 text-sm text-app-text outline-none placeholder:text-app-muted focus:border-app-accent" placeholder="local" :disabled="savingEditor" />
+            <span class="text-[11px] leading-4 text-app-muted">Use <span class="font-mono">local</span> or a configured channel target.</span>
+          </label>
+
+          <p v-if="editorError" class="rounded-lg border border-app-error/30 bg-app-error/10 px-3 py-2 text-xs text-app-error" role="alert">{{ editorError }}</p>
+        </div>
+
+        <div class="flex items-center justify-end gap-2 border-t border-app-border px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+          <button type="button" class="h-9 cursor-pointer rounded-lg border border-app-border bg-transparent px-3.5 text-sm font-medium text-app-muted transition-colors hover:bg-app-surface-2 disabled:cursor-default disabled:opacity-50" :disabled="savingEditor" @click="closeEditor">Cancel</button>
+          <button type="submit" class="flex h-9 min-w-20 cursor-pointer items-center justify-center rounded-lg border-0 bg-app-accent px-3.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-default disabled:opacity-50" :disabled="savingEditor">
+            <span v-if="savingEditor" class="size-4 animate-spin rounded-full border-2 border-white/35 border-t-white" />
+            <span v-else>{{ editingJob ? 'Save' : 'Create' }}</span>
+          </button>
+        </div>
+      </form>
     </div>
   </div>
 </template>

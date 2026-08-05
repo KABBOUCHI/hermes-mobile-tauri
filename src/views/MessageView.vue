@@ -6,6 +6,7 @@ import { highlightRenderedHtml } from '../utils/renderedSearchHighlight'
 import { messageMatchesSearch } from '../utils/messageSearch'
 import { branchableMessageHistoryThrough, markLatestAssistantFailure, processNotification } from '../utils/sessionMessages'
 import { summarizeToolActivity, thoughtActivityLabel, toolDiffFromResult } from '../utils/activitySummary'
+import { summarizeFileActivity } from '../utils/fileActivity'
 import PatchDiff from '../components/PatchDiff.vue'
 import { isNearChatBottom, jumpToBottomOffset } from '../utils/chatScroll'
 import { browseBackward, browseForward, deriveUserHistory, isBrowsingComposerHistory, resetComposerBrowse } from '../utils/composerInputHistory'
@@ -15,10 +16,12 @@ import { createSessionExport, deliverSessionExport } from '../utils/sessionExpor
 import { compactTokenCount, contextUsagePercent as getContextUsagePercent, contextUsageSummary as formatContextUsageSummary, type ContextUsage } from '../utils/contextUsage'
 import { messageLoadErrorState } from '../utils/messageLoadState'
 import { shouldOfferMessageExpansion } from '../utils/messageDisplay'
-import { isStreamStalled, STREAM_STALL_THRESHOLD_MS } from '../utils/streamStall'
+import { nextStreamActivityDeadline, streamActivityState, type StreamActivityState } from '../utils/streamStall'
 import { beginSpeech, playSpeechDataUrl, sanitizeTextForSpeech, stopSpeech } from '../utils/speech'
 import { useAuth } from '../composables/useAuth'
 import { useGateway, type Message, type ModelProvider, type Session } from '../composables/useGateway'
+import { useSharedDraft } from '../composables/useSharedDraft'
+import { usePreferences } from '../composables/usePreferences'
 import { useLastSession } from '../composables/useLastSession'
 import { useToast } from '../composables/useToast'
 import { useUnreads } from '../composables/useUnreads'
@@ -45,14 +48,18 @@ import {
 import { gatewayImageKey, gatewayImagePathFromMarkdownSrc, pendingGatewayImageRequests, type GatewayImageRequest } from '../utils/gatewayImageLoading'
 import { imagePan, imageZoom, resetImageTransform, type ImageTransform } from '../utils/imageZoom'
 import { isBackSwipe, SWIPE_BACK_EDGE_PX, type SwipeBackGesture } from '../utils/swipeBack'
+import { modelPreferenceKey, type ModelPreference } from '../utils/modelPreferences'
+import { sharedDraftToComposer } from '../utils/sharedDraft'
 import { openUrl } from '@tauri-apps/plugin-opener'
-import { ArrowDown, ArrowLeft, BarChart3, Check, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Compass, Copy, EllipsisVertical, FileImage, FileText, GitFork, History, Layers3, MessageCircle, MoreHorizontal, Paperclip, Pencil, RefreshCw, RotateCcw, Search, Send, Square, Terminal, Volume2, VolumeX, X, ZoomIn, ZoomOut } from '@lucide/vue'
+import { ArrowDown, ArrowLeft, BarChart3, Check, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Compass, Copy, EllipsisVertical, FileImage, FileText, GitFork, History, Layers3, MessageCircle, MoreHorizontal, Paperclip, Pencil, RefreshCw, RotateCcw, Search, Send, Square, Star, Terminal, Volume2, VolumeX, X, ZoomIn, ZoomOut } from '@lucide/vue'
 
 const router = useRouter()
 const route = useRoute()
 const auth = useAuth()
 const toast = useToast()
 const gw = useGateway()
+const sharedDraft = useSharedDraft()
+const preferences = usePreferences()
 const lastSession = useLastSession()
 const unreads = useUnreads()
 
@@ -71,6 +78,10 @@ const currentModel = ref('')
 const currentProvider = ref('')
 const modelLoading = ref(false)
 const switchingModel = ref(false)
+
+interface ModelPickerOption extends ModelPreference {
+  providerName: string
+}
 
 // Desktop exposes a context-usage status item for the focused session. Keep the
 // mobile equivalent on demand so opening a chat does not add another gateway RPC.
@@ -145,11 +156,37 @@ async function selectModel(provider: string, model: string) {
     if (ok) {
       currentModel.value = model
       currentProvider.value = provider
+      await preferences.recordModelRecent({ provider, model })
       modelPickerOpen.value = false
     }
   } finally {
     switchingModel.value = false
   }
+}
+
+const availableModelOptions = computed<ModelPickerOption[]>(() => modelProviders.value.flatMap(provider =>
+  provider.models.map(model => ({ provider: provider.slug, providerName: provider.name, model })),
+))
+
+function resolvedModelOptions(values: readonly ModelPreference[]): ModelPickerOption[] {
+  const byKey = new Map(availableModelOptions.value.map(option => [modelPreferenceKey(option.provider, option.model), option]))
+  return values.flatMap(value => {
+    const option = byKey.get(modelPreferenceKey(value.provider, value.model))
+    return option ? [option] : []
+  })
+}
+
+const favouriteModelOptions = computed(() => resolvedModelOptions(preferences.modelFavourites.value))
+const favouriteModelKeys = computed(() => new Set(favouriteModelOptions.value.map(option => modelPreferenceKey(option.provider, option.model))))
+const recentModelOptions = computed(() => resolvedModelOptions(preferences.modelRecents.value)
+  .filter(option => !favouriteModelKeys.value.has(modelPreferenceKey(option.provider, option.model))))
+
+function isFavouriteModel(provider: string, model: string): boolean {
+  return favouriteModelKeys.value.has(modelPreferenceKey(provider, model))
+}
+
+function toggleModelFavourite(provider: string, model: string) {
+  void preferences.toggleModelFavourite({ provider, model })
 }
 
 const currentModelShort = computed(() => {
@@ -347,6 +384,7 @@ onMounted(async () => {
   ensureGatewayImageObserver()
   void resolveGatewayImageAttachments()
   syncQueuedMessages(selectedSessionId.value)
+  await applyIncomingShare()
 
   if (selectedSessionId.value) {
     void lastSession.setLastSessionId(auth.gatewayUrl.value, selectedSessionId.value)
@@ -401,9 +439,24 @@ const queuedMessages = ref<QueuedMessage[]>([])
 const queuePaused = ref(false)
 const steering = ref(false)
 let queueDrainLock = false
+
+async function applyIncomingShare(): Promise<void> {
+  const draft = await sharedDraft.consume()
+  if (!draft) return
+
+  const composer = sharedDraftToComposer(draft)
+  input.value = composer.text
+  pendingAttachments.value = composer.attachments
+  await nextTick()
+  autoResize()
+  toast.show('Shared content added to a new chat', 'info')
+}
+
 const composerEl = ref<HTMLElement | null>(null)
 const composerHeight = ref(56)
-const streamStalled = ref(false)
+const streamActivity = ref<StreamActivityState>('active')
+const streamStalled = computed(() => streamActivity.value === 'stalled')
+const streamQuiet = computed(() => streamActivity.value === 'quiet')
 let streamStallTimer: ReturnType<typeof setTimeout> | null = null
 let composerResizeObserver: ResizeObserver | null = null
 
@@ -531,7 +584,7 @@ function autoResizeEdit() {
 }
 
 // Watch for route changes (navigating between sessions without remount)
-watch([() => route.params.id, () => route.query.cwd], async ([newId, cwd]) => {
+watch([() => route.params.id, () => route.query.cwd, () => route.query.shared], async ([newId, cwd, shared]) => {
   stopSpeech()
   speakingMessageId.value = ''
   resetComposerBrowse(selectedSessionId.value)
@@ -563,6 +616,9 @@ watch([() => route.params.id, () => route.query.cwd], async ([newId, cwd]) => {
   matchIndices.value = []
   currentMatchIdx.value = -1
   shouldFollowMessages.value = true
+  if (typeof shared === 'string' && shared) {
+    await applyIncomingShare()
+  }
   if (selectedSessionId.value) {
     try {
       await gw.fetchMessages(auth.gatewayUrl.value, selectedSessionId.value)
@@ -819,6 +875,7 @@ async function drainQueuedMessages(sessionId: string): Promise<void> {
 }
 
 function handleSend() {
+  if (isViewingOfflineTranscript.value) return
   const text = input.value.trim()
   if (sending.value) {
     if (text) void handleSteer()
@@ -889,6 +946,7 @@ async function sendText(
   fromQueue = false,
   queueSessionId?: string,
 ): Promise<boolean> {
+  if (isViewingOfflineTranscript.value) return false
   sending.value = true
   shouldFollowMessages.value = true
 
@@ -1710,7 +1768,7 @@ function messageKey(message: { id?: string; role: string; timestamp: number }, i
 }
 
 function toolResults(message: {
-  toolResults?: { id: string; name: string; content: string; timestamp: number; diff?: string }[]
+  toolResults?: { id: string; name: string; content: string; timestamp: number; diff?: string; filePaths?: string[]; failed?: boolean }[]
   id?: string
   toolName?: string
   content: string
@@ -1733,6 +1791,10 @@ function activityHasDiff(message: Parameters<typeof toolResults>[0]): boolean {
   return toolResults(message).some(tool => Boolean(toolDiffFromResult(tool)))
 }
 
+function fileActivitySummary(message: Parameters<typeof toolResults>[0]) {
+  return summarizeFileActivity(toolResults(message))
+}
+
 function isActivityMessage(message: { role: string; content: string; reasoning?: string; toolCalls?: unknown[] }): boolean {
   return message.role === 'tool' || (message.role === 'assistant' && !message.content && Boolean(message.reasoning || message.toolCalls?.length))
 }
@@ -1751,6 +1813,10 @@ function activityThoughtLabel(seconds: number): string {
 }
 
 const hasMessages = computed(() => gw.messages.value.length > 0)
+const isViewingOfflineTranscript = computed(() => Boolean(
+  selectedSessionId.value
+  && gw.viewingCachedTranscriptSessionId.value === selectedSessionId.value,
+))
 const loadErrorState = computed(() => messageLoadErrorState(gw.error.value, hasMessages.value))
 
 // Keep the currently streaming tail fully laid out, while allowing Chromium to
@@ -1816,32 +1882,33 @@ function stopElapsedTimer() {
   elapsedDisplay.value = ''
 }
 
-// Desktop restores a small tail status after two seconds without visible stream
-// activity. Use one deadline timer per activity flush instead of a polling loop.
+// Visible deltas are primary. Fresh WebSocket traffic turns a quiet response into
+// an informative "working quietly" state rather than a false stall diagnosis.
 function resetStreamStallTimer() {
   if (streamStallTimer) {
     clearTimeout(streamStallTimer)
     streamStallTimer = null
   }
-  streamStalled.value = false
 
-  const turnStartedAt = gw.turnStartedAt.value
-  const activityAt = gw.lastStreamActivityAt.value ?? turnStartedAt
-  if (turnStartedAt === null || activityAt === null) return
-
-  const delay = Math.max(0, STREAM_STALL_THRESHOLD_MS - (Date.now() - activityAt))
-  streamStallTimer = setTimeout(() => {
-    streamStallTimer = null
-    streamStalled.value = isStreamStalled(
-      gw.turnStartedAt.value,
-      gw.lastStreamActivityAt.value,
-      Date.now(),
-    )
-  }, delay)
+  const now = Date.now()
+  streamActivity.value = streamActivityState(
+    gw.turnStartedAt.value,
+    gw.lastStreamActivityAt.value,
+    gw.lastStreamTransportActivityAt.value,
+    now,
+  )
+  const deadline = nextStreamActivityDeadline(
+    gw.turnStartedAt.value,
+    gw.lastStreamActivityAt.value,
+    gw.lastStreamTransportActivityAt.value,
+    now,
+  )
+  if (deadline === null) return
+  streamStallTimer = setTimeout(resetStreamStallTimer, Math.max(0, deadline - now))
 }
 
 watch(
-  () => [gw.turnStartedAt.value, gw.lastStreamActivityAt.value],
+  () => [gw.turnStartedAt.value, gw.lastStreamActivityAt.value, gw.lastStreamTransportActivityAt.value],
   resetStreamStallTimer,
   { immediate: true },
 )
@@ -2031,6 +2098,10 @@ function formatTime(ts: number): string {
 
     <!-- Messages -->
     <div class="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-x-hidden overflow-y-auto overscroll-contain px-3 py-3" ref="scrollEl" @scroll="onScroll" @error.capture="handleMarkdownImageError" @click="handleMessagesClick" @touchstart.capture="handleSwipeBackStart" @touchmove.capture="handleSwipeBackMove" @touchend.capture="handleSwipeBackEnd" @touchcancel.capture="handleSwipeBackCancel" @touchstart="onChatTouchStart" @touchmove="onChatTouchMove" @touchend="onChatTouchEnd">
+      <div v-if="isViewingOfflineTranscript" class="flex items-center justify-between gap-3 rounded-lg border border-app-accent/30 bg-app-accent/10 px-3 py-2 text-[13px] text-app-muted">
+        <span>Offline — viewing a cached, read-only transcript</span>
+        <button class="shrink-0 cursor-pointer rounded-md border-0 bg-transparent px-1 font-medium text-app-accent hover:text-app-accent-hover" @click="refreshMessages">Retry</button>
+      </div>
       <!-- Pull-to-refresh indicator -->
       <div
         v-if="pullDelta > 0"
@@ -2157,6 +2228,12 @@ function formatTime(ts: number): string {
                   <div class="px-2.5 pb-2.5 text-xs leading-[1.5] whitespace-pre-wrap text-app-muted">{{ thought.content }}</div>
                 </details>
               </div>
+              <details v-if="fileActivitySummary(msg)" class="border-t border-app-border [&>summary]:cursor-pointer [&>summary]:bg-app-surface/60 [&>summary]:px-2.5 [&>summary]:py-1.5 [&>summary]:text-xs [&>summary]:text-app-muted">
+                <summary class="flex items-center gap-1.5"><FileText :size="13" :stroke-width="1.8" />{{ fileActivitySummary(msg)!.label }}</summary>
+                <ul class="m-0 list-none px-2.5 pb-2.5 pt-1 font-mono text-[11px] leading-5 text-app-muted">
+                  <li v-for="path in fileActivitySummary(msg)!.paths" :key="path" class="truncate">{{ path }}</li>
+                </ul>
+              </details>
               <template v-if="toolResults(msg).length === 1">
                 <div v-if="toolDiffFromResult(toolResults(msg)[0])" class="" aria-label="Diff view">
                   <div class="px-2.5 pt-1.5 pb-[3px] text-[11px] font-semibold uppercase tracking-[.04em] text-app-muted">Diff</div>
@@ -2253,16 +2330,16 @@ function formatTime(ts: number): string {
                 <span v-if="sending && idx === gw.messages.value.length - 1" class="ml-1 text-xs tabular-nums text-app-muted">Thinking<span v-if="elapsedDisplay"> · {{ elapsedDisplay }}</span><span v-else>…</span></span>
               </div>
 
-              <!-- Match desktop's StreamStallIndicator when a live response goes
-                   quiet after producing visible content. -->
+              <!-- Fresh gateway frames mean the agent may simply be using a tool;
+                   reserve the stronger warning for a quiet transport as well. -->
               <div
-                v-if="msg.role === 'assistant' && streamStalled && idx === gw.messages.value.length - 1 && !msg.error && !isThinking(msg.content) && Boolean(msg.content || msg.reasoning || msg.toolCalls?.length)"
+                v-if="msg.role === 'assistant' && (streamQuiet || streamStalled) && idx === gw.messages.value.length - 1 && !msg.error && !isThinking(msg.content) && Boolean(msg.content || msg.reasoning || msg.toolCalls?.length)"
                 class="mt-1 flex items-center gap-1.5 text-xs text-app-muted"
                 role="status"
                 aria-live="polite"
               >
                 <span class="size-[5px] animate-pulse rounded-full bg-app-accent"></span>
-                <span>Still thinking<span v-if="elapsedDisplay"> · {{ elapsedDisplay }}</span>…</span>
+                <span>{{ streamQuiet ? 'Working quietly' : 'Stream is quiet' }}<span v-if="elapsedDisplay"> · {{ elapsedDisplay }}</span>…</span>
               </div>
             </template>
           </template>
@@ -2305,6 +2382,8 @@ function formatTime(ts: number): string {
     </Transition>
 
     <div ref="composerEl" class="shrink-0">
+      <div v-if="isViewingOfflineTranscript" class="border-t border-app-border bg-app-surface px-3 py-3 text-center text-[13px] text-app-muted">Sending is unavailable while viewing cached history.</div>
+      <template v-else>
       <!-- Clarification prompt -->
     <div v-if="activeClarifyRequest" class="shrink-0 border-t border-app-border bg-app-surface px-3 py-2.5">
       <div class="rounded-lg border border-app-accent/30 bg-app-accent/10 p-2.5">
@@ -2434,6 +2513,7 @@ function formatTime(ts: number): string {
         </div>
       </template>
     </div>
+      </template>
     </div>
 
     <!-- Session Picker -->
@@ -2554,23 +2634,37 @@ function formatTime(ts: number): string {
             No models available
           </div>
           <div v-else class="overflow-y-auto overscroll-contain py-2">
-            <template v-for="provider in modelProviders" :key="provider.slug">
-              <div class="px-2">
-                <div class="px-2 py-1.5 pb-1 text-[11px] font-semibold uppercase tracking-[.05em] text-app-muted">{{ provider.name }}</div>
-                <button
-                  v-for="model in provider.models"
-                  :key="model"
-                  class="flex w-full cursor-pointer items-center justify-between rounded-lg border-0 bg-transparent px-3 py-2.5 text-left text-[13px] text-app-text transition-colors hover:not-[.disabled]:bg-app-surface-2"
-                  :class="{
-                    active: model === currentModel && provider.slug === currentProvider,
-                    disabled: switchingModel,
-                  }"
-                  :disabled="switchingModel"
-                  @click="selectModel(provider.slug, model)"
-                >
-                  <span class="flex-1 truncate">{{ gw.modelShort(model) }}</span>
-                  <Check v-if="model === currentModel && provider.slug === currentProvider" :size="16" :stroke-width="2.5" class="ml-2 text-app-accent" />
+            <div v-if="favouriteModelOptions.length" class="px-2 pb-2">
+              <div class="px-2 py-1.5 pb-1 text-[11px] font-semibold uppercase tracking-[.05em] text-app-muted">Favourites</div>
+              <div v-for="option in favouriteModelOptions" :key="`favourite-${option.provider}-${option.model}`" class="flex items-center gap-1 rounded-lg px-1 transition-colors hover:bg-app-surface-2">
+                <button class="flex min-w-0 flex-1 cursor-pointer items-center gap-2 border-0 bg-transparent px-2 py-2.5 text-left text-[13px] text-app-text disabled:cursor-wait disabled:opacity-60" :disabled="switchingModel" @click="selectModel(option.provider, option.model)">
+                  <span class="min-w-0 flex-1 truncate">{{ gw.modelShort(option.model) }}</span>
+                  <span class="shrink-0 text-[11px] text-app-muted">{{ option.providerName }}</span>
+                  <Check v-if="option.model === currentModel && option.provider === currentProvider" :size="16" :stroke-width="2.5" class="shrink-0 text-app-accent" />
                 </button>
+                <button class="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-app-accent hover:bg-app-surface-3 disabled:cursor-wait disabled:opacity-50" :disabled="switchingModel" :aria-label="`Remove ${option.model} from favourites`" @click="toggleModelFavourite(option.provider, option.model)"><Star :size="16" :stroke-width="2" fill="currentColor" /></button>
+              </div>
+            </div>
+            <div v-if="recentModelOptions.length" class="border-t border-app-border px-2 py-2">
+              <div class="px-2 py-1.5 pb-1 text-[11px] font-semibold uppercase tracking-[.05em] text-app-muted">Recent</div>
+              <div v-for="option in recentModelOptions" :key="`recent-${option.provider}-${option.model}`" class="flex items-center gap-1 rounded-lg px-1 transition-colors hover:bg-app-surface-2">
+                <button class="flex min-w-0 flex-1 cursor-pointer items-center gap-2 border-0 bg-transparent px-2 py-2.5 text-left text-[13px] text-app-text disabled:cursor-wait disabled:opacity-60" :disabled="switchingModel" @click="selectModel(option.provider, option.model)">
+                  <span class="min-w-0 flex-1 truncate">{{ gw.modelShort(option.model) }}</span>
+                  <span class="shrink-0 text-[11px] text-app-muted">{{ option.providerName }}</span>
+                  <Check v-if="option.model === currentModel && option.provider === currentProvider" :size="16" :stroke-width="2.5" class="shrink-0 text-app-accent" />
+                </button>
+              </div>
+            </div>
+            <template v-for="provider in modelProviders" :key="provider.slug">
+              <div class="border-t border-app-border px-2 py-2">
+                <div class="px-2 py-1.5 pb-1 text-[11px] font-semibold uppercase tracking-[.05em] text-app-muted">{{ provider.name }}</div>
+                <div v-for="model in provider.models" :key="model" class="flex items-center gap-1 rounded-lg px-1 transition-colors hover:bg-app-surface-2">
+                  <button class="flex min-w-0 flex-1 cursor-pointer items-center justify-between border-0 bg-transparent px-2 py-2.5 text-left text-[13px] text-app-text disabled:cursor-wait disabled:opacity-60" :disabled="switchingModel" @click="selectModel(provider.slug, model)">
+                    <span class="flex-1 truncate">{{ gw.modelShort(model) }}</span>
+                    <Check v-if="model === currentModel && provider.slug === currentProvider" :size="16" :stroke-width="2.5" class="ml-2 shrink-0 text-app-accent" />
+                  </button>
+                  <button class="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-app-muted transition-colors hover:bg-app-surface-3 hover:text-app-accent disabled:cursor-wait disabled:opacity-50" :class="isFavouriteModel(provider.slug, model) ? 'text-app-accent' : ''" :disabled="switchingModel" :aria-label="`${isFavouriteModel(provider.slug, model) ? 'Remove' : 'Add'} ${model} ${isFavouriteModel(provider.slug, model) ? 'from' : 'to'} favourites`" @click="toggleModelFavourite(provider.slug, model)"><Star :size="16" :stroke-width="2" :fill="isFavouriteModel(provider.slug, model) ? 'currentColor' : 'none'" /></button>
+                </div>
               </div>
             </template>
           </div>

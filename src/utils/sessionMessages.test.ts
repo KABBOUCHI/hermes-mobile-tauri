@@ -107,6 +107,23 @@ describe('normalizeSessionMessages', () => {
     ])
   })
 
+  it('carries safe mutation paths from tool calls into their grouped results', () => {
+    const messages = normalizeSessionMessages([
+      {
+        id: 'a1',
+        role: 'assistant',
+        content: '',
+        tool_calls: [{ id: 'call-1', function: { name: 'write_file', arguments: '{"path":"src/App.vue","content":"not persisted here"}' } }],
+        timestamp: 1,
+      },
+      { id: 't1', role: 'tool', tool_name: 'write_file', tool_call_id: 'call-1', content: 'written', timestamp: 2 },
+    ])
+
+    expect(messages[0]?.toolResults).toEqual([
+      expect.objectContaining({ id: 't1', name: 'write_file', filePaths: ['src/App.vue'] }),
+    ])
+  })
+
   it('groups adjacent tool results into one compact transcript record', () => {
     const messages = normalizeSessionMessages([
       { id: 't1', role: 'tool', tool_name: 'search_files', content: 'first', timestamp: 1 },

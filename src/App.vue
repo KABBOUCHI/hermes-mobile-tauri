@@ -9,6 +9,8 @@ import { usePins } from './composables/usePins'
 import { usePreferences } from './composables/usePreferences'
 import { useLastSession } from './composables/useLastSession'
 import { useToast } from './composables/useToast'
+import { useSharedDraft } from './composables/useSharedDraft'
+import { sharedDraftNavigation } from './utils/sharedDraftRoute'
 import {
   canRetryGatewayConnection,
   gatewayConnectionMessage,
@@ -24,6 +26,7 @@ const pins = usePins()
 const preferences = usePreferences()
 const lastSession = useLastSession()
 const toast = useToast()
+const sharedDraft = useSharedDraft()
 
 // ── Global link handler: open external links in system browser ──
 function handleGlobalClick(e: Event) {
@@ -96,6 +99,11 @@ const connectionMessage = computed(() => gatewayConnectionMessage(gatewayConnect
 const connectionTone = computed(() => gatewayConnectionTone(gatewayConnectionState.value))
 const canRetryConnection = computed(() => canRetryGatewayConnection(gatewayConnectionState.value))
 
+function routeIncomingShare() {
+  if (!auth.isConnected.value || !bootReady.value) return
+  void router.push(sharedDraftNavigation(crypto.randomUUID()))
+}
+
 async function retryGatewayConnection() {
   if (reconnecting.value || !canRetryConnection.value) return
   reconnecting.value = true
@@ -116,6 +124,7 @@ async function boot() {
   booted = true
 
   try {
+    await sharedDraft.start(routeIncomingShare)
     await preferences.init()
     const ok = await auth.tryAutoLogin()
     if (ok) {
@@ -128,11 +137,15 @@ async function boot() {
       // Restore the last durable chat on a normal launch, mirroring desktop's
       // remembered-session integration. Explicit deep links still win.
       if (router.currentRoute.value.name === 'connect') {
-        const rememberedSessionId = await lastSession.getLastSessionId(auth.gatewayUrl.value)
-        if (rememberedSessionId) {
-          await router.replace({ name: 'chat', params: { id: rememberedSessionId } })
+        if (sharedDraft.pendingSharedDraft.value) {
+          await router.replace({ name: 'chat' })
         } else {
-          await router.replace({ name: 'sessions' })
+          const rememberedSessionId = await lastSession.getLastSessionId(auth.gatewayUrl.value)
+          if (rememberedSessionId) {
+          await router.replace({ name: 'chat', params: { id: rememberedSessionId } })
+          } else {
+            await router.replace({ name: 'sessions' })
+          }
         }
       }
     } else {

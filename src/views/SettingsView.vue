@@ -31,6 +31,7 @@ const loading = ref(false)
 const reconnecting = ref(false)
 const selectingModel = ref(false)
 const selectingProfile = ref(false)
+const clearingCachedData = ref(false)
 const diagnosticsError = ref('')
 const appearanceOptions: Appearance[] = ['system', 'dark', 'light']
 
@@ -119,6 +120,16 @@ async function setAppearance(value: Appearance) {
   await preferences.setAppearance(value)
 }
 
+function clearOfflineData() {
+  clearingCachedData.value = true
+  try {
+    gw.clearOfflineCache(auth.gatewayUrl.value)
+    toast.show('Offline session cache cleared', 'success')
+  } finally {
+    clearingCachedData.value = false
+  }
+}
+
 async function disconnect() {
   gw.disconnectWs()
   await auth.clearSession()
@@ -186,6 +197,11 @@ onMounted(async () => {
         <div class="grid grid-cols-3 gap-2 p-3">
           <button v-for="option in appearanceOptions" :key="option" class="flex h-9 cursor-pointer items-center justify-center rounded-md border text-[12px] font-medium capitalize transition-colors" :class="preferences.appearance.value === option ? 'border-app-accent bg-app-accent/15 text-app-accent' : 'border-app-border bg-app-surface-2 text-app-muted hover:text-app-text'" @click="setAppearance(option)"><Check v-if="preferences.appearance.value === option" :size="14" :stroke-width="2" class="mr-1" />{{ option }}</button>
         </div>
+      </section>
+
+      <section class="overflow-hidden rounded-app border border-app-border bg-app-surface">
+        <div class="flex items-center gap-3 border-b border-app-border px-4 py-3"><Info :size="16" :stroke-width="1.8" class="text-app-accent" /><div><div class="text-[13px] font-medium">Offline data</div><div class="mt-0.5 text-xs text-app-muted">Cached sessions and transcripts stay on this device for seven days</div></div></div>
+        <div class="p-3"><button class="h-9 w-full cursor-pointer rounded-md border border-app-border bg-app-surface-2 text-[13px] font-medium text-app-text transition-colors hover:border-app-accent hover:text-app-accent disabled:cursor-wait disabled:opacity-60" :disabled="clearingCachedData" @click="clearOfflineData">{{ clearingCachedData ? 'Clearing…' : 'Clear offline cache' }}</button></div>
       </section>
 
       <section class="overflow-hidden rounded-app border border-app-border bg-app-surface">

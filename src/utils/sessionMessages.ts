@@ -1,8 +1,11 @@
+import { filePathsFromToolInput } from './fileActivity'
+
 export type MessageRole = 'user' | 'assistant' | 'tool'
 
 export interface ToolCallSummary {
   id: string
   name: string
+  filePaths?: string[]
 }
 
 export interface ToolResultSummary {
@@ -10,6 +13,9 @@ export interface ToolResultSummary {
   name: string
   content: string
   timestamp: number
+  toolCallId?: string
+  filePaths?: string[]
+  failed?: boolean
   diff?: string
 }
 
@@ -359,7 +365,11 @@ function toolCallsFromRaw(value: unknown): ToolCallSummary[] | undefined {
       const functionInfo = call.function as Record<string, unknown> | undefined
       const id = String(call.id ?? call.tool_call_id ?? `tool-call-${index}`)
       const name = String(call.name ?? call.tool_name ?? functionInfo?.name ?? 'tool')
-      return { id, name }
+      const filePaths = filePathsFromToolInput(
+        name,
+        functionInfo?.arguments ?? functionInfo?.input ?? call.arguments ?? call.input ?? call.parameters,
+      )
+      return { id, name, ...(filePaths.length ? { filePaths } : {}) }
     })
 
   return calls.length > 0 ? calls : undefined
@@ -395,6 +405,7 @@ export function normalizeSessionMessages(rawMessages: unknown[]): SessionMessage
             ? raw.diff.trim()
             : ''
         : ''
+      const toolFailed = role === 'tool' && (raw.is_error === true || raw.status === 'error' || raw.ok === false)
       const imageAttachments = role === 'user' ? imageAttachmentsFromRaw(raw.content) : []
 
       if (!content && !reasoning && !toolCalls?.length && role !== 'tool' && !imageAttachments.length) return []
@@ -412,7 +423,15 @@ export function normalizeSessionMessages(rawMessages: unknown[]): SessionMessage
         ...(toolCalls ? { toolCalls } : {}),
         ...(imageAttachments.length ? { imageAttachments } : {}),
         ...(role === 'tool' ? {
-          toolResults: [{ id, name: toolName || 'Tool', content, timestamp, ...(inlineDiff ? { diff: inlineDiff } : {}) }],
+          toolResults: [{
+            id,
+            name: toolName || 'Tool',
+            content,
+            timestamp,
+            ...(toolCallId ? { toolCallId } : {}),
+            ...(toolFailed ? { failed: true } : {}),
+            ...(inlineDiff ? { diff: inlineDiff } : {}),
+          }],
         } : {}),
       }
       return [message]
@@ -439,7 +458,15 @@ export function normalizeSessionMessages(rawMessages: unknown[]): SessionMessage
       index += 1
     }
 
-    const toolResults = run.flatMap(item => item.toolResults || [])
+    const pathsByToolCallId = new Map(
+      run.flatMap(item => item.toolCalls || [])
+        .filter(call => Boolean(call.filePaths?.length))
+        .map(call => [call.id, call.filePaths!] as const),
+    )
+    const toolResults = run.flatMap(item => item.toolResults || []).map(result => {
+      const filePaths = pathsByToolCallId.get(result.toolCallId || result.id)
+      return filePaths?.length ? { ...result, filePaths } : result
+    })
     if (run.length === 1 && toolResults.length === 0) {
       grouped.push(run[0])
       continue

@@ -12,6 +12,7 @@ import { runtimeIdForStoredSession } from '../utils/sessionRename'
 import { normalizeContextUsage, type ContextUsage } from '../utils/contextUsage'
 import { normalizeProjectTreePayload, normalizeProjectsPayload, projectCreateParams, projectSessionCreateParams, type Project } from '../utils/projects'
 import { settledTurnActivity } from '../utils/turnActivity'
+import { offlineCache, offlineCacheScopeKey } from '../utils/offlineCache'
 
 const FETCH_TIMEOUT = 12000
 // A session transcript can contain hundreds of durable tool records. On a
@@ -137,9 +138,12 @@ const loadingMessages = ref(false)
 const error = ref('')
 const wsState = ref<ConnectionState>('idle')
 const turnStartedAt = ref<number | null>(null)
+const viewingCachedSessions = ref(false)
+const viewingCachedTranscriptSessionId = ref<string | null>(null)
 // Reactive activity marker for the focused turn. Desktop uses the last visible
 // message flush to restore a "still thinking" hint when a provider goes quiet.
 const lastStreamActivityAt = ref<number | null>(null)
+const lastStreamTransportActivityAt = ref<number | null>(null)
 let sessionsTotal = 0
 let sessionsOffset = 0
 let archivedSessionsTotal = 0
@@ -255,6 +259,7 @@ let unscopedStreamSessionId: string | null = null
 let baseUrl = ''
 let cookie = ''
 let ticketFn: (() => Promise<string>) | null = null
+let activeCacheProfile = 'default'
 
 const activeRuntimeId = computed(() => activeTurn?.sessionId ?? null)
 const activeStoredSessionId = computed(() => activeTurn?.storedSessionId ?? null)
@@ -263,6 +268,35 @@ function clearTurnActivity(): void {
   const settled = settledTurnActivity()
   turnStartedAt.value = settled.turnStartedAt
   lastStreamActivityAt.value = settled.lastStreamActivityAt
+  lastStreamTransportActivityAt.value = null
+}
+
+function startTurnActivity(): void {
+  const now = Date.now()
+  turnStartedAt.value = now
+  lastStreamActivityAt.value = now
+  lastStreamTransportActivityAt.value = now
+}
+
+function currentOfflineCacheScope(url: string): string {
+  return offlineCacheScopeKey(url, activeCacheProfile)
+}
+
+function sessionOfflineCacheScope(url: string, archived: 'exclude' | 'only'): string {
+  return `${currentOfflineCacheScope(url)}|archived:${archived}`
+}
+
+function setActiveCacheProfile(url: string, profile: string | null | undefined): void {
+  activeCacheProfile = profile?.trim() || 'default'
+  offlineCache.writeLastProfile(url, activeCacheProfile)
+}
+
+function clearOfflineCache(url: string): void {
+  offlineCache.clearScope(currentOfflineCacheScope(url))
+  offlineCache.clearScope(sessionOfflineCacheScope(url, 'exclude'))
+  offlineCache.clearScope(sessionOfflineCacheScope(url, 'only'))
+  viewingCachedSessions.value = false
+  viewingCachedTranscriptSessionId.value = null
 }
 
 // ── Helpers ────────────────────────────────────────
@@ -437,6 +471,12 @@ async function fetchSessions(url: string, append = false, archived: 'exclude' | 
     }
   }
   error.value = ''
+  const cacheScope = sessionOfflineCacheScope(url, archived)
+  const cachedSessions = append ? null : offlineCache.readSessions<Session>(cacheScope)
+  if (!append && cachedSessions !== null) {
+    sessions.value = cachedSessions
+    viewingCachedSessions.value = true
+  }
   try {
     const base = url.replace(/\/$/, '')
     const headers: Record<string, string> = {}
@@ -475,9 +515,18 @@ async function fetchSessions(url: string, append = false, archived: 'exclude' | 
       // does, while letting the server replace all rows it did return.
       sessions.value = mergeSessionPage(sessions.value, incoming, currentSessionListKeepIds())
     }
+    offlineCache.writeSessions(cacheScope, sessions.value)
+    viewingCachedSessions.value = false
     return sessions.value
   } catch (err: any) {
     if (generation === sessionFetchGeneration) {
+      const fallback = cachedSessions ?? offlineCache.readSessions<Session>(cacheScope)
+      if (fallback !== null) {
+        sessions.value = fallback
+        viewingCachedSessions.value = true
+        error.value = ''
+        return sessions.value
+      }
       error.value = err.message || 'Failed to load sessions'
     }
     return []
@@ -590,9 +639,16 @@ async function requestSessionMessages(url: string, sessionId: string): Promise<M
 async function fetchMessages(url: string, sessionId: string): Promise<Message[]> {
   const generation = ++messageFetchGeneration
   const cached = messageCache.get(sessionId)
+  const cacheScope = currentOfflineCacheScope(url)
+  const persisted = offlineCache.readTranscript<Message>(cacheScope, sessionId)
   if (cached) {
     // Publish immediately, then reconcile with the authoritative response.
     messages.value = cached
+    viewingCachedTranscriptSessionId.value = null
+  } else if (persisted !== null) {
+    messages.value = persisted
+    rememberMessages(sessionId, persisted)
+    viewingCachedTranscriptSessionId.value = sessionId
   }
   loadingMessages.value = true
   error.value = ''
@@ -603,10 +659,19 @@ async function fetchMessages(url: string, sessionId: string): Promise<Message[]>
     // flight. Preserve the foreground thread in that case.
     if (generation !== messageFetchGeneration) return []
     rememberMessages(sessionId, incoming)
+    offlineCache.writeTranscript(cacheScope, sessionId, incoming)
+    viewingCachedTranscriptSessionId.value = null
     messages.value = incoming
     return incoming
   } catch (err: any) {
     if (generation === messageFetchGeneration) {
+      const fallback = cached ?? persisted ?? offlineCache.readTranscript<Message>(cacheScope, sessionId)
+      if (fallback !== null) {
+        messages.value = fallback
+        viewingCachedTranscriptSessionId.value = sessionId
+        error.value = ''
+        return messages.value
+      }
       error.value = err.message || 'Failed to load messages'
     }
     return []
@@ -706,6 +771,7 @@ async function connectWs(url: string, sessCookie: string, getTicket: () => Promi
   baseUrl = url
   cookie = sessCookie
   ticketFn = getTicket
+  activeCacheProfile = offlineCache.readLastProfile(url)
   disposed = false
   if (reconnectTimer) {
     clearTimeout(reconnectTimer)
@@ -747,6 +813,7 @@ async function openWs() {
           raw = event?.data || event?.payload || String(event)
         }
         const msg = JSON.parse(raw)
+        if (activeTurn) lastStreamTransportActivityAt.value = Date.now()
 
         // JSON-RPC response (has id)
         if (msg.id !== undefined && msg.id !== null) {
@@ -1159,8 +1226,7 @@ async function sendMessage(
   messages.value.push(assistantMsg)
 
   streamingContent = ''
-  turnStartedAt.value = Date.now()
-  lastStreamActivityAt.value = turnStartedAt.value
+  startTurnActivity()
 
   const turnResult = await new Promise<TurnResult>((resolve, reject) => {
     const TURN_TIMEOUT = 1_800_000
@@ -1338,8 +1404,7 @@ async function regenerateLastMessage(
   messages.value.push(assistantMsg)
 
   streamingContent = ''
-  turnStartedAt.value = Date.now()
-  lastStreamActivityAt.value = turnStartedAt.value
+  startTurnActivity()
 
   const turnResult = await new Promise<TurnResult>((resolve, reject) => {
     const TURN_TIMEOUT = 1_800_000
@@ -1422,8 +1487,7 @@ async function restoreMessage(
   messages.value.push(assistantMsg)
 
   streamingContent = ''
-  turnStartedAt.value = Date.now()
-  lastStreamActivityAt.value = turnStartedAt.value
+  startTurnActivity()
 
   const turnResult = await new Promise<TurnResult>((resolve, reject) => {
     const TURN_TIMEOUT = 1_800_000
@@ -1511,8 +1575,7 @@ async function editMessage(
     messages.value.push(assistantMsg)
 
     streamingContent = ''
-    turnStartedAt.value = Date.now()
-    lastStreamActivityAt.value = turnStartedAt.value
+    startTurnActivity()
 
     const turnResult = await new Promise<TurnResult>((resolve, reject) => {
       const TURN_TIMEOUT = 1_800_000
@@ -1676,7 +1739,10 @@ async function fetchProfiles(url: string): Promise<GatewayProfile[]> {
     )
     if (!resp.ok) throw new Error('HTTP ' + resp.status)
     const data = await resp.json()
-    return Array.isArray(data?.profiles) ? data.profiles : Array.isArray(data) ? data : []
+    const profiles = Array.isArray(data?.profiles) ? data.profiles : Array.isArray(data) ? data : []
+    const activeProfile = profiles.find((profile: GatewayProfile) => profile?.is_default === true)
+    if (typeof activeProfile?.name === 'string') setActiveCacheProfile(url, activeProfile.name)
+    return profiles
   } catch (err: any) {
     error.value = err.message || 'Failed to load profiles'
     return []
@@ -1694,6 +1760,7 @@ async function activateProfile(url: string, profile: string): Promise<boolean> {
       FETCH_TIMEOUT
     )
     if (!resp.ok) throw new Error('HTTP ' + resp.status)
+    setActiveCacheProfile(url, profile)
     return true
   } catch (err: any) {
     error.value = err.message || 'Failed to set active profile'
@@ -1772,7 +1839,10 @@ export function useGateway() {
     error,
     wsState,
     turnStartedAt,
+    viewingCachedSessions,
+    viewingCachedTranscriptSessionId,
     lastStreamActivityAt,
+    lastStreamTransportActivityAt,
     activeRuntimeId,
     activeStoredSessionId,
     extractText,
@@ -1784,6 +1854,7 @@ export function useGateway() {
     setActiveProject,
     createProject,
     setSessionListKeepIds,
+    clearOfflineCache,
     fetchSessions,
     fetchSessionPickerSessions,
     searchSessions,

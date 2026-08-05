@@ -12,7 +12,7 @@ import { isCurrentSessionSearchGeneration, sessionMatchesSearch } from '../utils
 import { excludePinnedSessions, flattenSessionsWithBranches, orderSessionsByIds, sessionIsPinned, sessionMatchesStoredId, sessionPinId, type SessionBranchEntry } from '../utils/sessionList'
 import { filterSessionsBySource } from '../utils/sessionSource'
 import { sessionActivityState, type SessionActivityState } from '../utils/sessionActivity'
-import { isStreamStalled, STREAM_STALL_THRESHOLD_MS } from '../utils/streamStall'
+import { isStreamStalled, nextStreamActivityDeadline, STREAM_STALL_THRESHOLD_MS } from '../utils/streamStall'
 import { writeClipboardText } from '../utils/clipboard'
 import { createSessionExport, deliverSessionExport } from '../utils/sessionExport'
 import { sessionListTitle, sessionPreview } from '../utils/sessionTitle'
@@ -54,29 +54,28 @@ let unreadRefreshGeneration = 0
 const sessionStatusNow = ref(Date.now())
 let sessionStatusTimer: ReturnType<typeof setTimeout> | null = null
 
-// Desktop keeps a live session visibly active even when the provider pauses
-// between stream frames. Refresh the list exactly at that quiet-stream deadline
-// so the row can switch from working to stalled without polling continuously.
+// Refresh only at a visible or transport inactivity deadline. A fresh WebSocket
+// frame keeps the row in its ordinary working state rather than showing a stall.
 function resetSessionStatusTimer() {
   if (sessionStatusTimer) {
     clearTimeout(sessionStatusTimer)
     sessionStatusTimer = null
   }
 
-  sessionStatusNow.value = Date.now()
-  const turnStartedAt = gw.turnStartedAt.value
-  const activityAt = gw.lastStreamActivityAt.value ?? turnStartedAt
-  if (turnStartedAt === null || activityAt === null) return
-
-  const delay = Math.max(0, STREAM_STALL_THRESHOLD_MS - (Date.now() - activityAt))
-  sessionStatusTimer = setTimeout(() => {
-    sessionStatusTimer = null
-    sessionStatusNow.value = Date.now()
-  }, delay)
+  const now = Date.now()
+  sessionStatusNow.value = now
+  const deadline = nextStreamActivityDeadline(
+    gw.turnStartedAt.value,
+    gw.lastStreamActivityAt.value,
+    gw.lastStreamTransportActivityAt.value,
+    now,
+  )
+  if (deadline === null) return
+  sessionStatusTimer = setTimeout(resetSessionStatusTimer, Math.max(0, deadline - now))
 }
 
 watch(
-  () => [gw.turnStartedAt.value, gw.lastStreamActivityAt.value],
+  () => [gw.turnStartedAt.value, gw.lastStreamActivityAt.value, gw.lastStreamTransportActivityAt.value],
   resetSessionStatusTimer,
   { immediate: true },
 )
@@ -752,6 +751,8 @@ function sessionStatus(session: Session): SessionActivityState {
       gw.turnStartedAt.value,
       gw.lastStreamActivityAt.value,
       sessionStatusNow.value,
+      STREAM_STALL_THRESHOLD_MS,
+      gw.lastStreamTransportActivityAt.value,
     ),
     isUnread: unreadIds.value.has(session.id),
     needsInput: hasClarifyRequest,
@@ -835,6 +836,11 @@ function sessionStatusLabel(session: Session): string {
         <option value="all">All sources</option>
         <option v-for="source in sourceOptions" :key="source" :value="source">{{ gw.sourceLabel(source) }}</option>
       </select>
+    </div>
+
+    <div v-if="gw.viewingCachedSessions.value" class="mx-4 mb-3 flex shrink-0 items-center justify-between gap-3 rounded-lg border border-app-accent/30 bg-app-accent/10 px-3 py-2 text-xs text-app-muted">
+      <span>Offline — showing cached sessions</span>
+      <button class="shrink-0 cursor-pointer border-0 bg-transparent px-1 font-medium text-app-accent hover:text-app-accent-hover" @click="handleRefresh">Retry</button>
     </div>
 
     <!-- Pull indicator -->

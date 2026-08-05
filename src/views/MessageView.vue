@@ -52,7 +52,7 @@ import { isBackSwipe, SWIPE_BACK_EDGE_PX, type SwipeBackGesture } from '../utils
 import { modelPreferenceKey, type ModelPreference } from '../utils/modelPreferences'
 import { sharedDraftToComposer } from '../utils/sharedDraft'
 import { openUrl } from '@tauri-apps/plugin-opener'
-import { ArrowDown, ArrowLeft, BarChart3, Check, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Compass, Copy, EllipsisVertical, FileImage, FileText, GitFork, History, Layers3, MessageCircle, MoreHorizontal, Paperclip, Pencil, RefreshCw, RotateCcw, Search, Send, Square, Star, Terminal, Volume2, VolumeX, X, ZoomIn, ZoomOut } from '@lucide/vue'
+import { ArrowDown, ArrowLeft, BarChart3, Check, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Compass, Copy, EllipsisVertical, FileImage, FileText, GitFork, History, Layers3, MessageCircle, MoreHorizontal, Paperclip, Pencil, RefreshCw, RotateCcw, Search, Send, Share, Square, Star, Terminal, Volume2, VolumeX, X, ZoomIn, ZoomOut } from '@lucide/vue'
 
 const router = useRouter()
 const route = useRoute()

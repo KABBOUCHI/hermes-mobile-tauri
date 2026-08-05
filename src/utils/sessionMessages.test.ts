@@ -206,6 +206,40 @@ describe('normalizeSessionMessages', () => {
     expect(messages).toEqual([expect.objectContaining({ id: 'u1', content: 'Actual user prompt' })])
   })
 
+  it('keeps Desktop timeline notices with concise labels and metadata-safe counts', () => {
+    const messages = normalizeSessionMessages([
+      { role: 'user', content: 'real user turn', timestamp: 1 },
+      { role: 'user', content: 'opaque model payload', display_kind: 'model_switch', timestamp: 2 },
+      { role: 'user', content: 'opaque delegation payload', display_kind: 'async_delegation_complete', display_metadata: JSON.stringify({ task_count: 2 }), timestamp: 3 },
+      { role: 'user', content: '[System note: interrupted]\n\noriginal prompt', display_kind: 'auto_continue', timestamp: 4 },
+      { role: 'assistant', content: 'real assistant reply', timestamp: 5 },
+    ])
+
+    expect(messages.map(message => message.role)).toEqual(['user', 'system', 'system', 'system', 'assistant'])
+    expect(messages.map(message => message.content)).toEqual([
+      'real user turn',
+      'model changed',
+      '2 background agents finished',
+      'resumed interrupted turn',
+      'real assistant reply',
+    ])
+    expect(messages.map(message => message.displayKind)).toEqual([
+      undefined,
+      'model_switch',
+      'async_delegation_complete',
+      'auto_continue',
+      undefined,
+    ])
+  })
+
+  it('uses a generic background-agent label when timeline metadata is malformed', () => {
+    const messages = normalizeSessionMessages([
+      { role: 'user', content: 'opaque delegation payload', display_kind: 'async_delegation_complete', display_metadata: '{not-json', timestamp: 1 },
+    ])
+
+    expect(messages[0]).toMatchObject({ role: 'system', content: 'background agent work finished' })
+  })
+
   it('renders portable image parts and retains gateway image paths for remote retrieval', () => {
     const messages = normalizeSessionMessages([
       {

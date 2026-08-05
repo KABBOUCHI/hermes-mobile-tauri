@@ -1803,6 +1803,16 @@ function processNoteFor(message: { role: string; content: string }) {
   return message.role === 'user' ? processNotification(message.content) : null
 }
 
+function isTimelineMessage(message: { displayKind?: string }): boolean {
+  return message.displayKind === 'model_switch'
+    || message.displayKind === 'auto_continue'
+    || message.displayKind === 'async_delegation_complete'
+}
+
+function timelineLabel(message: { content: string }): string {
+  return message.content
+}
+
 function thoughtLabel(message: { timestamp: number }, idx: number): string {
   const next = gw.messages.value.slice(idx + 1).find(item => item.timestamp > message.timestamp)
   return thoughtActivityLabel(next ? next.timestamp - message.timestamp : 0)
@@ -2167,7 +2177,13 @@ function formatTime(ts: number): string {
           },
         ]"
       >
-        <div v-if="processNoteFor(msg)" class="flex max-w-[min(86%,44rem)] flex-col gap-0.5 self-center px-2 py-0.5 text-[11px] leading-5 text-app-muted/60">
+        <div v-if="isTimelineMessage(msg)" class="flex max-w-[min(86%,44rem)] items-center gap-2 self-center px-2 py-0.5 text-[11px] leading-5 text-app-muted/65" role="status">
+          <span class="h-px w-8 bg-app-border/70" aria-hidden="true" />
+          <span v-if="searchQuery.trim() && isMatch(idx)" class="break-words text-center" v-html="highlightText(timelineLabel(msg), searchQuery)" />
+          <span v-else class="break-words text-center">{{ timelineLabel(msg) }}</span>
+          <span class="h-px w-8 bg-app-border/70" aria-hidden="true" />
+        </div>
+        <div v-else-if="processNoteFor(msg)" class="flex max-w-[min(86%,44rem)] flex-col gap-0.5 self-center px-2 py-0.5 text-[11px] leading-5 text-app-muted/60">
           <span class="flex items-center gap-1.5">
             <Terminal class="shrink-0 text-app-muted/55" :size="12" :stroke-width="2" />
             <span class="break-words">{{ processNoteFor(msg)?.headline }}</span>
@@ -2345,7 +2361,7 @@ function formatTime(ts: number): string {
           </template>
         </div>
 
-        <div v-if="!isActivityMessage(msg) && !processNoteFor(msg) && !msg.interim" class="flex items-center gap-2 px-1" :class="msg.role === 'user' ? 'self-end' : 'self-start'">
+        <div v-if="!isActivityMessage(msg) && !processNoteFor(msg) && !isTimelineMessage(msg) && !msg.interim" class="flex items-center gap-2 px-1" :class="msg.role === 'user' ? 'self-end' : 'self-start'">
           <span v-if="msg.timestamp" class="text-[11px] text-app-muted">{{ formatTime(msg.timestamp) }}</span>
           <button
             v-if="canRestoreMessage(msg, idx)"

@@ -1,6 +1,7 @@
 import { filePathsFromToolInput } from './fileActivity'
 
-export type MessageRole = 'user' | 'assistant' | 'tool'
+export type MessageRole = 'user' | 'assistant' | 'tool' | 'system'
+export type TimelineDisplayKind = 'async_delegation_complete' | 'auto_continue' | 'model_switch' | string
 
 export interface ToolCallSummary {
   id: string
@@ -36,6 +37,9 @@ export interface SessionMessage {
   role: MessageRole
   content: string
   timestamp: number
+  /** Durable Desktop timeline marker for non-conversational session events. */
+  displayKind?: TimelineDisplayKind
+  displayMetadata?: unknown
   /** A streamed assistant segment sealed before the turn's final reply. */
   interim?: boolean
   reasoning?: string
@@ -393,13 +397,35 @@ function toolCallsFromRaw(value: unknown): ToolCallSummary[] | undefined {
   return calls.length > 0 ? calls : undefined
 }
 
+function timelineTaskCount(metadata: unknown): number | undefined {
+  let parsed = metadata
+  if (typeof parsed === 'string') {
+    try {
+      parsed = JSON.parse(parsed)
+    } catch {
+      return undefined
+    }
+  }
+  if (!parsed || typeof parsed !== 'object') return undefined
+  const count = (parsed as { task_count?: unknown }).task_count
+  return typeof count === 'number' && Number.isFinite(count) ? count : undefined
+}
+
+function timelineDisplayContent(kind: string | undefined, content: string, metadata: unknown): string {
+  if (kind === 'model_switch') return 'model changed'
+  if (kind === 'auto_continue') return 'resumed interrupted turn'
+  if (kind === 'async_delegation_complete') {
+    const count = timelineTaskCount(metadata)
+    return count === undefined
+      ? 'background agent work finished'
+      : `${count} background agent${count === 1 ? '' : 's'} finished`
+  }
+  return content
+}
+
 function isVisible(message: Record<string, unknown>): boolean {
-  const kind = message.display_kind
   const content = textFromUnknown(message.content).trimStart()
-  return kind !== 'hidden'
-    && kind !== 'model_switch'
-    && kind !== 'auto_continue'
-    && kind !== 'async_delegation_complete'
+  return message.display_kind !== 'hidden'
     && !content.startsWith(CONTEXT_COMPACTION_MARKER)
 }
 
@@ -408,10 +434,27 @@ export function normalizeSessionMessages(rawMessages: unknown[]): SessionMessage
     .filter((raw): raw is Record<string, unknown> => Boolean(raw) && typeof raw === 'object')
     .filter(isVisible)
     .flatMap((raw, index) => {
-      const role = raw.role === 'tool' ? 'tool' : raw.role === 'user' ? 'user' : raw.role === 'assistant' ? 'assistant' : null
+      const displayKind = typeof raw.display_kind === 'string' ? raw.display_kind : undefined
+      const isTimeline = displayKind === 'model_switch'
+        || displayKind === 'auto_continue'
+        || displayKind === 'async_delegation_complete'
+      const role = isTimeline
+        ? 'system'
+        : raw.role === 'tool'
+          ? 'tool'
+          : raw.role === 'user'
+            ? 'user'
+            : raw.role === 'assistant'
+              ? 'assistant'
+              : raw.role === 'system'
+                ? 'system'
+                : null
       if (!role) return []
 
-      const content = displayContentForRole(role, stripTransportMarkup(textFromUnknown(raw.content)))
+      const rawContent = stripTransportMarkup(textFromUnknown(raw.content))
+      const content = isTimeline
+        ? timelineDisplayContent(displayKind, rawContent, raw.display_metadata)
+        : displayContentForRole(role, rawContent)
       const reasoning = role === 'assistant' ? reasoningFromRaw(raw) : ''
       const toolCalls = role === 'assistant' ? toolCallsFromRaw(raw.tool_calls) : undefined
       const toolName = role === 'tool' && typeof raw.tool_name === 'string' ? raw.tool_name : undefined
@@ -435,6 +478,8 @@ export function normalizeSessionMessages(rawMessages: unknown[]): SessionMessage
         role,
         content,
         timestamp,
+        ...(displayKind ? { displayKind } : {}),
+        ...(isTimeline && raw.display_metadata !== undefined ? { displayMetadata: raw.display_metadata } : {}),
         ...(reasoning ? { reasoning } : {}),
         ...(toolName ? { toolName } : {}),
         ...(toolCallId ? { toolCallId } : {}),

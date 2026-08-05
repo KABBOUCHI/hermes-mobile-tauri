@@ -4,6 +4,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { mediaPathFromMarkdownHref, renderMarkdown } from '../utils/markdown'
 import { highlightRenderedHtml } from '../utils/renderedSearchHighlight'
 import { messageMatchesSearch } from '../utils/messageSearch'
+import { activeMessageTimelineIndex, deriveMessageTimeline, type MessageTimelineEntry } from '../utils/messageTimeline'
 import { branchableMessageHistoryThrough, markLatestAssistantFailure, processNotification } from '../utils/sessionMessages'
 import { summarizeToolActivity, thoughtActivityLabel, toolDiffFromResult } from '../utils/activitySummary'
 import { summarizeFileActivity } from '../utils/fileActivity'
@@ -424,6 +425,10 @@ onUnmounted(() => {
     clearTimeout(streamStallTimer)
     streamStallTimer = null
   }
+  if (messageTimelineRaf !== null) {
+    cancelAnimationFrame(messageTimelineRaf)
+    messageTimelineRaf = null
+  }
 })
 
 function onViewportResize() {
@@ -610,6 +615,7 @@ watch([() => route.params.id, () => route.query.cwd, () => route.query.shared], 
   expandedMessageIds.value = new Set()
   pendingAttachments.value = []
   closeActionSheet()
+  messageTimelineOpen.value = false
   closeSessionPicker()
   closeContextUsage()
   contextUsageData.value = null
@@ -635,6 +641,57 @@ const searchQuery = ref('')
 const searchInputEl = ref<HTMLInputElement | null>(null)
 const matchIndices = ref<number[]>([])
 const currentMatchIdx = ref(-1)
+
+// Desktop exposes a prompt timeline for quickly jumping through long chats.
+// Mobile uses a bottom sheet instead of a hover rail, keeping the same useful
+// turn previews without consuming transcript width.
+const messageTimelineOpen = ref(false)
+const messageTimelineActiveIndex = ref(0)
+const messageTimelineEntries = computed<MessageTimelineEntry[]>(() => deriveMessageTimeline(gw.messages.value))
+let messageTimelineRaf: number | null = null
+
+function updateMessageTimelineActiveIndex() {
+  const viewport = scrollEl.value
+  const entries = messageTimelineEntries.value
+  if (!viewport || entries.length < 4) return
+
+  const viewportTop = viewport.getBoundingClientRect().top
+  const offsets = entries.map(entry => {
+    const message = viewport.querySelector<HTMLElement>(`[data-msg-idx="${entry.messageIndex}"]`)
+    return message ? message.getBoundingClientRect().top - viewportTop : null
+  })
+  const next = activeMessageTimelineIndex(offsets)
+  if (next !== messageTimelineActiveIndex.value) messageTimelineActiveIndex.value = next
+}
+
+function scheduleMessageTimelineUpdate() {
+  if (messageTimelineRaf !== null) return
+  messageTimelineRaf = requestAnimationFrame(() => {
+    messageTimelineRaf = null
+    updateMessageTimelineActiveIndex()
+  })
+}
+
+function scrollToMessageTimelineEntry(entry: MessageTimelineEntry, index: number) {
+  const message = scrollEl.value?.querySelector<HTMLElement>(`[data-msg-idx="${entry.messageIndex}"]`)
+  if (!message) return
+
+  messageTimelineActiveIndex.value = index
+  messageTimelineOpen.value = false
+  message.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+function toggleMessageTimeline() {
+  if (messageTimelineEntries.value.length < 4) return
+  messageTimelineOpen.value = !messageTimelineOpen.value
+  if (messageTimelineOpen.value) nextTick(scheduleMessageTimelineUpdate)
+}
+
+watch(messageTimelineEntries, entries => {
+  if (entries.length < 4) messageTimelineOpen.value = false
+  messageTimelineActiveIndex.value = Math.min(messageTimelineActiveIndex.value, Math.max(0, entries.length - 1))
+  nextTick(scheduleMessageTimelineUpdate)
+})
 
 function toggleSearch() {
   searchOpen.value = !searchOpen.value
@@ -1119,6 +1176,7 @@ function scrollToBottom() {
 // Update jump-to-bottom visibility on scroll
 function onScroll() {
   checkScrollPosition()
+  scheduleMessageTimelineUpdate()
 }
 
 // ── Pull-to-refresh in chat ──
@@ -2163,6 +2221,18 @@ function formatTime(ts: number): string {
         <ChevronDown class="shrink-0 text-app-muted" :size="14" :stroke-width="2" />
       </button>
       <button
+        v-if="messageTimelineEntries.length >= 4"
+        class="flex shrink-0 items-center gap-1 rounded-md border border-app-border bg-app-surface-2 px-2 py-1 text-xs font-medium tabular-nums text-app-muted transition-all hover:border-app-accent hover:bg-app-accent/10 hover:text-app-accent"
+        type="button"
+        :class="{ 'border-app-accent/40 bg-app-accent/10 text-app-accent': messageTimelineOpen }"
+        aria-label="Show conversation timeline"
+        title="Show conversation timeline"
+        @click="toggleMessageTimeline"
+      >
+        <History class="shrink-0" :size="13" :stroke-width="2" />
+        <span>{{ messageTimelineActiveIndex + 1 }}/{{ messageTimelineEntries.length }}</span>
+      </button>
+      <button
         v-if="selectedSessionId"
         class="flex max-w-[104px] shrink-0 cursor-pointer items-center gap-1 rounded-md border border-app-border bg-app-surface-2 px-2 py-1 text-xs font-medium text-app-muted transition-all hover:border-app-accent hover:bg-app-accent/10 hover:text-app-accent"
         type="button"
@@ -2679,6 +2749,37 @@ function formatTime(ts: number): string {
     </div>
       </template>
     </div>
+
+    <!-- Conversation timeline -->
+    <Teleport to="body">
+      <div v-if="messageTimelineOpen" class="fixed inset-0 z-[1090] flex items-end justify-center bg-black/50" @click="messageTimelineOpen = false">
+        <div class="flex max-h-[72vh] w-full max-w-[400px] flex-col overflow-hidden rounded-t-2xl border border-b-0 border-app-border bg-app-surface animate-[slideUp_.2s_ease]" @click.stop>
+          <div class="flex items-center justify-between border-b border-app-border px-4 py-3.5">
+            <div class="min-w-0">
+              <div class="text-[15px] font-semibold tracking-[-0.02em]">Conversation timeline</div>
+              <div class="text-[11px] text-app-muted">Jump to a user turn</div>
+            </div>
+            <button class="flex cursor-pointer items-center justify-center rounded-md border-0 bg-transparent px-2 py-1 text-app-muted transition-colors hover:text-app-error" type="button" @click="messageTimelineOpen = false" aria-label="Close conversation timeline"><X :size="16" :stroke-width="2" /></button>
+          </div>
+          <div class="overflow-y-auto overscroll-contain p-2">
+            <button
+              v-for="(entry, index) in messageTimelineEntries"
+              :key="`${entry.id}-${entry.messageIndex}`"
+              class="flex w-full min-w-0 cursor-pointer items-start gap-2.5 rounded-lg border-0 bg-transparent px-3 py-2.5 text-left transition-colors hover:bg-app-surface-2"
+              :class="index === messageTimelineActiveIndex ? 'bg-app-accent/10 text-app-accent' : 'text-app-text'"
+              type="button"
+              @click="scrollToMessageTimelineEntry(entry, index)"
+            >
+              <span class="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border border-current text-[10px] font-semibold tabular-nums">{{ index + 1 }}</span>
+              <span class="min-w-0 flex-1">
+                <span class="block line-clamp-2 text-[13px] leading-[1.4]">{{ entry.preview }}</span>
+                <span v-if="entry.timestamp" class="mt-0.5 block text-[10px] text-app-muted">{{ formatTime(entry.timestamp) }}</span>
+              </span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
 
     <!-- Session Picker -->
     <Teleport to="body">

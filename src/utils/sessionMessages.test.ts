@@ -1,5 +1,24 @@
 import { describe, expect, it } from 'vitest'
-import { applyEditedUserTurn, branchableMessageHistory, branchableMessageHistoryThrough, finalizeInterruptedMessages, markLatestAssistantFailure, normalizeSessionMessages, processNotification, rewindToMessage, sealInterimAssistantMessage, userOrdinalAtMessageIndex } from './sessionMessages'
+import { applyEditedUserTurn, branchableMessageHistory, branchableMessageHistoryThrough, finalizeInterruptedMessages, markLatestAssistantFailure, normalizeSessionMessages, processNotification, rewindToMessage, sealInterimAssistantMessage, updateStreamingReasoning, userOrdinalAtMessageIndex } from './sessionMessages'
+
+describe('updateStreamingReasoning', () => {
+  it('appends reasoning deltas without disturbing the visible answer', () => {
+    const message = { role: 'assistant' as const, content: '', reasoning: 'Inspect ', timestamp: 1 }
+
+    expect(updateStreamingReasoning(message, 'the gateway.')).toEqual({
+      ...message,
+      reasoning: 'Inspect the gateway.',
+    })
+  })
+
+  it('lets the authoritative reasoning frame replace streamed reasoning until prose starts', () => {
+    const message = { role: 'assistant' as const, content: '', reasoning: 'partial', timestamp: 1 }
+    const withAnswer = { ...message, content: 'The answer' }
+
+    expect(updateStreamingReasoning(message, 'complete reasoning', true)).toMatchObject({ reasoning: 'complete reasoning' })
+    expect(updateStreamingReasoning(withAnswer, 'late reasoning', true)).toBe(withAnswer)
+  })
+})
 
 describe('processNotification', () => {
   it('parses desktop background notices into a compact headline and output', () => {

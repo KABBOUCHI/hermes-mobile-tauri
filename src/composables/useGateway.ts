@@ -1,7 +1,7 @@
 import { ref, computed } from 'vue'
 import { fetch } from '@tauri-apps/plugin-http'
 import WebSocket from '@tauri-apps/plugin-websocket'
-import { normalizeSessionMessages, branchableMessageHistory, completionFailure, finalizeInterruptedMessages, sealInterimAssistantMessage, truncateBeforeUserParams, userOrdinalAtMessageIndex, applyEditedUserTurn, rewindToMessage, type SessionMessage } from '../utils/sessionMessages'
+import { normalizeSessionMessages, branchableMessageHistory, completionFailure, finalizeInterruptedMessages, sealInterimAssistantMessage, truncateBeforeUserParams, userOrdinalAtMessageIndex, applyEditedUserTurn, rewindToMessage, updateStreamingReasoning, type SessionMessage } from '../utils/sessionMessages'
 import { mergeSessionPage, optimisticSessionForSend, mergeSessionsById } from '../utils/sessionList'
 import { resolveGatewayEventSessionId } from '../utils/gatewayEvents'
 import { normalizeClarifyRequest, type ClarifyRequest } from '../utils/clarify'
@@ -248,6 +248,25 @@ let streamingContent = ''
 function currentTranscriptMessage(message: Message): Message {
   const index = messages.value.indexOf(message)
   return index >= 0 ? messages.value[index] : message
+}
+
+function updateActiveTurnReasoning(value: unknown, replace = false): void {
+  if (!activeTurn) return
+
+  const text = extractText(value)
+  if (!text) return
+
+  const target = currentTranscriptMessage(activeTurn.assistantMessage)
+  const last = messages.value[messages.value.length - 1]
+  const assistant = target?.role === 'assistant' ? target : last
+  if (!assistant || assistant.role !== 'assistant') return
+
+  const next = updateStreamingReasoning(assistant, text, replace)
+  if (next === assistant) return
+
+  lastStreamActivityAt.value = Date.now()
+  Object.assign(assistant, next)
+  persistInFlightTurn(activeTurn.storedSessionId, messages.value)
 }
 
 // Some gateway stream frames are intentionally unscoped. Keep them attached
@@ -893,6 +912,16 @@ function handleGatewayEvent(event: any) {
         persistInFlightTurn(activeTurn.storedSessionId, messages.value)
       }
     }
+  }
+
+  // Desktop streams dedicated reasoning frames alongside answer deltas. Keep
+  // them in the same assistant row so the existing mobile disclosure updates
+  // live instead of appearing only after the next history refresh.
+  if ((type === 'reasoning.delta' || type === 'reasoning.available') && activeTurn && sessionId === activeTurn.sessionId) {
+    updateActiveTurnReasoning(
+      event.payload?.text ?? event.payload?.content ?? event.payload?.reasoning,
+      type === 'reasoning.available',
+    )
   }
 
   // Desktop seals interim commentary before the final response starts. Without

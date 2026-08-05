@@ -48,6 +48,24 @@ export interface SessionMessage {
   error?: boolean
 }
 
+/**
+ * Mirror Desktop's streamed reasoning contract. Token deltas append to the
+ * current assistant row; an authoritative `reasoning.available` frame replaces
+ * that draft until visible answer prose has started.
+ */
+export function updateStreamingReasoning(
+  message: SessionMessage,
+  text: string,
+  replace = false,
+): SessionMessage {
+  if (!text || (replace && message.content.trim())) return message
+
+  return {
+    ...message,
+    reasoning: replace ? text : `${message.reasoning || ''}${text}`,
+  }
+}
+
 export interface InterimAssistantBoundary {
   messages: SessionMessage[]
   activeMessage: SessionMessage

@@ -9,6 +9,118 @@ function isPreviewHref(href: string): boolean {
   return href.trim().startsWith('#preview:') || href.trim().startsWith('#preview/')
 }
 
+type MediaKind = 'audio' | 'image' | 'video' | 'file'
+
+const MEDIA_EXTENSIONS: Record<string, MediaKind> = {
+  avi: 'video',
+  bmp: 'image',
+  flac: 'audio',
+  gif: 'image',
+  jpeg: 'image',
+  jpg: 'image',
+  m4a: 'audio',
+  mkv: 'video',
+  mov: 'video',
+  mp3: 'audio',
+  mp4: 'video',
+  ogg: 'audio',
+  opus: 'audio',
+  png: 'image',
+  svg: 'image',
+  wav: 'audio',
+  webm: 'video',
+  webp: 'image',
+}
+
+function mediaKind(path: string): MediaKind {
+  const lower = path.toLowerCase()
+  if (lower.startsWith('data:audio/')) return 'audio'
+  if (lower.startsWith('data:video/')) return 'video'
+
+  const extension = path.split(/[?#]/, 1)[0]?.split('.').pop()?.toLowerCase()
+  return extension ? MEDIA_EXTENSIONS[extension] || 'file' : 'file'
+}
+
+function mediaName(path: string): string {
+  try {
+    const url = new URL(path)
+    return url.pathname.split('/').filter(Boolean).pop() || path
+  } catch {
+    return path.split(/[\\/]/).filter(Boolean).pop() || path
+  }
+}
+
+function mediaDisplayLabel(path: string): string {
+  const kind = mediaKind(path)
+  const label = kind[0].toUpperCase() + kind.slice(1)
+  return `${label}: ${mediaName(path)}`
+}
+
+function mediaMarkdownHref(path: string): string {
+  return `#media:${encodeURIComponent(path)}`
+}
+
+export function mediaPathFromMarkdownHref(href: string): string | null {
+  if (!href.startsWith('#media:')) return null
+
+  try {
+    return decodeURIComponent(href.slice('#media:'.length))
+  } catch {
+    return null
+  }
+}
+
+function unquoteMediaPath(value: string): string {
+  const trimmed = value.trim()
+  const quote = trimmed[0]
+  return quote && quote === trimmed[trimmed.length - 1] && ['"', "'", '`'].includes(quote)
+    ? trimmed.slice(1, -1)
+    : trimmed
+}
+
+const MEDIA_LINE_RE = /(^|\n)[\t ]*[`"']?MEDIA:\s*(`[^`\n]+`|"[^"\n]+"|'[^'\n]+'|\S+)[`"']?[\t ]*(\n|$)/g
+const MEDIA_TAG_RE = /[`"']?MEDIA:\s*(`[^`\n]+`|"[^"\n]+"|'[^'\n]+'|\S+)[`"']?/g
+
+function mediaLink(value: string): string {
+  const path = unquoteMediaPath(value)
+  return `[${mediaDisplayLabel(path)}](${mediaMarkdownHref(path)})`
+}
+
+/** Match Desktop's MEDIA attachment normalization before markdown rendering. */
+export function renderMediaTags(text: string): string {
+  return text
+    .replace(MEDIA_LINE_RE, (_match, lead: string, value: string, trailer: string) => `${lead}${mediaLink(value)}${trailer}`)
+    .replace(MEDIA_TAG_RE, (_match, value: string) => mediaLink(value))
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+}
+
+function isPortableMediaSource(path: string): boolean {
+  return /^(?:https?:\/\/|data:)/i.test(path)
+}
+
+function decodeHtmlEntities(value: string): string {
+  return value
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+}
+
+function renderNativeMedia(path: string, label: string): string | null {
+  const kind = mediaKind(path)
+  if (!isPortableMediaSource(path) || (kind !== 'audio' && kind !== 'video')) return null
+
+  const safePath = escapeHtml(path)
+  const safeLabel = escapeHtml(label)
+  if (kind === 'audio') {
+    return `<span class="md-media md-media-audio"><audio class="md-audio" controls preload="metadata" src="${safePath}"></audio><span class="md-media-label">${safeLabel}</span></span>`
+  }
+
+  return `<span class="md-media md-media-video"><video class="md-video" controls preload="metadata" src="${safePath}"></video><span class="md-media-label">${safeLabel}</span></span>`
+}
+
 // Register common languages (lightweight subset)
 import javascript from 'highlight.js/lib/languages/javascript'
 import typescript from 'highlight.js/lib/languages/typescript'
@@ -165,7 +277,7 @@ function renderInline(text: string): string {
     return `__HERMES_INLINE_CODE_${index}__`
   })
 
-  let out = escapeHtml(linkifySessionRefs(protectedText))
+  let out = escapeHtml(renderMediaTags(linkifySessionRefs(protectedText)))
 
   // Inline code (must be before other inline rules)
   out = out.replace(/__HERMES_INLINE_CODE_(\d+)__/g, (_match, index: string) => (
@@ -180,8 +292,15 @@ function renderInline(text: string): string {
   // are actions, not ordinary external URLs.
   out = out.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, label: string, href: string) => {
     const trimmedHref = href.trim()
+    const rawHref = decodeHtmlEntities(trimmedHref)
+    const mediaPath = mediaPathFromMarkdownHref(rawHref) || rawHref
+    const nativeMedia = renderNativeMedia(mediaPath, decodeHtmlEntities(label))
+    if (nativeMedia) return nativeMedia
+
     const className = isPreviewHref(trimmedHref)
       ? 'md-link md-preview-link'
+      : mediaPathFromMarkdownHref(rawHref)
+        ? 'md-link md-media-link'
       : trimmedHref.startsWith('#session/')
         ? 'md-link md-session-link'
         : 'md-link'

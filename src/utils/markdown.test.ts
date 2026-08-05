@@ -1,7 +1,50 @@
 import { describe, expect, it } from 'vitest'
-import { renderMarkdown } from './markdown'
+import { renderMarkdown, renderMediaTags } from './markdown'
 
 describe('renderMarkdown links', () => {
+  it('converts desktop MEDIA tags into typed attachment links', () => {
+    expect(renderMediaTags(`here
+MEDIA:/tmp/voice.mp3
+there`)).toBe(
+      `here
+[Audio: voice.mp3](#media:%2Ftmp%2Fvoice.mp3)
+there`,
+    )
+    expect(renderMediaTags('MEDIA:"/tmp/my recording.mp4"')).toBe(
+      '[Video: my recording.mp4](#media:%2Ftmp%2Fmy%20recording.mp4)',
+    )
+  })
+
+  it('renders a portable MEDIA audio tag with native controls', () => {
+    const html = renderMarkdown('MEDIA:https://cdn.example/voice.mp3')
+
+    expect(html).toContain('class="md-media md-media-audio"')
+    expect(html).toContain('<audio class="md-audio" controls')
+    expect(html).toContain('src="https://cdn.example/voice.mp3"')
+  })
+
+  it('marks gateway-local MEDIA attachments for mobile fallback handling', () => {
+    const html = renderMarkdown('MEDIA:/tmp/voice.mp3')
+
+    expect(html).toContain('class="md-link md-media-link"')
+    expect(html).toContain('href="#media:%2Ftmp%2Fvoice.mp3"')
+  })
+
+  it('renders a portable video markdown link with native controls', () => {
+    const html = renderMarkdown('[Watch clip](https://cdn.example/demo.webm)')
+
+    expect(html).toContain('class="md-media md-media-video"')
+    expect(html).toContain('<video class="md-video" controls')
+    expect(html).toContain('src="https://cdn.example/demo.webm"')
+  })
+
+  it('keeps MEDIA-looking text inside inline code untouched', () => {
+    const html = renderMarkdown('Use `MEDIA:/tmp/voice.mp3` as a debug marker.')
+
+    expect(html).toContain('<code class="md-inline">MEDIA:/tmp/voice.mp3</code>')
+    expect(html).not.toContain('md-media')
+  })
+
   it('renders bare http URLs as external links', () => {
     const html = renderMarkdown('Read https://hermes-agent.nousresearch.com/docs today.')
 

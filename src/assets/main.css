@@ -228,6 +228,44 @@ input, textarea, button {
   margin: 6px 0;
 }
 
+.md-media {
+  display: block;
+  max-width: 100%;
+  margin: 8px 0;
+}
+.md-audio,
+.md-video {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  border-radius: 8px;
+}
+.md-video {
+  max-height: 360px;
+  background: var(--bg);
+}
+.md-media-label {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.md-media-link {
+  display: inline-flex;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  padding: 6px 10px;
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+.md-media-link:hover {
+  background: var(--surface-3);
+  text-decoration: none;
+}
+
 .md-quote {
   border-left: 3px solid var(--accent);
   padding: 4px 12px;

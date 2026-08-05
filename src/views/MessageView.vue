@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { renderMarkdown } from '../utils/markdown'
+import { mediaPathFromMarkdownHref, renderMarkdown } from '../utils/markdown'
 import { highlightRenderedHtml } from '../utils/renderedSearchHighlight'
 import { messageMatchesSearch } from '../utils/messageSearch'
 import { branchableMessageHistoryThrough, markLatestAssistantFailure, processNotification } from '../utils/sessionMessages'
@@ -1512,6 +1512,32 @@ function handleMessagesClick(e: Event) {
     e.preventDefault()
     e.stopPropagation()
     openPreviewTarget(clickedPreview.getAttribute('href') || '')
+    return
+  }
+
+  const clickedMedia = (e.target as HTMLElement).closest('a.md-media-link') as HTMLAnchorElement | null
+  if (clickedMedia) {
+    e.preventDefault()
+    e.stopPropagation()
+
+    const path = mediaPathFromMarkdownHref(clickedMedia.getAttribute('href') || '')
+    if (!path) {
+      toast.show('Invalid media attachment', 'error')
+      return
+    }
+
+    try {
+      const url = new URL(path)
+      if (url.protocol === 'http:' || url.protocol === 'https:') {
+        openUrl(url.href).catch(() => toast.show('Unable to open media attachment', 'error'))
+        return
+      }
+    } catch {
+      // Gateway-local paths cannot be opened by the phone's external opener.
+    }
+
+    const name = path.split('/').filter(Boolean).pop() || path
+    toast.show(`Gateway media unavailable on mobile: ${name}`, 'info')
     return
   }
 

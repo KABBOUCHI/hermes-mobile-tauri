@@ -47,6 +47,7 @@ import {
 } from '../utils/composerQueue'
 import { gatewayImageKey, gatewayImagePathFromMarkdownSrc, pendingGatewayImageRequests, type GatewayImageRequest } from '../utils/gatewayImageLoading'
 import { imagePan, imageZoom, resetImageTransform, type ImageTransform } from '../utils/imageZoom'
+import { generatedImageFromToolResult, isInlineImageSource } from '../utils/generatedImage'
 import { isBackSwipe, SWIPE_BACK_EDGE_PX, type SwipeBackGesture } from '../utils/swipeBack'
 import { modelPreferenceKey, type ModelPreference } from '../utils/modelPreferences'
 import { sharedDraftToComposer } from '../utils/sharedDraft'
@@ -1782,6 +1783,87 @@ function toolResults(message: {
   }]
 }
 
+type MessageToolResult = ReturnType<typeof toolResults>[number]
+const resolvedGeneratedImages = ref<Record<string, string>>({})
+const failedGeneratedImages = ref<Record<string, boolean>>({})
+const resolvingGeneratedImages = new Set<string>()
+const generatedImageRequests = new Map<string, Promise<string | null>>()
+
+function generatedImageSource(tool: MessageToolResult): string | null {
+  return generatedImageFromToolResult(tool.name, tool.content)
+}
+
+function generatedImageKey(tool: MessageToolResult, index: number): string {
+  return `${selectedSessionId.value}:${tool.id}:${index}:${generatedImageSource(tool) || ''}`
+}
+
+function generatedImageSrc(tool: MessageToolResult, index: number): string {
+  const source = generatedImageSource(tool)
+  if (!source) return ''
+  if (isInlineImageSource(source)) return source
+  return resolvedGeneratedImages.value[generatedImageKey(tool, index)] || ''
+}
+
+function generatedImageState(tool: MessageToolResult, index: number): 'loading' | 'failed' | 'ready' | 'none' {
+  const source = generatedImageSource(tool)
+  if (!source) return 'none'
+  const key = generatedImageKey(tool, index)
+  if (generatedImageSrc(tool, index)) return 'ready'
+  return failedGeneratedImages.value[key] ? 'failed' : 'loading'
+}
+
+async function resolveGeneratedImage(tool: MessageToolResult, index: number): Promise<void> {
+  const source = generatedImageSource(tool)
+  if (!source || isInlineImageSource(source)) return
+
+  const key = generatedImageKey(tool, index)
+  if (resolvedGeneratedImages.value[key] || resolvingGeneratedImages.has(key)) return
+
+  const existing = generatedImageRequests.get(key)
+  if (existing) {
+    await existing
+    return
+  }
+
+  resolvingGeneratedImages.add(key)
+  const request = gw.fetchMediaDataUrl(auth.gatewayUrl.value, source)
+    .then(dataUrl => {
+      if (dataUrl) {
+        resolvedGeneratedImages.value = { ...resolvedGeneratedImages.value, [key]: dataUrl }
+      } else {
+        failedGeneratedImages.value = { ...failedGeneratedImages.value, [key]: true }
+      }
+      return dataUrl
+    })
+    .catch(() => {
+      failedGeneratedImages.value = { ...failedGeneratedImages.value, [key]: true }
+      return null
+    })
+    .finally(() => {
+      resolvingGeneratedImages.delete(key)
+      generatedImageRequests.delete(key)
+    })
+  generatedImageRequests.set(key, request)
+  await request
+}
+
+function markGeneratedImageFailed(tool: MessageToolResult, index: number): void {
+  const key = generatedImageKey(tool, index)
+  failedGeneratedImages.value = { ...failedGeneratedImages.value, [key]: true }
+}
+
+const generatedImageSignature = computed(() => gw.messages.value
+  .flatMap(message => toolResults(message).map((tool, index) => `${tool.id}:${index}:${tool.name}:${tool.content}`))
+  .join('\u0000'))
+
+watch(generatedImageSignature, () => {
+  for (const message of gw.messages.value) {
+    for (const [index, tool] of toolResults(message).entries()) {
+      if (generatedImageSource(tool)) void resolveGeneratedImage(tool, index)
+    }
+  }
+}, { immediate: true })
+
 function toolSummaryLabel(message: Parameters<typeof toolResults>[0]): string {
   const results = toolResults(message)
   return summarizeToolActivity(results)
@@ -2251,16 +2333,56 @@ function formatTime(ts: number): string {
                 </ul>
               </details>
               <template v-if="toolResults(msg).length === 1">
-                <div v-if="toolDiffFromResult(toolResults(msg)[0])" class="" aria-label="Diff view">
+                <div v-if="generatedImageSource(toolResults(msg)[0])" class="mt-1.5 max-w-full overflow-hidden rounded-lg border border-app-border bg-app-surface-2" aria-label="Generated image">
+                  <button
+                    v-if="generatedImageSrc(toolResults(msg)[0], 0)"
+                    type="button"
+                    class="block max-w-full cursor-zoom-in p-0"
+                    aria-label="Preview generated image"
+                    @click.stop="openAttachmentPreview(generatedImageSrc(toolResults(msg)[0], 0), 'Generated image')"
+                  >
+                    <img
+                      class="block max-h-80 max-w-full object-contain"
+                      :src="generatedImageSrc(toolResults(msg)[0], 0)"
+                      alt="Generated image"
+                      loading="lazy"
+                      decoding="async"
+                      @error="markGeneratedImageFailed(toolResults(msg)[0], 0)"
+                    />
+                  </button>
+                  <span v-else-if="generatedImageState(toolResults(msg)[0], 0) === 'failed'" class="block px-3 py-2.5 text-xs text-app-muted">Generated image unavailable</span>
+                  <span v-else class="flex items-center gap-2 px-3 py-2.5 text-xs text-app-muted"><span class="size-3 animate-spin rounded-full border-2 border-app-border border-t-app-accent" />Loading generated image…</span>
+                </div>
+                <div v-else-if="toolDiffFromResult(toolResults(msg)[0])" class="" aria-label="Diff view">
                   <div class="px-2.5 pt-1.5 pb-[3px] text-[11px] font-semibold uppercase tracking-[.04em] text-app-muted">Diff</div>
                   <PatchDiff :patch="toolDiffFromResult(toolResults(msg)[0])!" />
                 </div>
                 <pre v-else-if="toolResults(msg)[0].content" class="m-0 max-h-40 overflow-auto border-t border-app-border bg-app-bg p-2.5 font-mono text-[11px] leading-[1.5] whitespace-pre-wrap break-words text-[#b9bbc8]">{{ toolResults(msg)[0].content }}</pre>
               </template>
               <div v-else class="border-t border-app-border">
-                <details v-for="tool in toolResults(msg)" :key="tool.id" :open="Boolean(toolDiffFromResult(tool))" class="border-b border-app-border last:border-b-0 [&>summary]:cursor-pointer [&>summary]:bg-app-surface/60 [&>summary]:px-2.5 [&>summary]:py-1.5 [&>summary]:text-xs [&>summary]:text-app-muted">
+                <details v-for="(tool, toolIndex) in toolResults(msg)" :key="tool.id" :open="Boolean(toolDiffFromResult(tool))" class="border-b border-app-border last:border-b-0 [&>summary]:cursor-pointer [&>summary]:bg-app-surface/60 [&>summary]:px-2.5 [&>summary]:py-1.5 [&>summary]:text-xs [&>summary]:text-app-muted">
                   <summary>{{ tool.name }}</summary>
-                  <div v-if="toolDiffFromResult(tool)" class="" aria-label="Diff view">
+                  <div v-if="generatedImageSource(tool)" class="mx-2.5 mb-2.5 overflow-hidden rounded-lg border border-app-border bg-app-surface-2" aria-label="Generated image">
+                    <button
+                      v-if="generatedImageSrc(tool, toolIndex)"
+                      type="button"
+                      class="block max-w-full cursor-zoom-in p-0"
+                      aria-label="Preview generated image"
+                      @click.stop="openAttachmentPreview(generatedImageSrc(tool, toolIndex), 'Generated image')"
+                    >
+                      <img
+                        class="block max-h-80 max-w-full object-contain"
+                        :src="generatedImageSrc(tool, toolIndex)"
+                        alt="Generated image"
+                        loading="lazy"
+                        decoding="async"
+                        @error="markGeneratedImageFailed(tool, toolIndex)"
+                      />
+                    </button>
+                    <span v-else-if="generatedImageState(tool, toolIndex) === 'failed'" class="block px-3 py-2.5 text-xs text-app-muted">Generated image unavailable</span>
+                    <span v-else class="flex items-center gap-2 px-3 py-2.5 text-xs text-app-muted"><span class="size-3 animate-spin rounded-full border-2 border-app-border border-t-app-accent" />Loading generated image…</span>
+                  </div>
+                  <div v-else-if="toolDiffFromResult(tool)" class="" aria-label="Diff view">
                     <div class="px-2.5 pt-1.5 pb-[3px] text-[11px] font-semibold uppercase tracking-[.04em] text-app-muted">Diff</div>
                     <PatchDiff :patch="toolDiffFromResult(tool)!" />
                   </div>

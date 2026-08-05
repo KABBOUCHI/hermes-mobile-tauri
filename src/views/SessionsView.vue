@@ -10,7 +10,7 @@ import { useLastSession } from '../composables/useLastSession'
 import { useToast } from '../composables/useToast'
 import { isCurrentSessionSearchGeneration, sessionMatchesSearch } from '../utils/sessionSearch'
 import { excludePinnedSessions, flattenSessionsWithBranches, orderSessionsByIds, sessionIsPinned, sessionMatchesStoredId, sessionPinId, type SessionBranchEntry } from '../utils/sessionList'
-import { filterSessionsBySource } from '../utils/sessionSource'
+import { filterSessionsBySource, handoffOriginSource } from '../utils/sessionSource'
 import { sessionActivityState, type SessionActivityState } from '../utils/sessionActivity'
 import { isStreamStalled, nextStreamActivityDeadline, STREAM_STALL_THRESHOLD_MS } from '../utils/streamStall'
 import { writeClipboardText } from '../utils/clipboard'
@@ -787,6 +787,11 @@ function sessionStatusLabel(session: Session): string {
   if (state === 'unread') return 'Finished — unread'
   return ''
 }
+
+function sessionHandoffOrigin(session: Session): string {
+  const origin = handoffOriginSource(session.handoff_state, session.handoff_platform)
+  return origin ? gw.sourceLabel(origin) : ''
+}
 </script>
 
 <template>
@@ -952,6 +957,7 @@ function sessionStatusLabel(session: Session): string {
               <span class="text-xs text-app-muted opacity-50">·</span>
               <span class="text-xs text-app-muted">{{ gw.relativeTime(row.entry.session.last_active) }}</span>
               <span v-if="row.entry.session.source && row.entry.session.source !== 'desktop'" class="rounded px-1.5 py-px text-[11px] text-app-success bg-app-success/10">{{ gw.sourceLabel(row.entry.session.source) }}</span>
+              <span v-if="sessionHandoffOrigin(row.entry.session)" class="rounded px-1.5 py-px text-[11px] text-app-accent bg-app-accent/10" :title="`Continued from ${sessionHandoffOrigin(row.entry.session)}`">↗ {{ sessionHandoffOrigin(row.entry.session) }}</span>
               <span v-if="row.entry.session.model" class="ml-auto rounded px-1.5 py-px text-[11px] text-app-accent bg-app-accent/10">{{ gw.modelShort(row.entry.session.model) }}</span>
             </div>
           </div>
@@ -1007,6 +1013,7 @@ function sessionStatusLabel(session: Session): string {
           <span class="text-xs text-app-muted opacity-50">·</span>
           <span class="text-xs text-app-muted">{{ gw.relativeTime(entry.session.last_active) }}</span>
           <span v-if="entry.session.source && entry.session.source !== 'desktop'" class="rounded px-1.5 py-px text-[11px] text-app-success bg-app-success/10">{{ gw.sourceLabel(entry.session.source) }}</span>
+          <span v-if="sessionHandoffOrigin(entry.session)" class="rounded px-1.5 py-px text-[11px] text-app-accent bg-app-accent/10" :title="`Continued from ${sessionHandoffOrigin(entry.session)}`">↗ {{ sessionHandoffOrigin(entry.session) }}</span>
           <span v-if="entry.session.model" class="ml-auto rounded px-1.5 py-px text-[11px] text-app-accent bg-app-accent/10">{{ gw.modelShort(entry.session.model) }}</span>
           </div>
         </div>

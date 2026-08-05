@@ -101,6 +101,10 @@ export interface Session {
   started_at: number
   is_active: boolean
   source: string
+  /** Original messaging platform for a completed handoff into a local chat. */
+  handoff_platform?: string | null
+  /** Handoff lifecycle; only `completed` should display an origin badge. */
+  handoff_state?: string | null
 }
 
 /** A full-text match returned by the gateway for a session outside the loaded page. */

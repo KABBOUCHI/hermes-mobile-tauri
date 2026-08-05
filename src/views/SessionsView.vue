@@ -51,6 +51,7 @@ const searchPending = ref(false)
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 let searchGeneration = 0
 let unreadRefreshGeneration = 0
+let refreshGeneration = 0
 const sessionStatusNow = ref(Date.now())
 let sessionStatusTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -429,19 +430,27 @@ watch(sessionRows, async () => {
 })
 
 onUnmounted(() => {
+  refreshGeneration += 1
   if (searchTimer) clearTimeout(searchTimer)
   if (sessionStatusTimer) clearTimeout(sessionStatusTimer)
   virtualResizeObserver?.disconnect()
   virtualResizeObserver = null
 })
 
-function handleRefresh() {
+async function handleRefresh() {
+  const generation = ++refreshGeneration
   refreshing.value = true
-  gw.fetchSessions(auth.gatewayUrl.value, false, showingArchived.value ? 'only' : 'exclude').then(async () => {
+  try {
+    await gw.fetchSessions(auth.gatewayUrl.value, false, showingArchived.value ? 'only' : 'exclude')
+    if (generation !== refreshGeneration) return
     pinnedIds.value = await pins.getPinnedIds()
+    if (generation !== refreshGeneration) return
     unreadIds.value = await unreads.getUnreadIds(gw.sessions.value)
-  })
-  setTimeout(() => { refreshing.value = false }, 800)
+  } finally {
+    // A slower request must keep the affordance visible, while an older
+    // overlapping refresh must not hide the spinner for the newest one.
+    if (generation === refreshGeneration) refreshing.value = false
+  }
 }
 
 function loadMore() {
